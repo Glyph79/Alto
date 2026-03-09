@@ -3,29 +3,24 @@ import os
 import tempfile
 from trainer import Trainer
 
-app = Quart(__name__, 
-            template_folder="templates",
-            static_folder="static")  # serve static files from 'static' folder
-
+app = Quart(__name__, template_folder="templates", static_folder="static")
 trainer = Trainer()
 
-# ----------------------------------------------------------------------
-# Static files (optional – Quart serves static folder automatically)
-# ----------------------------------------------------------------------
 @app.route('/static/<path:filename>')
 async def serve_static(filename):
     return await send_from_directory('static', filename)
 
-# ----------------------------------------------------------------------
-# API Routes
-# ----------------------------------------------------------------------
 @app.route('/')
 async def index():
     return await render_template('index.html')
 
 @app.route('/api/models', methods=['GET'])
 async def list_models():
-    return jsonify(trainer.list_models())
+    try:
+        models = trainer.list_models()
+        return jsonify(models)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models', methods=['POST'])
 async def create_model():
@@ -39,6 +34,8 @@ async def create_model():
         return jsonify({'status': 'ok'})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>', methods=['GET'])
 async def get_model(name):
@@ -47,6 +44,8 @@ async def get_model(name):
         return jsonify(data)
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>', methods=['PUT'])
 async def update_model(name):
@@ -59,11 +58,16 @@ async def update_model(name):
         return jsonify({'status': 'ok'})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>', methods=['DELETE'])
 async def delete_model(name):
-    trainer.delete_model(name)
-    return jsonify({'status': 'ok'})
+    try:
+        trainer.delete_model(name)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups', methods=['GET'])
 async def get_groups(name):
@@ -74,6 +78,8 @@ async def get_groups(name):
         return jsonify({'groups': groups, 'sections': sections})
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups', methods=['POST'])
 async def add_group(name):
@@ -83,6 +89,8 @@ async def add_group(name):
         return jsonify({'status': 'ok'})
     except (ValueError, IndexError) as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:index>', methods=['PUT'])
 async def update_group(name, index):
@@ -92,6 +100,8 @@ async def update_group(name, index):
         return jsonify({'status': 'ok'})
     except (ValueError, IndexError) as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:index>', methods=['DELETE'])
 async def delete_group(name, index):
@@ -100,8 +110,9 @@ async def delete_group(name, index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-# Question endpoints
 @app.route('/api/models/<name>/groups/<int:group_index>/questions', methods=['POST'])
 async def add_question(name, group_index):
     data = await request.get_json()
@@ -113,6 +124,8 @@ async def add_question(name, group_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:group_index>/questions/<int:q_index>', methods=['PUT'])
 async def update_question(name, group_index, q_index):
@@ -125,6 +138,8 @@ async def update_question(name, group_index, q_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:group_index>/questions/<int:q_index>', methods=['DELETE'])
 async def delete_question(name, group_index, q_index):
@@ -133,8 +148,9 @@ async def delete_question(name, group_index, q_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-# Answer endpoints
 @app.route('/api/models/<name>/groups/<int:group_index>/answers', methods=['POST'])
 async def add_answer(name, group_index):
     data = await request.get_json()
@@ -146,6 +162,8 @@ async def add_answer(name, group_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:group_index>/answers/<int:a_index>', methods=['PUT'])
 async def update_answer(name, group_index, a_index):
@@ -158,6 +176,8 @@ async def update_answer(name, group_index, a_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:group_index>/answers/<int:a_index>', methods=['DELETE'])
 async def delete_answer(name, group_index, a_index):
@@ -166,8 +186,9 @@ async def delete_answer(name, group_index, a_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-# Follow-up endpoints
 @app.route('/api/models/<name>/groups/<int:group_index>/followups', methods=['GET'])
 async def get_followups(name, group_index):
     try:
@@ -175,6 +196,8 @@ async def get_followups(name, group_index):
         return jsonify(followups)
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/groups/<int:group_index>/followups', methods=['PUT'])
 async def save_followups(name, group_index):
@@ -184,8 +207,9 @@ async def save_followups(name, group_index):
         return jsonify({'status': 'ok'})
     except IndexError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-# Section endpoints
 @app.route('/api/models/<name>/sections', methods=['POST'])
 async def add_section(name):
     data = await request.get_json()
@@ -197,6 +221,8 @@ async def add_section(name):
         return jsonify({'status': 'ok'})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/sections/<old_name>', methods=['PUT'])
 async def rename_section(name, old_name):
@@ -209,6 +235,8 @@ async def rename_section(name, old_name):
         return jsonify({'status': 'ok'})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/models/<name>/sections/<section>', methods=['DELETE'])
 async def delete_section(name, section):
@@ -219,8 +247,9 @@ async def delete_section(name, section):
         return jsonify({'status': 'ok'})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-# Import/Export
 @app.route('/api/models/<name>/import', methods=['POST'])
 async def import_json(name):
     files = await request.files
@@ -241,18 +270,21 @@ async def import_json(name):
 
 @app.route('/api/models/<name>/export', methods=['GET'])
 async def export_json(name):
-    data = trainer.export_json(name, full=True)
-    import io
-    import json
-    buffer = io.BytesIO()
-    buffer.write(json.dumps(data, indent=2).encode('utf-8'))
-    buffer.seek(0)
-    return await send_file(
-        buffer,
-        mimetype='application/json',
-        attachment_filename=f'{name}.json',
-        as_attachment=True
-    )
+    try:
+        data = trainer.export_json(name, full=True)
+        import io
+        import json
+        buffer = io.BytesIO()
+        buffer.write(json.dumps(data, indent=2).encode('utf-8'))
+        buffer.seek(0)
+        return await send_file(
+            buffer,
+            mimetype='application/json',
+            attachment_filename=f'{name}.json',
+            as_attachment=True
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

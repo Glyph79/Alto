@@ -25,6 +25,10 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 }
 .model-bar button { background: #6c63ff; cursor: pointer; }
 .model-bar button:hover { opacity: 0.9; }
+.model-bar select:disabled, .model-bar button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 
 .main-container {
     display: flex;
@@ -45,6 +49,10 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     width: 100%; background: #2d2d5a; color: white; border: none; padding: 10px; border-radius: 6px; font-size: 0.9rem;
 }
 .sidebar button.primary { background: #00ff88; color: black; font-weight: bold; }
+.sidebar select:disabled, .sidebar button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 
 .content {
     flex: 1;
@@ -85,11 +93,30 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     display: flex; gap: 16px; font-size: 0.8rem; color: #aaa; margin-top: 8px;
 }
 .empty-state {
-    text-align: center; color: #aaa; padding: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #aaa;
+    padding: 60px;
 }
-.empty-state button { background: #6c63ff; color: white; border: none; padding: 10px 20px; border-radius: 6px; margin-top: 16px; cursor: pointer; }
+.empty-state button {
+    background: #6c63ff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    margin-top: 16px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-align: center;
+}
+.empty-state button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 
-/* Modal styles */
 .modal {
     display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 1000;
@@ -103,6 +130,9 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 .modal-content label { display: block; font-weight: bold; margin-bottom: 4px; color: #ccc; }
 .modal-content input, .modal-content select, .modal-content textarea {
     width: 100%; background: #2d2d5a; border: none; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.95rem;
+}
+#simpleModalContent input, #simpleModalContent textarea {
+    margin-bottom: 16px;
 }
 .qa-section { margin-top: 20px; }
 .qa-section h3 { font-size: 1rem; margin-bottom: 8px; border-bottom: 1px solid #2d2d5a; padding-bottom: 4px; }
@@ -122,7 +152,6 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 .modal-actions .save { background: #00ff88; color: black; }
 .modal-actions .cancel { background: #ff4d7d; color: white; }
 
-/* Tree modal specific - two column layout with tree on right, QA on left */
 .tree-modal-content {
     width: 1000px;
     max-width: 95vw;
@@ -185,6 +214,8 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     margin-bottom: 2px;
     cursor: pointer;
     min-width: 200px;
+    white-space: nowrap;
+    overflow: visible;
 }
 .tree-node-header.selected {
     background: #6c63ff;
@@ -197,9 +228,8 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 }
 .tree-node-header .name {
     flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
 }
 .tree-node-header .node-actions {
     display: flex;
@@ -242,33 +272,3 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     justify-content: center;
     color: #aaa;
 }
-
-/* Simple modal input spacing */
-#simpleModal .modal-content input,
-#simpleModal .modal-content textarea {
-    margin-bottom: 12px;
-}
-
-/* Custom confirm modal */
-.confirm-modal .modal-content {
-    width: 400px;
-}
-.confirm-modal p {
-    margin: 20px 0;
-    text-align: center;
-}
-.confirm-actions {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-}
-.confirm-actions button {
-    padding: 8px 24px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: bold;
-}
-.confirm-yes { background: #00ff88; color: black; }
-.confirm-no { background: #ff4d7d; color: white; }
-.confirm-cancel { background: #6c63ff; color: white; }

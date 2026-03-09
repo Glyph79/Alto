@@ -22,7 +22,6 @@
     </header>
 
     <div class="main-container">
-        <!-- Sidebar -->
         <div class="sidebar">
             <h3>Sections</h3>
             <select id="sectionFilter">
@@ -31,7 +30,6 @@
             <button id="addGroupBtn" class="primary">+ New Group</button>
         </div>
 
-        <!-- Main content: grid of group cards -->
         <div class="content">
             <div id="groupsGridContainer"></div>
             <div id="noModelsEmptyState" class="empty-state" style="display: none;">
@@ -45,7 +43,6 @@
         </div>
     </div>
 
-    <!-- Group Editor Modal -->
     <div id="groupModal" class="modal">
         <div class="modal-content">
             <h2>Edit Group</h2>
@@ -107,12 +104,10 @@
         </div>
     </div>
 
-    <!-- Follow-up Tree Editor Modal -->
     <div id="treeModal" class="modal">
         <div class="modal-content tree-modal-content">
             <h2>Follow-up Tree Editor</h2>
             <div class="tree-layout">
-                <!-- Left column: QA for selected node -->
                 <div class="tree-column">
                     <div id="nodeQAPanel" style="display: none;" class="qa-panel">
                         <h3>Node Questions & Answers</h3>
@@ -131,7 +126,6 @@
                         Select a node to edit its questions and answers.
                     </div>
                 </div>
-                <!-- Right column: tree -->
                 <div class="tree-column">
                     <div class="tree-toolbar">
                         <button id="addRootBtn">+ Add Root</button>
@@ -149,21 +143,8 @@
         </div>
     </div>
 
-    <!-- Simple Modal (for questions/answers and name editing) -->
     <div id="simpleModal" class="modal">
         <div class="modal-content" id="simpleModalContent"></div>
-    </div>
-
-    <!-- Confirm Modal -->
-    <div id="confirmModal" class="modal confirm-modal">
-        <div class="modal-content">
-            <p id="confirmMessage"></p>
-            <div class="confirm-actions">
-                <button class="confirm-yes" id="confirmYes">Yes</button>
-                <button class="confirm-no" id="confirmNo">No</button>
-                <button class="confirm-cancel" id="confirmCancel">Cancel</button>
-            </div>
-        </div>
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

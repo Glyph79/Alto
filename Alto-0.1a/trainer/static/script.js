@@ -5,102 +5,60 @@ let sections = [];
 let selectedGroupIndex = -1;
 
 // Tree editor state
-let currentTree = [];               // the follow-up tree for the current group
-let nodeMap = new Map();             // id -> node object (for quick access)
+let currentTree = [];
+let nodeMap = new Map();
 let nextNodeId = 0;
-let selectedNodeId = null;           // id of selected node
-let treeUnsaved = false;              // whether tree has unsaved changes
-
-// ========== Custom Confirm/Alert Modals ==========
-function showConfirmModal(message, showCancel = true) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('confirmModal');
-        const msgEl = document.getElementById('confirmMessage');
-        msgEl.textContent = message;
-        
-        document.getElementById('confirmCancel').style.display = showCancel ? 'inline-block' : 'none';
-        document.getElementById('confirmNo').style.display = 'inline-block';
-        document.getElementById('confirmYes').textContent = 'Yes';
-        
-        modal.style.display = 'flex';
-        
-        const onYes = () => {
-            modal.style.display = 'none';
-            cleanup();
-            resolve(true);
-        };
-        const onNo = () => {
-            modal.style.display = 'none';
-            cleanup();
-            resolve(false);
-        };
-        const onCancel = () => {
-            modal.style.display = 'none';
-            cleanup();
-            resolve(null);
-        };
-        
-        const cleanup = () => {
-            document.getElementById('confirmYes').removeEventListener('click', onYes);
-            document.getElementById('confirmNo').removeEventListener('click', onNo);
-            document.getElementById('confirmCancel').removeEventListener('click', onCancel);
-        };
-        
-        document.getElementById('confirmYes').addEventListener('click', onYes);
-        document.getElementById('confirmNo').addEventListener('click', onNo);
-        document.getElementById('confirmCancel').addEventListener('click', onCancel);
-    });
-}
-
-function showAlertModal(message) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('confirmModal');
-        const msgEl = document.getElementById('confirmMessage');
-        msgEl.textContent = message;
-        document.getElementById('confirmCancel').style.display = 'none';
-        document.getElementById('confirmNo').style.display = 'none';
-        document.getElementById('confirmYes').textContent = 'OK';
-        modal.style.display = 'flex';
-        
-        const onOK = () => {
-            modal.style.display = 'none';
-            document.getElementById('confirmYes').textContent = 'Yes'; // reset
-            document.getElementById('confirmNo').style.display = 'inline-block';
-            cleanup();
-            resolve();
-        };
-        
-        const cleanup = () => {
-            document.getElementById('confirmYes').removeEventListener('click', onOK);
-        };
-        
-        document.getElementById('confirmYes').addEventListener('click', onOK);
-    });
-}
+let selectedNodeId = null;
+let treeUnsaved = false;
 
 // ========== API Helpers ==========
-async function apiGet(url) { const r = await fetch(url); return r.json(); }
+async function apiGet(url) {
+    const r = await fetch(url);
+    if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    return r.json();
+}
 async function apiPost(url, data) {
-    return fetch(url, {
+    const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
+    if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    return r.json();
 }
 async function apiPut(url, data) {
-    return fetch(url, {
+    const r = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
     });
+    if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    return r.json();
 }
-async function apiDelete(url) { return fetch(url, { method: 'DELETE' }); }
+async function apiDelete(url) {
+    const r = await fetch(url, { method: 'DELETE' });
+    if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    return r.json();
+}
 
 // ========== Modal Helpers ==========
-function showSimpleModal(title, fields, onSave) {
+function showSimpleModal(title, fields, onSave, buttonText = 'Save') {
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     let html = `<h2>${title}</h2>`;
+    html += `<div id="simpleModalError" style="color: #ff6b9d; margin-bottom: 16px; display: none;"></div>`;
     fields.forEach(f => {
         if (f.type === 'textarea') {
             html += `<textarea id="simple_${f.name}" placeholder="${f.label}">${f.value || ''}</textarea>`;
@@ -109,7 +67,7 @@ function showSimpleModal(title, fields, onSave) {
         }
     });
     html += `<div class="modal-actions">
-                <button class="save" id="simpleSaveBtn">Save</button>
+                <button class="save" id="simpleSaveBtn">${buttonText}</button>
                 <button class="cancel" id="simpleCancelBtn">Cancel</button>
             </div>`;
     content.innerHTML = html;
@@ -119,33 +77,84 @@ function showSimpleModal(title, fields, onSave) {
     document.getElementById('simpleSaveBtn').onclick = () => {
         const values = {};
         fields.forEach(f => values[f.name] = document.getElementById(`simple_${f.name}`).value);
-        modal.style.display = 'none';
-        onSave(values);
+        const errorDiv = document.getElementById('simpleModalError');
+        errorDiv.style.display = 'none';
+        onSave(values, errorDiv);
     };
+}
+
+function showConfirmModal(message, onConfirm) {
+    const modal = document.getElementById('simpleModal');
+    const content = document.getElementById('simpleModalContent');
+    content.innerHTML = `
+        <h2>Confirm</h2>
+        <p style="margin: 20px 0; color: #ccc;">${message}</p>
+        <div class="modal-actions">
+            <button class="save" id="confirmYesBtn">Yes</button>
+            <button class="cancel" id="confirmNoBtn">No</button>
+        </div>
+    `;
+    modal.style.display = 'flex';
+
+    document.getElementById('confirmNoBtn').onclick = () => { modal.style.display = 'none'; };
+    document.getElementById('confirmYesBtn').onclick = () => {
+        modal.style.display = 'none';
+        onConfirm();
+    };
+}
+
+// ========== UI Enable/Disable ==========
+function setControlsEnabled(enabled) {
+    const modelDependentControls = [
+        document.getElementById('modelSelect'),
+        document.getElementById('editModelBtn'),
+        document.getElementById('deleteModelBtn'),
+        document.getElementById('saveModelBtn'),
+        document.getElementById('exportBtn'),
+        document.getElementById('addGroupBtn'),
+        document.getElementById('createFirstGroupBtn'),
+        document.getElementById('sectionFilter')
+    ];
+    modelDependentControls.forEach(ctrl => { if (ctrl) ctrl.disabled = !enabled; });
+
+    document.getElementById('importBtn').disabled = false;
+    document.getElementById('createModelBtn').disabled = false;
+    document.getElementById('createFirstModelBtn').disabled = false;
 }
 
 // ========== Load Models ==========
 async function loadModels() {
-    const models = await apiGet('/api/models');
-    const select = document.getElementById('modelSelect');
-    select.innerHTML = '';
-    models.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m;
-        opt.textContent = m;
-        select.appendChild(opt);
-    });
-    if (models.length > 0) {
-        select.value = models[0];
-        await switchModel(models[0]);
-        document.getElementById('noModelsEmptyState').style.display = 'none';
-    } else {
-        currentModel = null;
-        groups = [];
-        sections = [];
-        renderGroups();
-        document.getElementById('noModelsEmptyState').style.display = 'block';
-        document.getElementById('noGroupsEmptyState').style.display = 'none';
+    try {
+        const models = await apiGet('/api/models');
+        const select = document.getElementById('modelSelect');
+        select.innerHTML = '';
+        models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            select.appendChild(opt);
+        });
+
+        select.addEventListener('change', (e) => {
+            switchModel(e.target.value);
+        });
+
+        if (models.length > 0) {
+            select.value = models[0];
+            await switchModel(models[0]);
+            document.getElementById('noModelsEmptyState').style.display = 'none';
+            setControlsEnabled(true);
+        } else {
+            currentModel = null;
+            groups = [];
+            sections = [];
+            renderGroups();
+            document.getElementById('noModelsEmptyState').style.display = 'block';
+            document.getElementById('noGroupsEmptyState').style.display = 'none';
+            setControlsEnabled(false);
+        }
+    } catch (err) {
+        alert('Error loading models: ' + err.message);
     }
 }
 
@@ -156,11 +165,17 @@ async function switchModel(modelName) {
 
 async function loadGroupsAndSections() {
     if (!currentModel) return;
-    const data = await apiGet(`/api/models/${currentModel}/groups`);
-    groups = data.groups || [];
-    sections = data.sections || ["General", "Technical", "Creative"];
-    renderGroups();
-    renderSectionFilter();
+    try {
+        const data = await apiGet(`/api/models/${currentModel}/groups`);
+        groups = data.groups || [];
+        sections = data.sections || ["General", "Technical", "Creative"];
+        renderGroups();
+        renderSectionFilter();
+        document.getElementById('groupModal').style.display = 'none';
+        document.getElementById('treeModal').style.display = 'none';
+    } catch (err) {
+        alert('Error loading groups: ' + err.message);
+    }
 }
 
 function renderSectionFilter() {
@@ -215,7 +230,6 @@ function renderGroups() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Attach event listeners
     document.querySelectorAll('.group-card').forEach(card => {
         const index = card.dataset.index;
         card.addEventListener('click', (e) => {
@@ -234,10 +248,10 @@ function renderGroups() {
 }
 
 async function deleteGroup(index) {
-    const confirmed = await showConfirmModal('Are you sure you want to delete this group?', false);
-    if (!confirmed) return;
-    await apiDelete(`/api/models/${currentModel}/groups/${index}`);
-    await loadGroupsAndSections();
+    showConfirmModal('Are you sure you want to delete this group?', async () => {
+        await apiDelete(`/api/models/${currentModel}/groups/${index}`);
+        await loadGroupsAndSections();
+    });
 }
 
 // ========== Group Modal ==========
@@ -256,7 +270,6 @@ function openGroupModal(index) {
     document.getElementById('modalGroupTopic').value = group.topic || 'general';
     document.getElementById('modalGroupPriority').value = group.priority || 'medium';
 
-    // Questions
     const qList = document.getElementById('modalQuestionsList');
     qList.innerHTML = '';
     (group.questions || []).forEach((q, i) => {
@@ -265,7 +278,6 @@ function openGroupModal(index) {
         qList.appendChild(li);
     });
 
-    // Answers
     const aList = document.getElementById('modalAnswersList');
     aList.innerHTML = '';
     (group.answers || []).forEach((a, i) => {
@@ -277,67 +289,74 @@ function openGroupModal(index) {
     document.getElementById('groupModal').style.display = 'flex';
 }
 
-// Question/Answer handlers (inside group modal)
 window.editQuestion = (qIdx) => {
     const question = groups[selectedGroupIndex].questions[qIdx];
-    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], async (vals) => {
+    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], async (vals, errorDiv) => {
         if (!vals.text) {
-            await showAlertModal('Question text cannot be empty.');
+            errorDiv.textContent = 'Question cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions/${qIdx}`, { question: vals.text });
         await loadGroupsAndSections();
+        document.getElementById('simpleModal').style.display = 'none';
+        openGroupModal(selectedGroupIndex);
+    }, 'Save');
+};
+window.deleteQuestion = (qIdx) => {
+    showConfirmModal('Delete this question?', async () => {
+        await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions/${qIdx}`);
+        await loadGroupsAndSections();
         openGroupModal(selectedGroupIndex);
     });
 };
-window.deleteQuestion = async (qIdx) => {
-    const confirmed = await showConfirmModal('Delete this question?', false);
-    if (!confirmed) return;
-    await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions/${qIdx}`);
-    await loadGroupsAndSections();
-    openGroupModal(selectedGroupIndex);
-};
 window.editAnswer = (aIdx) => {
     const answer = groups[selectedGroupIndex].answers[aIdx];
-    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], async (vals) => {
+    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], async (vals, errorDiv) => {
         if (!vals.text) {
-            await showAlertModal('Answer text cannot be empty.');
+            errorDiv.textContent = 'Answer cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers/${aIdx}`, { answer: vals.text });
         await loadGroupsAndSections();
+        document.getElementById('simpleModal').style.display = 'none';
+        openGroupModal(selectedGroupIndex);
+    }, 'Save');
+};
+window.deleteAnswer = (aIdx) => {
+    showConfirmModal('Delete this answer?', async () => {
+        await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers/${aIdx}`);
+        await loadGroupsAndSections();
         openGroupModal(selectedGroupIndex);
     });
 };
-window.deleteAnswer = async (aIdx) => {
-    const confirmed = await showConfirmModal('Delete this answer?', false);
-    if (!confirmed) return;
-    await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers/${aIdx}`);
-    await loadGroupsAndSections();
-    openGroupModal(selectedGroupIndex);
-};
 
 document.getElementById('modalAddQuestionBtn').onclick = () => {
-    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], async (vals) => {
+    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], async (vals, errorDiv) => {
         if (!vals.text) {
-            await showAlertModal('Question text cannot be empty.');
+            errorDiv.textContent = 'Question cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         await apiPost(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions`, { question: vals.text });
         await loadGroupsAndSections();
+        document.getElementById('simpleModal').style.display = 'none';
         openGroupModal(selectedGroupIndex);
-    });
+    }, 'Add');
 };
 document.getElementById('modalAddAnswerBtn').onclick = () => {
-    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], async (vals) => {
+    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], async (vals, errorDiv) => {
         if (!vals.text) {
-            await showAlertModal('Answer text cannot be empty.');
+            errorDiv.textContent = 'Answer cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         await apiPost(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers`, { answer: vals.text });
         await loadGroupsAndSections();
+        document.getElementById('simpleModal').style.display = 'none';
         openGroupModal(selectedGroupIndex);
-    });
+    }, 'Add');
 };
 
 document.getElementById('modalSaveBtn').onclick = async () => {
@@ -510,122 +529,129 @@ document.getElementById('addChildBtn').onclick = () => {
 document.getElementById('editNodeBtn').onclick = () => {
     if (!selectedNodeId) return;
     const node = nodeMap.get(selectedNodeId);
-    showSimpleModal('Edit Node Name', [{ name: 'name', label: 'Branch Name', value: node.branch_name || '' }], (vals) => {
+    showSimpleModal('Edit Node Name', [{ name: 'name', label: 'Branch Name', value: node.branch_name || '' }], (vals, errorDiv) => {
         if (!vals.name) {
-            showAlertModal('Name cannot be empty.');
+            errorDiv.textContent = 'Branch name cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         node.branch_name = vals.name;
         treeUnsaved = true;
+        document.getElementById('simpleModal').style.display = 'none';
         renderTree();
-    });
+    }, 'Save');
 };
 
-document.getElementById('deleteNodeBtn').onclick = async () => {
+document.getElementById('deleteNodeBtn').onclick = () => {
     if (!selectedNodeId) return;
     const node = nodeMap.get(selectedNodeId);
-    const confirmed = await showConfirmModal(`Delete '${node.branch_name || 'Unnamed'}' and all its children?`, false);
-    if (!confirmed) return;
-    function removeNode(nodes, nodeId) {
-        for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].id === nodeId) {
-                nodes.splice(i, 1);
-                return true;
+    showConfirmModal(`Delete '${node.branch_name || 'Unnamed'}' and all its children?`, () => {
+        function removeNode(nodes, nodeId) {
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodes[i].id === nodeId) {
+                    nodes.splice(i, 1);
+                    return true;
+                }
+                if (nodes[i].children) {
+                    if (removeNode(nodes[i].children, nodeId)) return true;
+                }
             }
-            if (nodes[i].children) {
-                if (removeNode(nodes[i].children, nodeId)) return true;
-            }
+            return false;
         }
-        return false;
-    }
-    removeNode(currentTree, selectedNodeId);
-    nodeMap.delete(selectedNodeId);
-    selectedNodeId = null;
-    treeUnsaved = true;
-    renderTree();
-    updateToolbarButtons();
+        removeNode(currentTree, selectedNodeId);
+        nodeMap.delete(selectedNodeId);
+        selectedNodeId = null;
+        treeUnsaved = true;
+        renderTree();
+        updateToolbarButtons();
+    });
 };
 
 window.editTreeNodeQuestion = (qIdx) => {
     const node = nodeMap.get(selectedNodeId);
     const question = node.questions[qIdx];
-    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], (vals) => {
+    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], (vals, errorDiv) => {
         if (!vals.text) {
-            showAlertModal('Question text cannot be empty.');
+            errorDiv.textContent = 'Question cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         node.questions[qIdx] = vals.text;
         treeUnsaved = true;
+        document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
-    });
+    }, 'Save');
 };
-window.deleteTreeNodeQuestion = async (qIdx) => {
-    const confirmed = await showConfirmModal('Delete this question?', false);
-    if (!confirmed) return;
+window.deleteTreeNodeQuestion = (qIdx) => {
     const node = nodeMap.get(selectedNodeId);
-    node.questions.splice(qIdx, 1);
-    treeUnsaved = true;
-    showNodeQAPanel(selectedNodeId);
-};
-window.editTreeNodeAnswer = (aIdx) => {
-    const node = nodeMap.get(selectedNodeId);
-    const answer = node.answers[aIdx];
-    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], (vals) => {
-        if (!vals.text) {
-            showAlertModal('Answer text cannot be empty.');
-            return;
-        }
-        node.answers[aIdx] = vals.text;
+    showConfirmModal('Delete this question?', () => {
+        node.questions.splice(qIdx, 1);
         treeUnsaved = true;
         showNodeQAPanel(selectedNodeId);
     });
 };
-window.deleteTreeNodeAnswer = async (aIdx) => {
-    const confirmed = await showConfirmModal('Delete this answer?', false);
-    if (!confirmed) return;
+window.editTreeNodeAnswer = (aIdx) => {
     const node = nodeMap.get(selectedNodeId);
-    node.answers.splice(aIdx, 1);
-    treeUnsaved = true;
-    showNodeQAPanel(selectedNodeId);
+    const answer = node.answers[aIdx];
+    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], (vals, errorDiv) => {
+        if (!vals.text) {
+            errorDiv.textContent = 'Answer cannot be empty.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+        node.answers[aIdx] = vals.text;
+        treeUnsaved = true;
+        document.getElementById('simpleModal').style.display = 'none';
+        showNodeQAPanel(selectedNodeId);
+    }, 'Save');
+};
+window.deleteTreeNodeAnswer = (aIdx) => {
+    const node = nodeMap.get(selectedNodeId);
+    showConfirmModal('Delete this answer?', () => {
+        node.answers.splice(aIdx, 1);
+        treeUnsaved = true;
+        showNodeQAPanel(selectedNodeId);
+    });
 };
 
 document.getElementById('treeAddQuestionBtn').onclick = () => {
     if (!selectedNodeId) return;
-    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals) => {
+    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
         if (!vals.text) {
-            showAlertModal('Question text cannot be empty.');
+            errorDiv.textContent = 'Question cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         const node = nodeMap.get(selectedNodeId);
         if (!node.questions) node.questions = [];
         node.questions.push(vals.text);
         treeUnsaved = true;
+        document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
-    });
+    }, 'Add');
 };
 document.getElementById('treeAddAnswerBtn').onclick = () => {
     if (!selectedNodeId) return;
-    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals) => {
+    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
         if (!vals.text) {
-            showAlertModal('Answer text cannot be empty.');
+            errorDiv.textContent = 'Answer cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         const node = nodeMap.get(selectedNodeId);
         if (!node.answers) node.answers = [];
         node.answers.push(vals.text);
         treeUnsaved = true;
+        document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
-    });
+    }, 'Add');
 };
 
 document.getElementById('treeModalSaveBtn').onclick = async () => {
     function stripIds(nodes) {
         return nodes.map(node => {
             const { id, ...rest } = node;
-            return {
-                ...rest,
-                children: stripIds(node.children || [])
-            };
+            return { ...rest, children: stripIds(node.children || []) };
         });
     }
     const treeToSave = stripIds(currentTree);
@@ -635,20 +661,20 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
     await loadGroupsAndSections();
 };
 
-document.getElementById('treeModalCancelBtn').onclick = async () => {
+document.getElementById('treeModalCancelBtn').onclick = () => {
     if (treeUnsaved) {
-        const result = await showConfirmModal('You have unsaved changes. Discard them?', true);
-        if (result === null) return; // cancel
-        if (!result) return; // no
-        // yes, discard
+        showConfirmModal('You have unsaved changes. Discard them?', () => {
+            document.getElementById('treeModal').style.display = 'none';
+        });
+    } else {
+        document.getElementById('treeModal').style.display = 'none';
     }
-    document.getElementById('treeModal').style.display = 'none';
 };
 
 // ========== Create New Group ==========
 async function createNewGroup() {
     if (!currentModel) {
-        await showAlertModal('Please select or create a model first.');
+        alert('Please select or create a model first.');
         return;
     }
     const newGroup = {
@@ -674,14 +700,26 @@ document.getElementById('createModelBtn').onclick = () => {
         { name: 'description', label: 'Description', value: '' },
         { name: 'author', label: 'Author', value: '' },
         { name: 'version', label: 'Version', value: '1.0.0' }
-    ], async (vals) => {
+    ], async (vals, errorDiv) => {
         if (!vals.name) {
-            await showAlertModal('Model name required');
+            errorDiv.textContent = 'Model name is required.';
+            errorDiv.style.display = 'block';
             return;
         }
-        await apiPost('/api/models', vals);
-        await loadModels();
-    });
+        const response = await fetch('/api/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(vals)
+        });
+        if (response.ok) {
+            await loadModels();
+            document.getElementById('simpleModal').style.display = 'none';
+        } else {
+            const err = await response.json();
+            errorDiv.textContent = err.error || 'Failed to create model.';
+            errorDiv.style.display = 'block';
+        }
+    }, 'Create');
 };
 
 document.getElementById('createFirstModelBtn').onclick = () => {
@@ -695,21 +733,22 @@ document.getElementById('editModelBtn').onclick = async () => {
         { name: 'description', label: 'Description', value: data.description || '' },
         { name: 'author', label: 'Author', value: data.author || '' },
         { name: 'version', label: 'Version', value: data.version || '1.0.0' }
-    ], async (vals) => {
+    ], async (vals, errorDiv) => {
         await apiPut(`/api/models/${currentModel}`, vals);
         await loadModels();
-    });
+        document.getElementById('simpleModal').style.display = 'none';
+    }, 'Save');
 };
 
 document.getElementById('deleteModelBtn').onclick = async () => {
     if (!currentModel) return;
-    const confirmed = await showConfirmModal(`Delete model '${currentModel}'?`, false);
-    if (!confirmed) return;
-    await apiDelete(`/api/models/${currentModel}`);
-    await loadModels();
+    showConfirmModal(`Delete model '${currentModel}'?`, async () => {
+        await apiDelete(`/api/models/${currentModel}`);
+        await loadModels();
+    });
 };
 
-document.getElementById('saveModelBtn').onclick = () => showAlertModal('All changes are auto-saved.');
+document.getElementById('saveModelBtn').onclick = () => alert('All changes are auto-saved.');
 
 // ========== Section Filter ==========
 document.getElementById('sectionFilter').onchange = renderGroups;
@@ -729,6 +768,7 @@ document.getElementById('importBtn').onclick = () => {
     input.click();
 };
 document.getElementById('exportBtn').onclick = () => {
+    if (!currentModel) return;
     window.open(`/api/models/${currentModel}/export`);
 };
 
