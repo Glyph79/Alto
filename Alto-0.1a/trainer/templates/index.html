@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alto Trainer · Full Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Alto Trainer</h1>
+        <div class="model-bar">
+            <span>Model:</span>
+            <select id="modelSelect"></select>
+            <button id="createModelBtn">+ New</button>
+            <button id="editModelBtn">✎ Edit</button>
+            <button id="deleteModelBtn">🗑 Delete</button>
+            <button id="saveModelBtn">💾 Save</button>
+            <button id="importBtn">📂 Import</button>
+            <button id="exportBtn">📤 Export</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <h3>Sections</h3>
+            <select id="sectionFilter">
+                <option value="All Sections">All Sections</option>
+            </select>
+            <button id="addGroupBtn" class="primary">+ New Group</button>
+        </div>
+
+        <!-- Main content: grid of group cards -->
+        <div class="content">
+            <div id="groupsGridContainer"></div>
+            <div id="noModelsEmptyState" class="empty-state" style="display: none;">
+                <p>No models found. Create your first model to get started.</p>
+                <button id="createFirstModelBtn">Create Model</button>
+            </div>
+            <div id="noGroupsEmptyState" class="empty-state" style="display: none;">
+                <p>This model has no groups yet.</p>
+                <button id="createFirstGroupBtn">Create First Group</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Group Editor Modal -->
+    <div id="groupModal" class="modal">
+        <div class="modal-content">
+            <h2>Edit Group</h2>
+            <div class="form-row">
+                <label>Group Name</label>
+                <input type="text" id="modalGroupName">
+            </div>
+            <div class="form-row">
+                <label>Description</label>
+                <input type="text" id="modalGroupDesc">
+            </div>
+            <div class="form-row">
+                <label>Section</label>
+                <select id="modalGroupSection"></select>
+            </div>
+            <div class="form-row" style="display: flex; gap: 16px;">
+                <div style="flex:1;">
+                    <label>Topic</label>
+                    <select id="modalGroupTopic">
+                        <option value="greeting">greeting</option>
+                        <option value="programming">programming</option>
+                        <option value="ai">ai</option>
+                        <option value="gaming">gaming</option>
+                        <option value="creative">creative</option>
+                        <option value="thanks">thanks</option>
+                        <option value="general">general</option>
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label>Priority</label>
+                    <select id="modalGroupPriority">
+                        <option value="high">high</option>
+                        <option value="medium">medium</option>
+                        <option value="low">low</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="qa-section">
+                <h3>Questions</h3>
+                <ul class="qa-list" id="modalQuestionsList"></ul>
+                <button class="add-btn" id="modalAddQuestionBtn">+ Add Question</button>
+            </div>
+
+            <div class="qa-section">
+                <h3>Answers</h3>
+                <ul class="qa-list" id="modalAnswersList"></ul>
+                <button class="add-btn" id="modalAddAnswerBtn">+ Add Answer</button>
+            </div>
+
+            <div style="margin-top:16px;">
+                <button id="modalEditFollowupsBtn" style="background:#a78bfa; color:white; border:none; padding:10px; border-radius:6px; width:100%;">🌳 Edit Follow-up Tree</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="cancel" id="modalCancelBtn">Cancel</button>
+                <button class="save" id="modalSaveBtn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Follow-up Tree Editor Modal -->
+    <div id="treeModal" class="modal">
+        <div class="modal-content tree-modal-content">
+            <h2>Follow-up Tree Editor</h2>
+            <div class="tree-layout">
+                <!-- Left column: QA for selected node -->
+                <div class="tree-column">
+                    <div id="nodeQAPanel" style="display: none;" class="qa-panel">
+                        <h3>Node Questions & Answers</h3>
+                        <div class="qa-section">
+                            <h4>Questions</h4>
+                            <ul class="qa-list" id="treeQuestionsList"></ul>
+                            <button class="add-btn" id="treeAddQuestionBtn">+ Add Question</button>
+                        </div>
+                        <div class="qa-section">
+                            <h4>Answers</h4>
+                            <ul class="qa-list" id="treeAnswersList"></ul>
+                            <button class="add-btn" id="treeAddAnswerBtn">+ Add Answer</button>
+                        </div>
+                    </div>
+                    <div id="noNodeSelected" class="no-node-message">
+                        Select a node to edit its questions and answers.
+                    </div>
+                </div>
+                <!-- Right column: tree -->
+                <div class="tree-column">
+                    <div class="tree-toolbar">
+                        <button id="addRootBtn">+ Add Root</button>
+                        <button id="addChildBtn" disabled>+ Add Child</button>
+                        <button id="editNodeBtn" disabled>✎ Edit Name</button>
+                        <button id="deleteNodeBtn" disabled>🗑 Delete</button>
+                    </div>
+                    <div class="tree-container" id="treeContainer"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="cancel" id="treeModalCancelBtn">Cancel</button>
+                <button class="save" id="treeModalSaveBtn">💾 Save Tree</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Modal (for questions/answers and name editing) -->
+    <div id="simpleModal" class="modal">
+        <div class="modal-content" id="simpleModalContent"></div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal confirm-modal">
+        <div class="modal-content">
+            <p id="confirmMessage"></p>
+            <div class="confirm-actions">
+                <button class="confirm-yes" id="confirmYes">Yes</button>
+                <button class="confirm-no" id="confirmNo">No</button>
+                <button class="confirm-cancel" id="confirmCancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
