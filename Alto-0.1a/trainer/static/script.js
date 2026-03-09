@@ -289,6 +289,7 @@ function openGroupModal(index) {
     document.getElementById('groupModal').style.display = 'flex';
 }
 
+// Question/Answer handlers (inside group modal)
 window.editQuestion = (qIdx) => {
     const question = groups[selectedGroupIndex].questions[qIdx];
     showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], async (vals, errorDiv) => {
@@ -359,14 +360,35 @@ document.getElementById('modalAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
+// ========== Save Group (with questions and answers) ==========
 document.getElementById('modalSaveBtn').onclick = async () => {
     if (selectedGroupIndex === -1) return;
+
+    // Gather current questions from the list
+    const questions = [];
+    const qList = document.getElementById('modalQuestionsList');
+    for (let li of qList.children) {
+        const span = li.querySelector('span:first-child');
+        if (span) questions.push(span.textContent);
+    }
+
+    // Gather current answers from the list
+    const answers = [];
+    const aList = document.getElementById('modalAnswersList');
+    for (let li of aList.children) {
+        const span = li.querySelector('span:first-child');
+        if (span) answers.push(span.textContent);
+    }
+
     const updated = {
         group_name: document.getElementById('modalGroupName').value,
         group_description: document.getElementById('modalGroupDesc').value,
         section: document.getElementById('modalGroupSection').value,
         topic: document.getElementById('modalGroupTopic').value,
-        priority: document.getElementById('modalGroupPriority').value
+        priority: document.getElementById('modalGroupPriority').value,
+        questions: questions,
+        answers: answers
+        // follow_ups are handled separately
     };
     await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}`, updated);
     await loadGroupsAndSections();
@@ -647,6 +669,7 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
+// ========== FIX: Save tree without closing group modal ==========
 document.getElementById('treeModalSaveBtn').onclick = async () => {
     function stripIds(nodes) {
         return nodes.map(node => {
@@ -658,7 +681,8 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
     await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/followups`, treeToSave);
     treeUnsaved = false;
     document.getElementById('treeModal').style.display = 'none';
-    await loadGroupsAndSections();
+    // Do NOT reload groups here, because that would close the group modal.
+    // The group modal remains open, and the tree is saved.
 };
 
 document.getElementById('treeModalCancelBtn').onclick = () => {
