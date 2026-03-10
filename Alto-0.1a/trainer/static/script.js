@@ -360,11 +360,10 @@ document.getElementById('modalAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
-// ========== Save Group (with questions and answers) ==========
+// Save group changes (including questions/answers)
 document.getElementById('modalSaveBtn').onclick = async () => {
     if (selectedGroupIndex === -1) return;
 
-    // Gather current questions from the list
     const questions = [];
     const qList = document.getElementById('modalQuestionsList');
     for (let li of qList.children) {
@@ -372,7 +371,6 @@ document.getElementById('modalSaveBtn').onclick = async () => {
         if (span) questions.push(span.textContent);
     }
 
-    // Gather current answers from the list
     const answers = [];
     const aList = document.getElementById('modalAnswersList');
     for (let li of aList.children) {
@@ -388,7 +386,6 @@ document.getElementById('modalSaveBtn').onclick = async () => {
         priority: document.getElementById('modalGroupPriority').value,
         questions: questions,
         answers: answers
-        // follow_ups are handled separately
     };
     await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}`, updated);
     await loadGroupsAndSections();
@@ -669,7 +666,7 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
-// ========== FIX: Save tree without closing group modal ==========
+// Save tree – now just closes the tree modal, keeps group modal open
 document.getElementById('treeModalSaveBtn').onclick = async () => {
     function stripIds(nodes) {
         return nodes.map(node => {
@@ -681,8 +678,6 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
     await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/followups`, treeToSave);
     treeUnsaved = false;
     document.getElementById('treeModal').style.display = 'none';
-    // Do NOT reload groups here, because that would close the group modal.
-    // The group modal remains open, and the tree is saved.
 };
 
 document.getElementById('treeModalCancelBtn').onclick = () => {

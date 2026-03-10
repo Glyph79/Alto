@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import sys
+import tempfile
 
 app = Quart(__name__, template_folder="templates", static_folder="static")
 
@@ -54,7 +55,7 @@ async def send_command(command, **kwargs):
         return {"error": "Invalid JSON from trainer"}
 
 # ----------------------------------------------------------------------
-# API routes – each translates HTTP to a command
+# API routes
 # ----------------------------------------------------------------------
 @app.route('/static/<path:filename>')
 async def serve_static(filename):
@@ -264,7 +265,6 @@ async def import_json(name):
     if 'file' not in files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = files['file']
-    import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as tmp:
         content = await file.read()
         tmp.write(content)

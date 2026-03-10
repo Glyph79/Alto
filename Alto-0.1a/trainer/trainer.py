@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Param‑based trainer CLI. Supports single commands or interactive mode.
+Alto Trainer – param‑based CLI.
 Usage:
   trainer.py <command> [options]          # single command
   trainer.py --interactive                 # read JSON commands from stdin
@@ -25,7 +25,7 @@ def _get_model_db(model_name: str, write: bool = False):
     return env.open_db(key=model_name.encode(), create=True)
 
 # ----------------------------------------------------------------------
-# Low‑level database helpers (unchanged)
+# Low‑level database helpers
 # ----------------------------------------------------------------------
 def _list_models() -> list:
     with env.begin() as txn:
@@ -494,16 +494,10 @@ def main():
         interactive_loop()
         return
 
-    # Normal command-line mode
     parser = argparse.ArgumentParser(description="Alto Trainer CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Dynamically create subparsers for each command (based on COMMANDS)
-    # We'll keep the previous argument definitions for compatibility.
-    # For simplicity, we reuse the same argument structure as before.
-    # (You could also generate them from function signatures, but that's overkill.)
-
-    # Recreate all subcommands with their arguments (as before)
+    # Dynamically create subparsers for each command
     p = subparsers.add_parser("list-models")
     p.set_defaults(func=cmd_list_models)
 
@@ -622,7 +616,6 @@ def main():
     p.set_defaults(func=cmd_export)
 
     args = parser.parse_args()
-    # Convert args to a dict of keyword arguments (excluding 'func' and 'command')
     kwargs = {k: v for k, v in vars(args).items() if k not in ('func', 'command') and v is not None}
     try:
         result = args.func(**kwargs)

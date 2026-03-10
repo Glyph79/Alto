@@ -20,7 +20,7 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     align-items: center;
     gap: 12px;
 }
-.model-bar select, .model-bar button, .model-bar input {
+.model-bar select, .model-bar button {
     background: #2d2d5a; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 0.9rem;
 }
 .model-bar button { background: #6c63ff; cursor: pointer; }
@@ -169,10 +169,6 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     padding: 12px;
     display: flex;
     flex-direction: column;
-}
-.tree-column h3 {
-    margin-top: 0;
-    margin-bottom: 12px;
 }
 .tree-toolbar {
     display: flex;
