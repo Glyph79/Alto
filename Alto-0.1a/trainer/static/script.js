@@ -660,6 +660,7 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
+// ========== FIX: Update modalGroupCopy after saving tree ==========
 document.getElementById('treeModalSaveBtn').onclick = async () => {
     function stripIds(nodes) {
         return nodes.map(node => {
@@ -668,9 +669,17 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
         });
     }
     const treeToSave = stripIds(currentTree);
-    await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/followups`, treeToSave);
-    treeUnsaved = false;
-    document.getElementById('treeModal').style.display = 'none';
+    try {
+        await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/followups`, treeToSave);
+        // 👇 Keep the group modal copy in sync
+        if (modalGroupCopy) {
+            modalGroupCopy.follow_ups = treeToSave;
+        }
+        treeUnsaved = false;
+        document.getElementById('treeModal').style.display = 'none';
+    } catch (err) {
+        alert('Failed to save follow‑up tree: ' + err.message);
+    }
 };
 
 document.getElementById('treeModalCancelBtn').onclick = () => {

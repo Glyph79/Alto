@@ -1,20 +1,28 @@
+// DOM cache
+const chat = document.getElementById('chat');
+const input = document.getElementById('message');
+const typingHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+
+// Helpers
+const scrollToBottom = () => chat.scrollTop = chat.scrollHeight;
+
+function addMessage(type, content) {
+    const div = document.createElement('div');
+    div.className = `message ${type}`;
+    div.innerHTML = content;
+    chat.appendChild(div);
+    scrollToBottom();
+    return div;
+}
+
+// Main send function
 async function sendMessage() {
-    const input = document.getElementById('message');
     const msg = input.value.trim();
     if (!msg) return;
+    
     input.value = '';
-
-    const chat = document.getElementById('chat');
-    const userDiv = document.createElement('div');
-    userDiv.className = 'message user';
-    userDiv.textContent = msg;
-    chat.appendChild(userDiv);
-    chat.scrollTop = chat.scrollHeight;
-
-    const botDiv = document.createElement('div');
-    botDiv.className = 'message bot';
-    botDiv.innerHTML = '';
-    chat.appendChild(botDiv);
+    addMessage('user', msg);
+    const botDiv = addMessage('bot', typingHTML);
 
     try {
         const response = await fetch('/chat', {
@@ -24,26 +32,33 @@ async function sendMessage() {
         });
 
         if (!response.ok) {
-            botDiv.textContent = 'Error: Could not get response.';
+            botDiv.innerHTML = 'Error: Could not get response.';
             return;
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let firstChunk = true;
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            
             const chunk = decoder.decode(value);
+            if (firstChunk) {
+                botDiv.innerHTML = '';
+                firstChunk = false;
+            }
             botDiv.innerHTML += chunk;
-            chat.scrollTop = chat.scrollHeight;
+            scrollToBottom();
         }
     } catch (err) {
-        botDiv.textContent = 'Network error. Please try again.';
+        botDiv.innerHTML = 'Network error. Please try again.';
     }
 }
 
-document.getElementById('message').addEventListener('keypress', function (e) {
+// Event listener
+input.addEventListener('keypress', e => {
     if (e.key === 'Enter') {
         e.preventDefault();
         sendMessage();
