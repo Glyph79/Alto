@@ -1,47 +1,19 @@
 # handler.py
-"""
-Orchestration pipeline. Each step receives the current text and a state dict,
-and returns (updated_text, updated_state). The final text is sent to the user.
-"""
+from router import router
 
-# ----------------------------------------------------------------------
-# Define individual processing steps below.
-# Each step must be a callable with signature (text: str, state: dict)
-# -> (new_text: str, new_state: dict)
-# ----------------------------------------------------------------------
-
-def preprocess_step(text: str, state: dict) -> (str, dict):
-    """Example: trim whitespace and convert to lowercase."""
-    text = text.strip().lower()
-    return text, state
-
-def route_step(text: str, state: dict) -> (str, dict):
-    """Core routing: get response from router."""
-    from router import router
-    response = router.handle(text)
-    return response, state
-
-def postprocess_step(text: str, state: dict) -> (str, dict):
-    """Example: capitalise first letter (optional post-formatting)."""
-    if text:
-        text = text[0].upper() + text[1:]
-    return text, state
-
-# ----------------------------------------------------------------------
-# Pipeline configuration – list steps in desired order.
-# ----------------------------------------------------------------------
-PIPELINE_STEPS = [
-    preprocess_step,
-    route_step,
-    postprocess_step,
-]
-
-def process_message(user_message: str) -> str:
+def process_message(user_message: str, session_state: dict) -> (str, dict):
     """
-    Run the user message through all pipeline steps and return the final response.
+    Central handler: optional pre‑processing, call router, optional post‑processing.
+    Returns (response_text, updated_state).
     """
-    state = {}
-    current = user_message
-    for step in PIPELINE_STEPS:
-        current, state = step(current, state)
-    return current
+    # Preprocess (example: trim and lowercase)
+    text = user_message.strip().lower()
+
+    # Get response and updated state from router (which calls the appropriate module)
+    response, new_state = router.handle(text, session_state)
+
+    # Postprocess (example: capitalise first letter)
+    if response:
+        response = response[0].upper() + response[1:]
+
+    return response, new_state

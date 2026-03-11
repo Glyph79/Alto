@@ -12,6 +12,15 @@ trainer_process = None
 trainer_stdin = None
 trainer_stdout = None
 
+async def log_trainer_stderr():
+    """Read and print trainer's stderr to the console."""
+    global trainer_process
+    while trainer_process and trainer_process.stderr:
+        line = await trainer_process.stderr.readline()
+        if not line:
+            break
+        print(f"[trainer stderr] {line.decode().strip()}")
+
 async def start_trainer():
     global trainer_process, trainer_stdin, trainer_stdout
     cmd = [sys.executable, TRAINER_CLI, "--interactive"]
@@ -19,10 +28,12 @@ async def start_trainer():
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stderr=asyncio.subprocess.PIPE   # capture stderr
     )
     trainer_stdin = trainer_process.stdin
     trainer_stdout = trainer_process.stdout
+    # Start a background task to log stderr
+    asyncio.create_task(log_trainer_stderr())
 
 async def stop_trainer():
     global trainer_process
@@ -259,35 +270,50 @@ async def delete_section(name, section):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-@app.route('/api/models/<name>/import', methods=['POST'])
-async def import_json(name):
+# -------------------- Native .db import (creates new model) --------------------
+@app.route('/api/models/import-db', methods=['POST'])
+async def import_db():
     files = await request.files
     if 'file' not in files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = files['file']
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as tmp:
-        content = await file.read()
+    if not file.filename.endswith('.db'):
+        return jsonify({'error': 'File must be a .db file'}), 400
+
+    # Check for custom name and overwrite flag
+    form = await request.form
+    custom_name = form.get('name', '').strip()
+    overwrite = form.get('overwrite', '').lower() == 'true'
+
+    # Log what we received from the frontend
+    print(f"[import_db] Received name='{custom_name}', overwrite={overwrite}")
+    print(f"[import_db] form keys: {list(form.keys())}")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
+        content = file.read()
         tmp.write(content)
         tmp_path = tmp.name
-    result = await send_command("import", name=name, file=tmp_path)
-    os.unlink(tmp_path)
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify(result)
 
-@app.route('/api/models/<name>/export', methods=['GET'])
-async def export_json(name):
-    result = await send_command("export", name=name)
+    # FIX: use 'name' as the keyword argument, not 'custom_name'
+    result = await send_command("import-db", file=tmp_path, name=custom_name, overwrite=overwrite)
+    os.unlink(tmp_path)
+
     if "error" in result:
-        return jsonify(result), 500
-    import io
-    buffer = io.BytesIO()
-    buffer.write(json.dumps(result, indent=2).encode('utf-8'))
-    buffer.seek(0)
+        status = 409 if result.get("code") == "CONFLICT" else 500
+        return jsonify(result), status
+    return jsonify(result)   # returns model info like {name, version, ...}
+
+# -------------------- Native .db export (download current model's db) ---------
+@app.route('/api/models/<name>/export-db', methods=['GET'])
+async def export_db(name):
+    result = await send_command("get-model-db-path", name=name)
+    if "error" in result:
+        return jsonify(result), 404
+    db_path = result["path"]
     return await send_file(
-        buffer,
-        mimetype='application/json',
-        attachment_filename=f'{name}.json',
+        db_path,
+        mimetype='application/vnd.sqlite3',
+        attachment_filename=f'{name}.db',
         as_attachment=True
     )
 

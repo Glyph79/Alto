@@ -11,6 +11,9 @@ let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
 
+// Group modal copy
+let modalGroupCopy = null;
+
 // ========== API Helpers ==========
 async function apiGet(url) {
     const r = await fetch(url);
@@ -117,6 +120,7 @@ function setControlsEnabled(enabled) {
     ];
     modelDependentControls.forEach(ctrl => { if (ctrl) ctrl.disabled = !enabled; });
 
+    // Import button is ALWAYS enabled (creates new model even when none selected)
     document.getElementById('importBtn').disabled = false;
     document.getElementById('createModelBtn').disabled = false;
     document.getElementById('createFirstModelBtn').disabled = false;
@@ -130,8 +134,8 @@ async function loadModels() {
         select.innerHTML = '';
         models.forEach(m => {
             const opt = document.createElement('option');
-            opt.value = m;
-            opt.textContent = m;
+            opt.value = m.name;
+            opt.textContent = `${m.name} (${m.version})`;
             select.appendChild(opt);
         });
 
@@ -140,8 +144,8 @@ async function loadModels() {
         });
 
         if (models.length > 0) {
-            select.value = models[0];
-            await switchModel(models[0]);
+            select.value = models[0].name;
+            await switchModel(models[0].name);
             document.getElementById('noModelsEmptyState').style.display = 'none';
             setControlsEnabled(true);
         } else {
@@ -260,19 +264,26 @@ function openGroupModal(index) {
     const group = groups[index];
     if (!group) return;
 
-    document.getElementById('modalGroupName').value = group.group_name || '';
-    document.getElementById('modalGroupDesc').value = group.group_description || '';
+    modalGroupCopy = JSON.parse(JSON.stringify(group));
+
+    document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
+    document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
 
     const sectionSelect = document.getElementById('modalGroupSection');
     sectionSelect.innerHTML = sections.map(s => `<option value="${s}">${s}</option>`).join('');
-    sectionSelect.value = group.section || sections[0] || '';
+    sectionSelect.value = modalGroupCopy.section || sections[0] || '';
 
-    document.getElementById('modalGroupTopic').value = group.topic || 'general';
-    document.getElementById('modalGroupPriority').value = group.priority || 'medium';
+    document.getElementById('modalGroupTopic').value = modalGroupCopy.topic || 'general';
+    document.getElementById('modalGroupPriority').value = modalGroupCopy.priority || 'medium';
 
+    refreshModalLists();
+    document.getElementById('groupModal').style.display = 'flex';
+}
+
+function refreshModalLists() {
     const qList = document.getElementById('modalQuestionsList');
     qList.innerHTML = '';
-    (group.questions || []).forEach((q, i) => {
+    (modalGroupCopy.questions || []).forEach((q, i) => {
         const li = document.createElement('li');
         li.innerHTML = `<span>${q}</span> <span><button onclick="editQuestion(${i})">✎</button><button onclick="deleteQuestion(${i})">🗑</button></span>`;
         qList.appendChild(li);
@@ -280,119 +291,98 @@ function openGroupModal(index) {
 
     const aList = document.getElementById('modalAnswersList');
     aList.innerHTML = '';
-    (group.answers || []).forEach((a, i) => {
+    (modalGroupCopy.answers || []).forEach((a, i) => {
         const li = document.createElement('li');
         li.innerHTML = `<span>${a}</span> <span><button onclick="editAnswer(${i})">✎</button><button onclick="deleteAnswer(${i})">🗑</button></span>`;
         aList.appendChild(li);
     });
-
-    document.getElementById('groupModal').style.display = 'flex';
 }
 
-// Question/Answer handlers (inside group modal)
 window.editQuestion = (qIdx) => {
-    const question = groups[selectedGroupIndex].questions[qIdx];
-    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], async (vals, errorDiv) => {
+    showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: modalGroupCopy.questions[qIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Question cannot be empty.';
             errorDiv.style.display = 'block';
             return;
         }
-        await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions/${qIdx}`, { question: vals.text });
-        await loadGroupsAndSections();
+        modalGroupCopy.questions[qIdx] = vals.text;
+        refreshModalLists();
         document.getElementById('simpleModal').style.display = 'none';
-        openGroupModal(selectedGroupIndex);
     }, 'Save');
 };
+
 window.deleteQuestion = (qIdx) => {
-    showConfirmModal('Delete this question?', async () => {
-        await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions/${qIdx}`);
-        await loadGroupsAndSections();
-        openGroupModal(selectedGroupIndex);
+    showConfirmModal('Delete this question?', () => {
+        modalGroupCopy.questions.splice(qIdx, 1);
+        refreshModalLists();
     });
 };
+
 window.editAnswer = (aIdx) => {
-    const answer = groups[selectedGroupIndex].answers[aIdx];
-    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], async (vals, errorDiv) => {
+    showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: modalGroupCopy.answers[aIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Answer cannot be empty.';
             errorDiv.style.display = 'block';
             return;
         }
-        await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers/${aIdx}`, { answer: vals.text });
-        await loadGroupsAndSections();
+        modalGroupCopy.answers[aIdx] = vals.text;
+        refreshModalLists();
         document.getElementById('simpleModal').style.display = 'none';
-        openGroupModal(selectedGroupIndex);
     }, 'Save');
 };
+
 window.deleteAnswer = (aIdx) => {
-    showConfirmModal('Delete this answer?', async () => {
-        await apiDelete(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers/${aIdx}`);
-        await loadGroupsAndSections();
-        openGroupModal(selectedGroupIndex);
+    showConfirmModal('Delete this answer?', () => {
+        modalGroupCopy.answers.splice(aIdx, 1);
+        refreshModalLists();
     });
 };
 
 document.getElementById('modalAddQuestionBtn').onclick = () => {
-    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], async (vals, errorDiv) => {
+    showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Question cannot be empty.';
             errorDiv.style.display = 'block';
             return;
         }
-        await apiPost(`/api/models/${currentModel}/groups/${selectedGroupIndex}/questions`, { question: vals.text });
-        await loadGroupsAndSections();
+        if (!modalGroupCopy.questions) modalGroupCopy.questions = [];
+        modalGroupCopy.questions.push(vals.text);
+        refreshModalLists();
         document.getElementById('simpleModal').style.display = 'none';
-        openGroupModal(selectedGroupIndex);
     }, 'Add');
 };
+
 document.getElementById('modalAddAnswerBtn').onclick = () => {
-    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], async (vals, errorDiv) => {
+    showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Answer cannot be empty.';
             errorDiv.style.display = 'block';
             return;
         }
-        await apiPost(`/api/models/${currentModel}/groups/${selectedGroupIndex}/answers`, { answer: vals.text });
-        await loadGroupsAndSections();
+        if (!modalGroupCopy.answers) modalGroupCopy.answers = [];
+        modalGroupCopy.answers.push(vals.text);
+        refreshModalLists();
         document.getElementById('simpleModal').style.display = 'none';
-        openGroupModal(selectedGroupIndex);
     }, 'Add');
 };
 
-// Save group changes (including questions/answers)
 document.getElementById('modalSaveBtn').onclick = async () => {
-    if (selectedGroupIndex === -1) return;
+    if (selectedGroupIndex === -1 || !modalGroupCopy) return;
 
-    const questions = [];
-    const qList = document.getElementById('modalQuestionsList');
-    for (let li of qList.children) {
-        const span = li.querySelector('span:first-child');
-        if (span) questions.push(span.textContent);
-    }
+    modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
+    modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
+    modalGroupCopy.section = document.getElementById('modalGroupSection').value;
+    modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
+    modalGroupCopy.priority = document.getElementById('modalGroupPriority').value;
 
-    const answers = [];
-    const aList = document.getElementById('modalAnswersList');
-    for (let li of aList.children) {
-        const span = li.querySelector('span:first-child');
-        if (span) answers.push(span.textContent);
-    }
-
-    const updated = {
-        group_name: document.getElementById('modalGroupName').value,
-        group_description: document.getElementById('modalGroupDesc').value,
-        section: document.getElementById('modalGroupSection').value,
-        topic: document.getElementById('modalGroupTopic').value,
-        priority: document.getElementById('modalGroupPriority').value,
-        questions: questions,
-        answers: answers
-    };
-    await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}`, updated);
+    await apiPut(`/api/models/${currentModel}/groups/${selectedGroupIndex}`, modalGroupCopy);
     await loadGroupsAndSections();
     document.getElementById('groupModal').style.display = 'none';
+    modalGroupCopy = null;
 };
 
 document.getElementById('modalCancelBtn').onclick = () => {
+    modalGroupCopy = null;
     document.getElementById('groupModal').style.display = 'none';
 };
 
@@ -601,6 +591,7 @@ window.editTreeNodeQuestion = (qIdx) => {
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
 };
+
 window.deleteTreeNodeQuestion = (qIdx) => {
     const node = nodeMap.get(selectedNodeId);
     showConfirmModal('Delete this question?', () => {
@@ -609,6 +600,7 @@ window.deleteTreeNodeQuestion = (qIdx) => {
         showNodeQAPanel(selectedNodeId);
     });
 };
+
 window.editTreeNodeAnswer = (aIdx) => {
     const node = nodeMap.get(selectedNodeId);
     const answer = node.answers[aIdx];
@@ -624,6 +616,7 @@ window.editTreeNodeAnswer = (aIdx) => {
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
 };
+
 window.deleteTreeNodeAnswer = (aIdx) => {
     const node = nodeMap.get(selectedNodeId);
     showConfirmModal('Delete this answer?', () => {
@@ -649,6 +642,7 @@ document.getElementById('treeAddQuestionBtn').onclick = () => {
         showNodeQAPanel(selectedNodeId);
     }, 'Add');
 };
+
 document.getElementById('treeAddAnswerBtn').onclick = () => {
     if (!selectedNodeId) return;
     showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
@@ -666,7 +660,6 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
-// Save tree – now just closes the tree modal, keeps group modal open
 document.getElementById('treeModalSaveBtn').onclick = async () => {
     function stripIds(nodes) {
         return nodes.map(node => {
@@ -776,19 +769,113 @@ document.getElementById('sectionFilter').onchange = renderGroups;
 document.getElementById('importBtn').onclick = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
+    input.accept = '.db';
     input.onchange = async (e) => {
         const file = e.target.files[0];
         const formData = new FormData();
         formData.append('file', file);
-        await fetch(`/api/models/${currentModel}/import`, { method: 'POST', body: formData });
-        await loadGroupsAndSections();
+
+        // First attempt: let backend read name from db
+        let response = await fetch('/api/models/import-db', {
+            method: 'POST',
+            body: formData
+        });
+
+        let result = await response.json();
+
+        if (response.ok) {
+            // Success – model created, reload and switch
+            await loadModels();
+            const select = document.getElementById('modelSelect');
+            if (select.querySelector(`option[value="${result.model.name}"]`)) {
+                select.value = result.model.name;
+                await switchModel(result.model.name);
+            }
+            return;
+        }
+
+        if (response.status === 409 && result.code === 'CONFLICT') {
+            // Name conflict – ask user what to do
+            const action = await showImportConflictDialog(result.existing_name, result.db_name);
+            if (!action) return; // cancelled
+
+            const newFormData = new FormData();
+            newFormData.append('file', file);
+            if (action.overwrite) {
+                newFormData.append('name', action.name);
+                newFormData.append('overwrite', 'true');
+            } else {
+                newFormData.append('name', action.name);
+            }
+
+            response = await fetch('/api/models/import-db', {
+                method: 'POST',
+                body: newFormData
+            });
+            if (response.ok) {
+                result = await response.json();
+                await loadModels();
+                const select = document.getElementById('modelSelect');
+                if (select.querySelector(`option[value="${result.model.name}"]`)) {
+                    select.value = result.model.name;
+                    await switchModel(result.model.name);
+                }
+            } else {
+                const err = await response.json();
+                alert(`Import failed: ${err.error || 'Unknown error'}`);
+            }
+        } else {
+            alert(`Import failed: ${result.error || 'Unknown error'}`);
+        }
     };
     input.click();
 };
+
+// Helper to show conflict dialog (returns a promise)
+function showImportConflictDialog(existingName, dbName) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('simpleModal');
+        const content = document.getElementById('simpleModalContent');
+        content.innerHTML = `
+            <h2>Model Already Exists</h2>
+            <p>A model named <strong>${existingName}</strong> already exists.</p>
+            <p>The database you're importing contains model <strong>${dbName}</strong>.</p>
+            <div style="margin: 20px 0;">
+                <label for="newNameInput">Enter a new name (or leave blank to overwrite):</label>
+                <input type="text" id="newNameInput" placeholder="New model name" style="width:100%; margin-top:8px;">
+            </div>
+            <div class="modal-actions">
+                <button class="save" id="confirmOverwriteBtn">Overwrite</button>
+                <button class="save" id="confirmRenameBtn">Rename</button>
+                <button class="cancel" id="cancelImportBtn">Cancel</button>
+            </div>
+        `;
+        modal.style.display = 'flex';
+
+        document.getElementById('cancelImportBtn').onclick = () => {
+            modal.style.display = 'none';
+            resolve(null);
+        };
+        document.getElementById('confirmOverwriteBtn').onclick = () => {
+            modal.style.display = 'none';
+            resolve({ overwrite: true, name: existingName });
+        };
+        document.getElementById('confirmRenameBtn').onclick = () => {
+            const newName = document.getElementById('newNameInput').value.trim();
+            if (!newName) {
+                alert('Please enter a new name.');
+                return;
+            }
+            modal.style.display = 'none';
+            resolve({ overwrite: false, name: newName });
+        };
+    });
+}
+
+// Export button downloads the native .db file
 document.getElementById('exportBtn').onclick = () => {
     if (!currentModel) return;
-    window.open(`/api/models/${currentModel}/export`);
+    window.open(`/api/models/${currentModel}/export-db`);
 };
 
 // ========== Initialize ==========

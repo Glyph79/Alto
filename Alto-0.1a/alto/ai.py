@@ -1,3 +1,4 @@
+# ai.py
 from fuzzywuzzy import fuzz
 
 class RuleBot:
@@ -42,3 +43,9 @@ class RuleBot:
             return best_answer, best_score
         else:
             return self.fallback, 0
+
+# Module‑compatible handle function (accepts state, returns response and new state)
+def handle(text: str, state: dict) -> (str, dict):
+    bot = RuleBot()
+    response, _ = bot.get_response(text)
+    return response, {}   # never claims the conversation
