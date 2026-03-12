@@ -40,7 +40,6 @@ def _group_from_row(row: sqlite3.Row) -> dict:
         "section": row[4],
         "questions": _unpack_array(row[5]),
         "answers": _unpack_array(row[6]),
-        "follow_ups": _unpack_array(row[7])   # tree: list of root nodes
     }
 
 def _normalize_word(word: str) -> str:
@@ -66,7 +65,7 @@ def _get_groups_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[d
     placeholders = ','.join(['?'] * len(group_ids))
     query = f"""
         SELECT id, group_name, topic, priority, section,
-               questions_blob, answers_blob, follow_ups_blob
+               questions_blob, answers_blob
         FROM groups
         WHERE id IN ({placeholders})
     """
@@ -74,20 +73,11 @@ def _get_groups_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[d
     return [_group_from_row(row) for row in cur]
 
 class RuleBot:
-    """
-    Rule‑based chatbot with support for multiple concurrent follow‑up trees.
-    Each tree is a nested structure of nodes (branch_name, questions, answers, children).
-    When a group is first matched, only its root nodes are loaded.
-    As the conversation progresses, only the relevant branch is kept in memory;
-    other roots are discarded once a specific root is matched.
-    Trees at a leaf have a shorter inactivity timeout (5 turns) than non‑leaf trees (10 turns).
-    If the same group is matched again while its tree is still active, the match is ignored
-    (no restart) to prevent going backwards – only the current nodes are considered.
-    """
     DEFAULT_MODEL = "Alto"
     MAX_TREES = 3
-    NORMAL_TIMEOUT = 10
-    LEAF_TIMEOUT = 5
+    INACTIVITY_TIMEOUT = 10
+    ENDED_TIMEOUT = 5
+    WORD_CORRECTION_THRESHOLD = 90   # Strict word‑level correction
 
     def __init__(self, model_name: str | None = None, threshold: int = 70):
         self.threshold = threshold
@@ -102,6 +92,20 @@ class RuleBot:
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.row_factory = sqlite3.Row
 
+        # Load all known words for strict autocorrection
+        cur = self.conn.execute("SELECT word FROM words")
+        self.word_list = [row[0] for row in cur]
+        self.word_set = set(self.word_list)
+
+        # Cache for all groups (loaded on first full scan)
+        self._all_groups = None
+
+        # Lazy cache for follow‑up root nodes: group_id -> list of root nodes
+        self._followup_cache = {}
+
+        # Global turn counter (incremented each call)
+        self.turn = 0
+
     def close(self):
         if self.conn:
             self.conn.close()
@@ -110,13 +114,44 @@ class RuleBot:
     def __del__(self):
         self.close()
 
+    # ---------- Strict word‑level autocorrection ----------
+    def _correct_word(self, word: str) -> str:
+        """Correct a single word if a very close match exists in the word set."""
+        if word in self.word_set:
+            return word
+        best_score = 0
+        best_word = word
+        for known in self.word_list:
+            score = fuzz.ratio(word, known)
+            if score > best_score:
+                best_score = score
+                best_word = known
+        # Only correct if score meets strict threshold
+        return best_word if best_score >= self.WORD_CORRECTION_THRESHOLD else word
+
+    def _correct_input(self, text: str) -> str:
+        """Apply strict word‑level correction to the entire input."""
+        words = text.split()
+        corrected_words = []
+        for w in words:
+            norm = _normalize_word(w)
+            corrected_norm = self._correct_word(norm)
+            # Preserve original word if correction didn't change it (or if no correction)
+            if corrected_norm == norm:
+                corrected_words.append(w)  # keep original form for matching
+            else:
+                corrected_words.append(corrected_norm)
+        return ' '.join(corrected_words)
+
+    # ---------- Matching (unchanged) ----------
     def _best_match_in_nodes(self, user_input: str, nodes: list[dict]) -> tuple[int | None, dict | None]:
-        """Find the node with the highest fuzzy match score among the given nodes."""
         best_score = 0
         best_node = None
+        user_lower = user_input.lower()
         for node in nodes:
-            for variant in node["questions"]:
-                score = fuzz.ratio(user_input.lower(), variant.lower())
+            for q in node["questions"]:
+                q_lower = q.lower()
+                score = fuzz.token_set_ratio(user_lower, q_lower)
                 if score > best_score:
                     best_score = score
                     best_node = node
@@ -124,145 +159,161 @@ class RuleBot:
             return best_score, best_node
         return None, None
 
-    def _random_answer(self, node: dict) -> str:
+    def _best_match_in_groups(self, user_input: str, groups: list[dict]) -> tuple[int | None, dict | None]:
+        best_score = 0
+        best_group = None
+        user_lower = user_input.lower()
+        for group in groups:
+            for q in group["questions"]:
+                q_lower = q.lower()
+                score = fuzz.token_set_ratio(user_lower, q_lower)
+                if score > best_score:
+                    best_score = score
+                    best_group = group
+        if best_score >= self.threshold:
+            return best_score, best_group
+        return None, None
+
+    def _random_answer(self, group: dict) -> str:
+        if group and group.get("answers"):
+            return random.choice(group["answers"])
+        return self.fallback
+
+    def _random_answer_from_node(self, node: dict) -> str:
         if node and node.get("answers"):
             return random.choice(node["answers"])
         return self.fallback
 
-    def _get_node_by_path(self, tree: list, path: list[int]) -> dict | None:
-        """
-        Navigate the tree using a list of child indices and return the node at the end.
-        tree: list of root nodes (each node is a dict with optional "children").
-        path: list of integers, e.g. [0] for first root, [0,1] for second child of first root.
-        """
-        current_list = tree
-        node = None
-        for idx in path:
-            if idx < 0 or idx >= len(current_list):
-                return None
-            node = current_list[idx]
-            current_list = node.get("children", [])
-        return node
+    def _load_all_groups(self):
+        cur = self.conn.execute(
+            "SELECT id, group_name, topic, priority, section, questions_blob, answers_blob "
+            "FROM groups ORDER BY id"
+        )
+        self._all_groups = [_group_from_row(row) for row in cur]
 
-    def get_response(self, user_input: str, state: dict) -> tuple[str, dict]:
-        """
-        Return (response, new_state). The state is a dictionary with:
-            - "trees": list of active trees, each a dict with keys:
-                "group_id": int (original group id)
-                "tree": list of root nodes (only the currently relevant part of the tree)
-                "current": list of paths (list of int lists) to current nodes
-                "counter": int (turns since last use)
-                "leaf": bool (True if this tree is currently at a leaf node)
-            Trees are ordered from most recently used to least recently used.
-        """
-        # Copy state to avoid mutating input
-        trees = [dict(t) for t in state.get("trees", [])]
+    def _get_follow_up_nodes(self, group_id: int) -> list[dict]:
+        if group_id not in self._followup_cache:
+            cur = self.conn.execute("SELECT follow_ups_blob FROM groups WHERE id = ?", (group_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                nodes = _unpack_array(row[0])
+                self._followup_cache[group_id] = nodes
+            else:
+                self._followup_cache[group_id] = []
+        return self._followup_cache[group_id]
 
-        # Increment counters for all trees
+    def _prune_trees(self, trees: list) -> list:
+        new_trees = []
         for tree in trees:
-            tree["counter"] = tree.get("counter", 0) + 1
+            if tree.get("ended_turn") is not None:
+                if self.turn - tree["ended_turn"] < self.ENDED_TIMEOUT:
+                    new_trees.append(tree)
+            else:
+                if self.turn - tree["last_used"] < self.INACTIVITY_TIMEOUT:
+                    new_trees.append(tree)
+        return new_trees
 
-        # Tokenise input
-        words = [_normalize_word(w) for w in user_input.split() if w]
-        word_ids = _get_word_ids(self.conn, words)
+    def _evict_lru(self, trees: list):
+        if not trees:
+            return
+        lru_idx = min(range(len(trees)), key=lambda i: trees[i]["last_used"])
+        trees.pop(lru_idx)
 
-        # ----- Try to match against active trees -----
-        # Collect all current nodes across all trees with their paths and tree indices
-        candidates = []  # list of (tree_index, path, node)
-        for ti, t in enumerate(trees):
-            for path in t.get("current", []):
-                node = self._get_node_by_path(t["tree"], path)
-                if node:
-                    candidates.append((ti, path, node))
+    def _handle_root_match(self, group: dict, trees: list) -> tuple[str, list]:
+        group_id = group["id"]
+        for idx, tree in enumerate(trees):
+            if tree["group_id"] == group_id:
+                tree["current_nodes"] = self._get_follow_up_nodes(group_id)
+                tree["last_used"] = self.turn
+                tree.pop("ended_turn", None)
+                trees.pop(idx)
+                trees.insert(0, tree)
+                return self._random_answer(group), trees
+
+        follow_nodes = self._get_follow_up_nodes(group_id)
+        if follow_nodes:
+            new_tree = {
+                "group_id": group_id,
+                "current_nodes": follow_nodes,
+                "last_used": self.turn,
+                "ended_turn": None
+            }
+            trees.insert(0, new_tree)
+            if len(trees) > self.MAX_TREES:
+                self._evict_lru(trees)
+        return self._random_answer(group), trees
+
+    def get_response(self, user_input: str, state: dict = None) -> tuple[str, dict]:
+        self.turn += 1
+        if state is None:
+            state = {}
+        trees = state.get("trees", [])
+        trees = [dict(t) for t in trees]
+
+        # Apply strict word‑level autocorrection
+        corrected_input = self._correct_input(user_input)
+
+        # Normalize for word index lookup (still need normalized words)
+        norm_words = [_normalize_word(w) for w in corrected_input.split() if w]
+        word_ids = _get_word_ids(self.conn, norm_words)
+
+        # 1. Match against active follow‑up trees
+        candidates = []
+        for ti, tree in enumerate(trees):
+            if tree.get("ended_turn") is not None:
+                continue
+            for node in tree["current_nodes"]:
+                candidates.append((node, ti))
 
         if candidates:
             best_score = 0
-            best_ti = None
-            best_path = None
             best_node = None
-            for ti, path, node in candidates:
-                for variant in node["questions"]:
-                    score = fuzz.ratio(user_input.lower(), variant.lower())
-                    if score > best_score:
-                        best_score = score
-                        best_ti = ti
-                        best_path = path
-                        best_node = node
+            best_ti = None
+            for node, ti in candidates:
+                score, _ = self._best_match_in_nodes(corrected_input, [node])
+                if score and score > best_score:
+                    best_score = score
+                    best_node = node
+                    best_ti = ti
 
             if best_score >= self.threshold:
                 tree = trees[best_ti]
-                tree["counter"] = 0  # reset counter
-
-                # Determine children and update tree state
-                children = best_node.get("children", [])
-                if children:
-                    # Move to children – discard everything else
-                    tree["tree"] = children          # new roots are the children
-                    tree["current"] = [[i] for i in range(len(children))]
-                    tree["leaf"] = False
+                tree["last_used"] = self.turn
+                if best_node.get("children"):
+                    tree["current_nodes"] = best_node["children"]
+                    tree.pop("ended_turn", None)
                 else:
-                    # Leaf node – keep this node for possible repetition
-                    tree["tree"] = [best_node]       # keep only this node
-                    tree["current"] = [[0]]
-                    tree["leaf"] = True
-
-                # Move this tree to the front (most recent)
+                    tree["current_nodes"] = []
+                    tree["ended_turn"] = self.turn
                 trees.pop(best_ti)
                 trees.insert(0, tree)
-                return self._random_answer(best_node), {"trees": trees}
+                trees = self._prune_trees(trees)
+                return self._random_answer_from_node(best_node), {"trees": trees}
 
-        # ----- No match in active trees → try global matching -----
+        # 2. Global matching via word index
         candidate_group_ids = _get_group_ids_for_words(self.conn, word_ids)
         if candidate_group_ids:
             candidate_groups = _get_groups_by_ids(self.conn, list(candidate_group_ids))
-            # Convert groups to pseudo‑nodes for matching
-            groups_as_nodes = []
-            for g in candidate_groups:
-                groups_as_nodes.append({
-                    "id": g["id"],
-                    "questions": g["questions"],
-                    "answers": g["answers"],
-                    "follow_ups": g["follow_ups"]    # full tree (roots only for now)
-                })
-            score, matched_node = self._best_match_in_nodes(user_input, groups_as_nodes)
-            if matched_node:
-                group_id = matched_node["id"]
+            score, matched_group = self._best_match_in_groups(corrected_input, candidate_groups)
+            if matched_group:
+                answer, new_trees = self._handle_root_match(matched_group, trees)
+                new_trees = self._prune_trees(new_trees)
+                return answer, {"trees": new_trees}
 
-                # If this group is already active, ignore the global match (no restart)
-                if any(t.get("group_id") == group_id for t in trees):
-                    # The group is already in an active tree, but its current nodes didn't match.
-                    # We do not restart; just treat as no match and continue to fallback.
-                    pass
-                else:
-                    roots = matched_node["follow_ups"]
-                    # Create a new tree
-                    new_tree = {
-                        "group_id": group_id,
-                        "tree": roots,
-                        "current": [[i] for i in range(len(roots))],
-                        "counter": 0,
-                        "leaf": False
-                    }
-                    trees.insert(0, new_tree)
-                    if len(trees) > self.MAX_TREES:
-                        # Evict the tree with the highest counter (least recently used)
-                        worst_idx = max(range(len(trees)), key=lambda i: trees[i]["counter"])
-                        trees.pop(worst_idx)
-                    return self._random_answer(matched_node), {"trees": trees}
+        # 3. Full scan fallback
+        if self._all_groups is None:
+            self._load_all_groups()
+        score, matched_group = self._best_match_in_groups(corrected_input, self._all_groups)
+        if matched_group:
+            answer, new_trees = self._handle_root_match(matched_group, trees)
+            new_trees = self._prune_trees(new_trees)
+            return answer, {"trees": new_trees}
 
-        # ----- No match at all -----
-        # Remove expired trees (counter >= timeout, depending on leaf status)
-        new_trees = []
-        for tree in trees:
-            timeout = self.LEAF_TIMEOUT if tree.get("leaf", False) else self.NORMAL_TIMEOUT
-            if tree["counter"] < timeout:
-                new_trees.append(tree)
-        return self.fallback, {"trees": new_trees}
+        # 4. No match
+        trees = self._prune_trees(trees)
+        return self.fallback, {"trees": trees}
 
-# ----------------------------------------------------------------------
-# Module‑compatible handle function
-# ----------------------------------------------------------------------
-def handle(text: str, state: dict) -> tuple[str, dict]:
+def handle(text: str, state: dict = None) -> tuple[str, dict]:
     bot = RuleBot()
     try:
         response, new_state = bot.get_response(text, state)
