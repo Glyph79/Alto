@@ -66,7 +66,7 @@ async def send_command(command, **kwargs):
         return {"error": "Invalid JSON from trainer"}
 
 # ----------------------------------------------------------------------
-# API routes
+# API routes (unchanged)
 # ----------------------------------------------------------------------
 @app.route('/static/<path:filename>')
 async def serve_static(filename):
@@ -280,12 +280,10 @@ async def import_db():
     if not file.filename.endswith('.db'):
         return jsonify({'error': 'File must be a .db file'}), 400
 
-    # Check for custom name and overwrite flag
     form = await request.form
     custom_name = form.get('name', '').strip()
     overwrite = form.get('overwrite', '').lower() == 'true'
 
-    # Log what we received from the frontend
     print(f"[import_db] Received name='{custom_name}', overwrite={overwrite}")
     print(f"[import_db] form keys: {list(form.keys())}")
 
@@ -294,14 +292,13 @@ async def import_db():
         tmp.write(content)
         tmp_path = tmp.name
 
-    # FIX: use 'name' as the keyword argument, not 'custom_name'
     result = await send_command("import-db", file=tmp_path, name=custom_name, overwrite=overwrite)
     os.unlink(tmp_path)
 
     if "error" in result:
         status = 409 if result.get("code") == "CONFLICT" else 500
         return jsonify(result), status
-    return jsonify(result)   # returns model info like {name, version, ...}
+    return jsonify(result)
 
 # -------------------- Native .db export (download current model's db) ---------
 @app.route('/api/models/<name>/export-db', methods=['GET'])

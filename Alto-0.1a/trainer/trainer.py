@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Alto Trainer – per‑model SQLite backend with MessagePack BLOBs and word index.
+Alto Trainer – per‑model SQLite backend with MessagePack BLOBs and FTS5 full‑text search.
 Each model is stored in models/<timestamp>_<safe_name>/model.db.
 No central registry – folder scanning is used.
 """
@@ -14,14 +14,15 @@ import sqlite3
 import shutil
 import msgpack
 import re
-import time  # added for retry delays and debugging
+import time
 from typing import Any, Dict, List, Optional
 
 MODELS_BASE_DIR = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(MODELS_BASE_DIR, exist_ok=True)
 
-_model_connection_cache: Dict[str, sqlite3.Connection] = {}
-
+# ----------------------------------------------------------------------
+# Filename helpers
+# ----------------------------------------------------------------------
 def _safe_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name)
 
@@ -58,52 +59,6 @@ def _get_model_db_path(model_name: str) -> Optional[str]:
         return None
     return os.path.join(MODELS_BASE_DIR, folder, "model.db")
 
-def _connect_model_db(model_name: str, use_cache: bool = False) -> sqlite3.Connection:
-    if use_cache and model_name in _model_connection_cache:
-        return _model_connection_cache[model_name]
-
-    db_path = _get_model_db_path(model_name)
-    if db_path is None:
-        raise FileNotFoundError(f"Model '{model_name}' not found")
-
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    conn.execute("PRAGMA cache_size = -20000")
-    conn.execute("PRAGMA mmap_size = 30000000000")
-    conn.execute("PRAGMA foreign_keys = ON")
-
-    if use_cache:
-        _model_connection_cache[model_name] = conn
-    return conn
-
-def _close_all_model_connections():
-    for conn in _model_connection_cache.values():
-        conn.close()
-    _model_connection_cache.clear()
-
-# ----------------------------------------------------------------------
-# Word index helpers
-# ----------------------------------------------------------------------
-def _normalize_word(word: str) -> str:
-    return re.sub(r'[^\w\s]', '', word.lower())
-
-def _update_word_index(conn: sqlite3.Connection, group_id: int, questions: List[str]):
-    conn.execute("DELETE FROM word_index WHERE group_id = ?", (group_id,))
-    for q_idx, question in enumerate(questions):
-        words = question.split()
-        for word in words:
-            norm = _normalize_word(word)
-            if not norm:
-                continue
-            cur = conn.execute("INSERT OR IGNORE INTO words (word) VALUES (?)", (norm,))
-            cur = conn.execute("SELECT id FROM words WHERE word = ?", (norm,))
-            word_id = cur.fetchone()[0]
-            conn.execute(
-                "INSERT INTO word_index (word_id, group_id, question_idx) VALUES (?, ?, ?)",
-                (word_id, group_id, q_idx)
-            )
-
 # ----------------------------------------------------------------------
 # MsgPack helpers
 # ----------------------------------------------------------------------
@@ -114,7 +69,15 @@ def _unpack_array(data: bytes) -> List:
     return msgpack.unpackb(data, raw=False)
 
 # ----------------------------------------------------------------------
-# Model DB initialization and queries
+# FTS index helper
+# ----------------------------------------------------------------------
+def _update_fts_index(conn: sqlite3.Connection, group_id: int, questions: List[str]):
+    conn.execute("DELETE FROM questions_fts WHERE group_id = ?", (group_id,))
+    for question in questions:
+        conn.execute("INSERT INTO questions_fts(group_id, question) VALUES (?, ?)", (group_id, question))
+
+# ----------------------------------------------------------------------
+# Model DB initialization (FTS5 schema)
 # ----------------------------------------------------------------------
 def _init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
     conn.execute("""
@@ -141,26 +104,14 @@ def _init_model_db(conn: sqlite3.Connection, model_name: str, description: str, 
         )
     """)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT UNIQUE NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS word_index (
-            word_id INTEGER NOT NULL,
-            group_id INTEGER NOT NULL,
-            question_idx INTEGER NOT NULL,
-            FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE,
-            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+        CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(
+            group_id UNINDEXED,
+            question
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_section ON groups(section)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_topic ON groups(topic)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_priority ON groups(priority)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_word ON words(word)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_index_word_id ON word_index(word_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_index_group_id ON word_index(group_id)")
 
     now = datetime.datetime.now().isoformat()
     sections = json.dumps(["General", "Technical", "Creative"], separators=(',', ':'))
@@ -207,7 +158,7 @@ def _update_model_info(conn: sqlite3.Connection, **kwargs):
     return info
 
 # ----------------------------------------------------------------------
-# Group operations with explicit transactions
+# Group operations (no persistent group cache)
 # ----------------------------------------------------------------------
 def _group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
     return {
@@ -220,18 +171,6 @@ def _group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "answers": _unpack_array(row[6]),
         "follow_ups": _unpack_array(row[7])
     }
-
-def _get_all_groups(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
-    cur = conn.execute(
-        "SELECT id, group_name, topic, priority, section, questions_blob, answers_blob, follow_ups_blob FROM groups ORDER BY id"
-    )
-    return [_group_from_row(row) for row in cur]
-
-def _get_group_by_index(conn: sqlite3.Connection, index: int) -> Dict[str, Any]:
-    groups = _get_all_groups(conn)
-    if index < 0 or index >= len(groups):
-        raise IndexError("Group index out of range")
-    return groups[index]
 
 def _insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
     group_dict.setdefault("group_name", "New Group")
@@ -255,7 +194,7 @@ def _insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[st
              group_dict["section"], questions_blob, answers_blob, follow_ups_blob)
         )
         group_id = cursor.fetchone()[0]
-        _update_word_index(conn, group_id, group_dict["questions"])
+        _update_fts_index(conn, group_id, group_dict["questions"])
         conn.commit()
         return group_id
     except Exception:
@@ -283,7 +222,7 @@ def _update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str,
             (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
              group_dict["section"], questions_blob, answers_blob, follow_ups_blob, group_id)
         )
-        _update_word_index(conn, group_id, group_dict["questions"])
+        _update_fts_index(conn, group_id, group_dict["questions"])
         conn.commit()
     except Exception:
         conn.rollback()
@@ -292,24 +231,118 @@ def _update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str,
 def _delete_group(conn: sqlite3.Connection, group_id: int):
     conn.execute("BEGIN IMMEDIATE")
     try:
+        conn.execute("DELETE FROM questions_fts WHERE group_id = ?", (group_id,))
         conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
         conn.commit()
     except Exception:
         conn.rollback()
         raise
 
-def _update_group_by_index(conn: sqlite3.Connection, index: int, new_data: Dict[str, Any]):
-    group = _get_group_by_index(conn, index)
-    group_id = group["id"]
-    _update_group(conn, group_id, new_data)
+# ----------------------------------------------------------------------
+# Model class (caches summaries and follow-ups only)
+# ----------------------------------------------------------------------
+class Model:
+    def __init__(self, name: str):
+        self.name = name
+        db_path = _get_model_db_path(name)
+        if not db_path:
+            raise FileNotFoundError(f"Model '{name}' not found")
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode = WAL")
+        self.conn.execute("PRAGMA synchronous = NORMAL")
+        self.conn.execute("PRAGMA cache_size = -20000")
+        self.conn.execute("PRAGMA mmap_size = 30000000000")
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.row_factory = sqlite3.Row
 
-def _delete_group_by_index(conn: sqlite3.Connection, index: int):
-    group = _get_group_by_index(conn, index)
-    group_id = group["id"]
-    _delete_group(conn, group_id)
+        # Caches (lightweight)
+        self._group_summaries = None          # list of (id, name, topic, priority, section)
+        self._followup_cache = {}              # id -> follow_ups list
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def _load_group_summaries(self):
+        cur = self.conn.execute(
+            "SELECT id, group_name, topic, priority, section FROM groups ORDER BY id"
+        )
+        self._group_summaries = [dict(row) for row in cur]
+
+    def get_group_summaries(self) -> List[Dict]:
+        if self._group_summaries is None:
+            self._load_group_summaries()
+        return self._group_summaries
+
+    def get_group_by_index(self, index: int) -> Dict:
+        """Return full group data for the group at given index (always fresh)."""
+        summaries = self.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            raise IndexError("Group index out of range")
+        group_id = summaries[index]["id"]
+        return self.get_group_by_id(group_id)
+
+    def get_group_by_id(self, group_id: int) -> Dict:
+        """Always load from DB – no persistent cache."""
+        cur = self.conn.execute(
+            "SELECT id, group_name, topic, priority, section, "
+            "questions_blob, answers_blob, follow_ups_blob FROM groups WHERE id = ?",
+            (group_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"Group id {group_id} not found")
+        return _group_from_row(row)   # fresh data each time
+
+    def get_follow_ups(self, group_id: int) -> List:
+        """Cache follow‑ups (small, infrequently changed)."""
+        if group_id not in self._followup_cache:
+            cur = self.conn.execute("SELECT follow_ups_blob FROM groups WHERE id = ?", (group_id,))
+            row = cur.fetchone()
+            self._followup_cache[group_id] = _unpack_array(row[0]) if row and row[0] else []
+        return self._followup_cache[group_id]
+
+    def get_all_groups_full(self) -> List[Dict]:
+        """Return all groups with full data (used for full export)."""
+        summaries = self.get_group_summaries()
+        full_groups = []
+        for s in summaries:
+            g = self.get_group_by_id(s["id"])   # each loads fresh
+            full_groups.append(g)
+        return full_groups
+
+    def insert_group(self, group_dict: Dict) -> int:
+        group_id = _insert_group(self.conn, self.name, group_dict)
+        self._group_summaries = None
+        self._followup_cache.pop(group_id, None)
+        return group_id
+
+    def update_group(self, group_id: int, group_dict: Dict):
+        _update_group(self.conn, group_id, group_dict)
+        self._group_summaries = None
+        self._followup_cache.pop(group_id, None)
+
+    def delete_group(self, group_id: int):
+        _delete_group(self.conn, group_id)
+        self._group_summaries = None
+        self._followup_cache.pop(group_id, None)
+
+# Global model cache
+_model_cache: Dict[str, Model] = {}
+
+def _get_model(name: str) -> Model:
+    if name not in _model_cache:
+        _model_cache[name] = Model(name)
+    return _model_cache[name]
+
+def _close_all_models():
+    for model in _model_cache.values():
+        model.close()
+    _model_cache.clear()
 
 # ----------------------------------------------------------------------
-# Command handlers
+# Command handlers (unchanged, all use Model methods)
 # ----------------------------------------------------------------------
 def cmd_list_models(**kwargs) -> List[Dict]:
     models = []
@@ -360,9 +393,9 @@ def cmd_create_model(name: str, description: str = "", author: str = "", version
 
 def cmd_get_model(name: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        info = _get_model_info(conn)
-        groups = _get_all_groups(conn)
+        model = _get_model(name)
+        info = _get_model_info(model.conn)
+        groups = model.get_all_groups_full()
         for g in groups:
             del g["id"]
         return {**info, "qa_groups": groups}
@@ -370,13 +403,11 @@ def cmd_get_model(name: str, **kwargs) -> Dict:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_update_model(name: str, description: Optional[str] = None, author: Optional[str] = None,
                      version: Optional[str] = None, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
+        model = _get_model(name)
         updates = {}
         if description is not None:
             updates["description"] = description
@@ -384,19 +415,17 @@ def cmd_update_model(name: str, description: Optional[str] = None, author: Optio
             updates["author"] = author
         if version is not None:
             updates["version"] = version
-        new_info = _update_model_info(conn, **updates)
+        new_info = _update_model_info(model.conn, **updates)
         return {"status": "ok", "model": new_info}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_delete_model(name: str, **kwargs) -> Dict:
-    if name in _model_connection_cache:
-        _model_connection_cache[name].close()
-        del _model_connection_cache[name]
+    if name in _model_cache:
+        _model_cache[name].close()
+        del _model_cache[name]
 
     folder = _find_model_dir(name)
     if not folder:
@@ -412,187 +441,200 @@ def cmd_delete_model(name: str, **kwargs) -> Dict:
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
         group_dict = json.loads(data)
-        conn = _connect_model_db(name, use_cache=False)
-        group_id = _insert_group(conn, name, group_dict)
+        model = _get_model(name)
+        group_id = model.insert_group(group_dict)
         return {"status": "ok", "group_id": group_id}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_update_group(name: str, index: int, data: str, **kwargs) -> Dict:
     try:
         group_dict = json.loads(data)
-        conn = _connect_model_db(name, use_cache=False)
-        _update_group_by_index(conn, index, group_dict)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        model.update_group(group_id, group_dict)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
-    except IndexError:
-        return {"error": "Group index out of range"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_delete_group(name: str, index: int, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        _delete_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        model.delete_group(group_id)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
-    except IndexError:
-        return {"error": "Group index out of range"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_add_question(name: str, index: int, text: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         group["questions"].append(text)
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_update_question(name: str, index: int, qidx: int, text: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         if qidx < 0 or qidx >= len(group["questions"]):
             return {"error": "Question index out of range"}
         group["questions"][qidx] = text
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_delete_question(name: str, index: int, qidx: int, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         if qidx < 0 or qidx >= len(group["questions"]):
             return {"error": "Question index out of range"}
         del group["questions"][qidx]
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_add_answer(name: str, index: int, text: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         group["answers"].append(text)
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_update_answer(name: str, index: int, aidx: int, text: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         if aidx < 0 or aidx >= len(group["answers"]):
             return {"error": "Answer index out of range"}
         group["answers"][aidx] = text
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_delete_answer(name: str, index: int, aidx: int, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         if aidx < 0 or aidx >= len(group["answers"]):
             return {"error": "Answer index out of range"}
         del group["answers"][aidx]
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
-        return group.get("follow_ups", [])
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        return model.get_follow_ups(group_id)
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_save_followups(name: str, index: int, data: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        group = _get_group_by_index(conn, index)
+        model = _get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
         group["follow_ups"] = json.loads(data)
-        _update_group_by_index(conn, index, group)
+        model.update_group(group_id, group)
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_add_section(name: str, section: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
-        info = _get_model_info(conn)
+        model = _get_model(name)
+        info = _get_model_info(model.conn)
         if section in info["sections"]:
             return {"error": "Section already exists"}
         info["sections"].append(section)
         info["updated_at"] = datetime.datetime.now().isoformat()
-        conn.execute(
+        model.conn.execute(
             "UPDATE model_info SET sections = ?, updated_at = ? WHERE name = ?",
             (json.dumps(info["sections"], separators=(',', ':')), info["updated_at"], info["name"])
         )
-        conn.commit()
+        model.conn.commit()
+        model._group_summaries = None
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_rename_section(name: str, old: str, new: str, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
+        model = _get_model(name)
+        conn = model.conn
         conn.execute("BEGIN IMMEDIATE")
         info = _get_model_info(conn)
         if old not in info["sections"]:
@@ -612,19 +654,20 @@ def cmd_rename_section(name: str, old: str, new: str, **kwargs) -> Dict:
         for row in cur:
             conn.execute("UPDATE groups SET section = ? WHERE id = ?", (new, row[0]))
         conn.commit()
+        model._group_summaries = None
+        model._followup_cache.clear()
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         conn.rollback()
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 def cmd_delete_section(name: str, section: str, action: str = "uncategorized",
                        target: Optional[str] = None, **kwargs) -> Dict:
     try:
-        conn = _connect_model_db(name, use_cache=False)
+        model = _get_model(name)
+        conn = model.conn
         conn.execute("BEGIN IMMEDIATE")
         info = _get_model_info(conn)
         if section not in info["sections"]:
@@ -656,43 +699,33 @@ def cmd_delete_section(name: str, section: str, action: str = "uncategorized",
             (json.dumps(info["sections"], separators=(',', ':')), info["updated_at"], info["name"])
         )
         conn.commit()
+        model._group_summaries = None
+        model._followup_cache.clear()
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         conn.rollback()
         return {"error": str(e)}
-    finally:
-        conn.close()
 
 # ----------------------------------------------------------------------
-# Import helper with retry
+# Import/Export helpers (unchanged)
 # ----------------------------------------------------------------------
 def delete_with_retry(path, max_attempts=5, delay=0.1):
-    """Attempt to delete a directory, retrying with exponential backoff."""
     for attempt in range(max_attempts):
         try:
             shutil.rmtree(path)
             return True
         except Exception as e:
             if attempt == max_attempts - 1:
-                raise  # final attempt failed
-            time.sleep(delay * (2 ** attempt))  # backoff
+                raise
+            time.sleep(delay * (2 ** attempt))
     return False
 
 def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) -> Dict:
-    """
-    Import a .db file as a new model.
-    - Reads the name from the database.
-    - If `name` is provided, that overrides the database's internal name.
-    - If a model with the final name exists and overwrite=True, it is deleted first.
-    - Otherwise, if it exists, a conflict is returned.
-    """
-    # Debug: log received parameters
     print(f"[DEBUG] import-db called with file={file}, name='{name}', overwrite={overwrite}", file=sys.stderr)
 
     try:
-        # Read the name from the uploaded db
         conn = sqlite3.connect(file)
         cur = conn.execute("SELECT name FROM model_info")
         row = cur.fetchone()
@@ -708,18 +741,14 @@ def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) 
     final_name = name if name else db_name
     print(f"[DEBUG] Final model name to use: '{final_name}'", file=sys.stderr)
 
-    # Check if a model with that name already exists
     existing_dir = _find_model_dir(final_name)
     if existing_dir is not None:
         print(f"[DEBUG] Model '{final_name}' already exists at {existing_dir}", file=sys.stderr)
         if overwrite:
-            # Close any cached connection first
-            if final_name in _model_connection_cache:
-                print(f"[DEBUG] Closing cached connection for '{final_name}'", file=sys.stderr)
-                _model_connection_cache[final_name].close()
-                del _model_connection_cache[final_name]
-
-            # Delete the existing model with retry (Windows file locking)
+            if final_name in _model_cache:
+                print(f"[DEBUG] Closing cached model for '{final_name}'", file=sys.stderr)
+                _model_cache[final_name].close()
+                del _model_cache[final_name]
             old_path = os.path.join(MODELS_BASE_DIR, existing_dir)
             try:
                 delete_with_retry(old_path)
@@ -737,14 +766,12 @@ def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) 
     else:
         print(f"[DEBUG] No existing model found for '{final_name}'", file=sys.stderr)
 
-    # Create new model directory
     folder = _ensure_model_dir(final_name)
     dest_path = os.path.join(MODELS_BASE_DIR, folder, "model.db")
     print(f"[DEBUG] Creating new model at {dest_path}", file=sys.stderr)
 
     try:
         shutil.copyfile(file, dest_path)
-        # If the name in the db differs from final_name, update it
         if final_name != db_name:
             print(f"[DEBUG] Updating database name from '{db_name}' to '{final_name}'", file=sys.stderr)
             conn = sqlite3.connect(dest_path)
@@ -752,21 +779,16 @@ def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) 
             conn.commit()
             conn.close()
 
-        # Read the model info to return
         conn = sqlite3.connect(dest_path)
         info = _get_model_info(conn)
         conn.close()
         print(f"[DEBUG] Import successful for '{final_name}'", file=sys.stderr)
         return {"status": "ok", "model": info}
     except Exception as e:
-        # Clean up on error
         shutil.rmtree(os.path.join(MODELS_BASE_DIR, folder), ignore_errors=True)
         print(f"[DEBUG] Import failed: {str(e)}", file=sys.stderr)
         return {"error": f"Failed to import database: {str(e)}"}
 
-# ----------------------------------------------------------------------
-# Utility command to get db path
-# ----------------------------------------------------------------------
 def cmd_get_model_db_path(name: str, **kwargs) -> Dict:
     folder = _find_model_dir(name)
     if not folder:
@@ -815,16 +837,13 @@ def interactive_loop():
             if cmd not in COMMANDS:
                 result = {"error": f"Unknown command: {cmd}"}
             else:
-                model_name = kwargs.get("name")
-                if model_name and cmd not in ("list-models", "create-model", "import-db", "get-model-db-path"):
-                    _connect_model_db(model_name, use_cache=True)
                 result = COMMANDS[cmd](**kwargs)
         except FileNotFoundError as e:
             result = {"error": str(e)}
         except Exception as e:
             result = {"error": str(e)}
         print(json.dumps(result), flush=True)
-    _close_all_model_connections()
+    _close_all_models()
 
 def main():
     if "--interactive" in sys.argv:
@@ -947,7 +966,7 @@ def main():
     p.set_defaults(func=cmd_get_model_db_path)
 
     p = subparsers.add_parser("import-db")
-    p.add_argument("name", nargs="?")  # optional name for the new model
+    p.add_argument("name", nargs="?")
     p.add_argument("--file", required=True)
     p.add_argument("--overwrite", action="store_true")
     p.set_defaults(func=cmd_import_db)
