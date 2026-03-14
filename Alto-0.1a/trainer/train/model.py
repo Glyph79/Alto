@@ -1,0 +1,275 @@
+import sqlite3
+import json
+import datetime
+from typing import List, Dict, Optional, Any
+from .core import (
+    get_model_db_path, pack_array, unpack_array, update_fts_index,
+    insert_followup_tree, delete_followup_tree, load_followup_tree
+)
+
+# ----------------------------------------------------------------------
+# Model DB initialization
+# ----------------------------------------------------------------------
+def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS model_info (
+            name TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            author TEXT NOT NULL,
+            version TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            sections TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_name TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            section TEXT NOT NULL,
+            questions_blob BLOB NOT NULL,
+            answers_blob BLOB NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(
+            group_id UNINDEXED,
+            question
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS followup_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            parent_id INTEGER,
+            branch_name TEXT NOT NULL,
+            questions_blob BLOB NOT NULL,
+            answers_blob BLOB NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (parent_id) REFERENCES followup_nodes(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group ON followup_nodes(group_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_parent ON followup_nodes(parent_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_section ON groups(section)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_topic ON groups(topic)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_priority ON groups(priority)")
+
+    now = datetime.datetime.now().isoformat()
+    sections = json.dumps(["General", "Technical", "Creative"], separators=(',', ':'))
+    conn.execute(
+        """INSERT INTO model_info
+           (name, description, author, version, created_at, updated_at, sections)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (model_name, description, author, version, now, now, sections)
+    )
+    conn.commit()
+
+def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
+    cur = conn.execute("SELECT name, description, author, version, created_at, updated_at, sections FROM model_info")
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("Model info not found")
+    return {
+        "name": row[0],
+        "description": row[1],
+        "author": row[2],
+        "version": row[3],
+        "created_at": row[4],
+        "updated_at": row[5],
+        "sections": json.loads(row[6])
+    }
+
+def update_model_info(conn: sqlite3.Connection, **kwargs):
+    info = get_model_info(conn)
+    if "description" in kwargs:
+        info["description"] = kwargs["description"]
+    if "author" in kwargs:
+        info["author"] = kwargs["author"]
+    if "version" in kwargs:
+        info["version"] = kwargs["version"]
+    info["updated_at"] = datetime.datetime.now().isoformat()
+    conn.execute(
+        """UPDATE model_info
+           SET description = ?, author = ?, version = ?, updated_at = ?, sections = ?
+           WHERE name = ?""",
+        (info["description"], info["author"], info["version"],
+         info["updated_at"], json.dumps(info["sections"], separators=(',', ':')), info["name"])
+    )
+    conn.commit()
+    return info
+
+# ----------------------------------------------------------------------
+# Group operations
+# ----------------------------------------------------------------------
+def group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row[0],
+        "group_name": row[1],
+        "topic": row[2],
+        "priority": row[3],
+        "section": row[4],
+        "questions": unpack_array(row[5]),
+        "answers": unpack_array(row[6]),
+    }
+
+def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
+    group_dict.setdefault("group_name", "New Group")
+    group_dict.setdefault("questions", [])
+    group_dict.setdefault("answers", [])
+    group_dict.setdefault("topic", "general")
+    group_dict.setdefault("priority", "medium")
+    group_dict.setdefault("section", "")
+
+    questions_blob = pack_array(group_dict["questions"])
+    answers_blob = pack_array(group_dict["answers"])
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cursor = conn.execute(
+            """INSERT INTO groups (group_name, topic, priority, section, questions_blob, answers_blob)
+               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
+             group_dict["section"], questions_blob, answers_blob)
+        )
+        group_id = cursor.fetchone()[0]
+        update_fts_index(conn, group_id, group_dict["questions"])
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+        conn.commit()
+        return group_id
+    except Exception:
+        conn.rollback()
+        raise
+
+def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, Any]):
+    group_dict.setdefault("group_name", "New Group")
+    group_dict.setdefault("questions", [])
+    group_dict.setdefault("answers", [])
+    group_dict.setdefault("topic", "general")
+    group_dict.setdefault("priority", "medium")
+    group_dict.setdefault("section", "")
+
+    questions_blob = pack_array(group_dict["questions"])
+    answers_blob = pack_array(group_dict["answers"])
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            """UPDATE groups SET group_name = ?, topic = ?, priority = ?, section = ?,
+               questions_blob = ?, answers_blob = ? WHERE id = ?""",
+            (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
+             group_dict["section"], questions_blob, answers_blob, group_id)
+        )
+        update_fts_index(conn, group_id, group_dict["questions"])
+        delete_followup_tree(conn, group_id)
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+def delete_group(conn: sqlite3.Connection, group_id: int):
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("DELETE FROM questions_fts WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+# ----------------------------------------------------------------------
+# Model class (caches summaries only)
+# ----------------------------------------------------------------------
+class Model:
+    def __init__(self, name: str):
+        self.name = name
+        db_path = get_model_db_path(name)
+        if not db_path:
+            raise FileNotFoundError(f"Model '{name}' not found")
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode = WAL")
+        self.conn.execute("PRAGMA synchronous = NORMAL")
+        self.conn.execute("PRAGMA cache_size = -20000")
+        self.conn.execute("PRAGMA mmap_size = 30000000000")
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.row_factory = sqlite3.Row
+
+        self._group_summaries = None
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def _load_group_summaries(self):
+        cur = self.conn.execute(
+            "SELECT id, group_name, topic, priority, section FROM groups ORDER BY id"
+        )
+        self._group_summaries = [dict(row) for row in cur]
+
+    def get_group_summaries(self) -> List[Dict]:
+        if self._group_summaries is None:
+            self._load_group_summaries()
+        return self._group_summaries
+
+    def get_group_by_index(self, index: int) -> Dict:
+        summaries = self.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            raise IndexError("Group index out of range")
+        group_id = summaries[index]["id"]
+        return self.get_group_by_id(group_id)
+
+    def get_group_by_id(self, group_id: int) -> Dict:
+        cur = self.conn.execute(
+            "SELECT id, group_name, topic, priority, section, "
+            "questions_blob, answers_blob FROM groups WHERE id = ?",
+            (group_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError(f"Group id {group_id} not found")
+        group = group_from_row(row)
+        group["follow_ups"] = load_followup_tree(self.conn, group_id)
+        return group
+
+    def get_all_groups_full(self) -> List[Dict]:
+        summaries = self.get_group_summaries()
+        full_groups = []
+        for s in summaries:
+            g = self.get_group_by_id(s["id"])
+            full_groups.append(g)
+        return full_groups
+
+    def insert_group(self, group_dict: Dict) -> int:
+        group_id = insert_group(self.conn, self.name, group_dict)
+        self._group_summaries = None
+        return group_id
+
+    def update_group(self, group_id: int, group_dict: Dict):
+        update_group(self.conn, group_id, group_dict)
+        self._group_summaries = None
+
+    def delete_group(self, group_id: int):
+        delete_group(self.conn, group_id)
+        self._group_summaries = None
+
+# ----------------------------------------------------------------------
+# Global model cache
+# ----------------------------------------------------------------------
+_model_cache: Dict[str, Model] = {}
+
+def get_model(name: str) -> Model:
+    if name not in _model_cache:
+        _model_cache[name] = Model(name)
+    return _model_cache[name]
+
+def close_all_models():
+    for model in _model_cache.values():
+        model.close()
+    _model_cache.clear()

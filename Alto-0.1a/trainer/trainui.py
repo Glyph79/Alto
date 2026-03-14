@@ -7,7 +7,7 @@ import tempfile
 
 app = Quart(__name__, template_folder="templates", static_folder="static")
 
-TRAINER_CLI = os.path.join(os.path.dirname(__file__), "trainer.py")
+TRAINER_CLI = os.path.join(os.path.dirname(__file__), "RuleTrainer.py")   # was trainer.py
 trainer_process = None
 trainer_stdin = None
 trainer_stdout = None
