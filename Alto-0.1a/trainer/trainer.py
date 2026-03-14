@@ -490,6 +490,51 @@ def cmd_delete_model(name: str, **kwargs) -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
+def cmd_rename_model(name: str, new_name: str, **kwargs) -> Dict:
+    # Check if old model exists
+    old_folder = _find_model_dir(name)
+    if not old_folder:
+        return {"error": f"Model '{name}' not found"}
+
+    # Check if new name already exists
+    if _find_model_dir(new_name) is not None:
+        return {"error": f"Model '{new_name}' already exists"}
+
+    # Close model if open in cache
+    if name in _model_cache:
+        _model_cache[name].close()
+        del _model_cache[name]
+
+    old_path = os.path.join(MODELS_BASE_DIR, old_folder)
+    # Build new folder name: keep same timestamp, use safe new name
+    timestamp = old_folder.split('_')[0]  # assumes format YYYY-MM-DD_safe_name
+    safe_new = _safe_filename(new_name)
+    new_folder = f"{timestamp}_{safe_new}"
+    new_path = os.path.join(MODELS_BASE_DIR, new_folder)
+
+    # Ensure uniqueness (should not happen because we checked _find_model_dir)
+    counter = 1
+    while os.path.exists(new_path):
+        new_folder = f"{timestamp}_{safe_new}_{counter}"
+        new_path = os.path.join(MODELS_BASE_DIR, new_folder)
+        counter += 1
+
+    try:
+        # Rename folder
+        os.rename(old_path, new_path)
+        # Update database inside the moved folder
+        db_path = os.path.join(new_path, "model.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE model_info SET name = ? WHERE name = ?", (new_name, name))
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "old_name": name, "new_name": new_name}
+    except Exception as e:
+        # Attempt to rollback rename if something fails
+        if os.path.exists(new_path) and not os.path.exists(old_path):
+            os.rename(new_path, old_path)
+        return {"error": f"Rename failed: {str(e)}"}
+
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
         group_dict = json.loads(data)
@@ -855,6 +900,7 @@ COMMANDS = {
     "get-model":        cmd_get_model,
     "update-model":     cmd_update_model,
     "delete-model":     cmd_delete_model,
+    "rename-model":     cmd_rename_model,
     "add-group":        cmd_add_group,
     "update-group":     cmd_update_group,
     "delete-group":     cmd_delete_group,
@@ -928,6 +974,11 @@ def main():
     p = subparsers.add_parser("delete-model")
     p.add_argument("name")
     p.set_defaults(func=cmd_delete_model)
+
+    p = subparsers.add_parser("rename-model")
+    p.add_argument("name")
+    p.add_argument("new_name")
+    p.set_defaults(func=cmd_rename_model)
 
     p = subparsers.add_parser("add-group")
     p.add_argument("name")

@@ -119,6 +119,17 @@ async def delete_model(name):
         return jsonify(result), 404
     return jsonify({"status": "ok"})
 
+@app.route('/api/models/<name>/rename', methods=['POST'])
+async def rename_model(name):
+    data = await request.get_json()
+    new_name = data.get('new_name')
+    if not new_name:
+        return jsonify({"error": "New name required"}), 400
+    result = await send_command("rename-model", name=name, new_name=new_name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok", "new_name": new_name})
+
 @app.route('/api/models/<name>/groups', methods=['GET'])
 async def get_groups(name):
     result = await send_command("get-model", name=name)

@@ -112,7 +112,6 @@ function setControlsEnabled(enabled) {
         document.getElementById('modelSelect'),
         document.getElementById('editModelBtn'),
         document.getElementById('deleteModelBtn'),
-        document.getElementById('saveModelBtn'),
         document.getElementById('exportBtn'),
         document.getElementById('addGroupBtn'),
         document.getElementById('createFirstGroupBtn'),
@@ -751,12 +750,66 @@ document.getElementById('editModelBtn').onclick = async () => {
     if (!currentModel) return;
     const data = await apiGet(`/api/models/${currentModel}`);
     showSimpleModal('Edit Model', [
+        { name: 'name', label: 'Model Name', value: data.name },
         { name: 'description', label: 'Description', value: data.description || '' },
         { name: 'author', label: 'Author', value: data.author || '' },
         { name: 'version', label: 'Version', value: data.version || '1.0.0' }
     ], async (vals, errorDiv) => {
-        await apiPut(`/api/models/${currentModel}`, vals);
+        // Check if name changed
+        if (vals.name !== currentModel) {
+            // Call rename API
+            const renameRes = await fetch(`/api/models/${currentModel}/rename`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_name: vals.name })
+            });
+            if (!renameRes.ok) {
+                const err = await renameRes.json();
+                errorDiv.textContent = err.error || 'Rename failed';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            // After rename, update metadata using new name
+            const updateRes = await fetch(`/api/models/${vals.name}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    description: vals.description,
+                    author: vals.author,
+                    version: vals.version
+                })
+            });
+            if (!updateRes.ok) {
+                const err = await updateRes.json();
+                errorDiv.textContent = err.error || 'Update failed';
+                errorDiv.style.display = 'block';
+                return;
+            }
+        } else {
+            // Name unchanged – just update metadata
+            const updateRes = await fetch(`/api/models/${currentModel}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    description: vals.description,
+                    author: vals.author,
+                    version: vals.version
+                })
+            });
+            if (!updateRes.ok) {
+                const err = await updateRes.json();
+                errorDiv.textContent = err.error || 'Update failed';
+                errorDiv.style.display = 'block';
+                return;
+            }
+        }
+        // Reload models and switch to the (possibly new) model
         await loadModels();
+        const select = document.getElementById('modelSelect');
+        if (select.querySelector(`option[value="${vals.name}"]`)) {
+            select.value = vals.name;
+            await switchModel(vals.name);
+        }
         document.getElementById('simpleModal').style.display = 'none';
     }, 'Save');
 };
@@ -768,8 +821,6 @@ document.getElementById('deleteModelBtn').onclick = async () => {
         await loadModels();
     });
 };
-
-document.getElementById('saveModelBtn').onclick = () => alert('All changes are auto-saved.');
 
 // ========== Section Filter ==========
 document.getElementById('sectionFilter').onchange = renderGroups;
