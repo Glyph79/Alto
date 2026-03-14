@@ -8,6 +8,9 @@ from collections import OrderedDict
 
 MODELS_BASE_DIR = os.path.join(os.path.dirname(__file__), "models")
 
+# Global bot instance (persists across calls)
+_bot = None
+
 def _safe_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name)
 
@@ -43,14 +46,21 @@ def _group_from_row(row: sqlite3.Row) -> dict:
         "answers": _unpack_array(row[6]),
     }
 
+def _node_from_row(row: sqlite3.Row) -> dict:
+    return {
+        "id": row[0],
+        "branch_name": row[1],
+        "questions": _unpack_array(row[2]),
+        "answers": _unpack_array(row[3]),
+        "children": None  # to be loaded lazily
+    }
+
 def _normalize_word(word: str) -> str:
     return re.sub(r'[^\w\s]', '', word.lower())
 
 def _get_group_ids_for_words(conn: sqlite3.Connection, words: list[str]) -> set[int]:
-    """Return set of group IDs whose questions contain any of the given words (using FTS5)."""
     if not words:
         return set()
-    # Build a MATCH expression: word1 OR word2 OR ...
     match_expr = ' OR '.join(f'"{w}"' for w in words)
     cur = conn.execute(
         "SELECT DISTINCT group_id FROM questions_fts WHERE questions_fts MATCH ?",
@@ -59,7 +69,6 @@ def _get_group_ids_for_words(conn: sqlite3.Connection, words: list[str]) -> set[
     return {row[0] for row in cur}
 
 def _get_groups_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[dict]:
-    """Load full group data for the given IDs."""
     if not group_ids:
         return []
     placeholders = ','.join(['?'] * len(group_ids))
@@ -72,27 +81,107 @@ def _get_groups_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[d
     cur = conn.execute(query, group_ids)
     return [_group_from_row(row) for row in cur]
 
+class SessionTree:
+    def __init__(self, conn: sqlite3.Connection, group_id: int, turn: int):
+        self.conn = conn
+        self.group_id = group_id
+        self.last_used_turn = turn
+
+        self._node_cache = {}
+        self._root_ids = set()
+        self.path = []
+
+        self._load_roots()
+
+    def _load_roots(self):
+        cur = self.conn.execute(
+            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes "
+            "WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
+            (self.group_id,)
+        )
+        for row in cur:
+            node = _node_from_row(row)
+            node_id = node["id"]
+            node["children"] = None
+            self._node_cache[node_id] = node
+            self._root_ids.add(node_id)
+
+    def _load_children(self, node_id: int):
+        cur = self.conn.execute(
+            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes "
+            "WHERE parent_id = ? ORDER BY id",
+            (node_id,)
+        )
+        children = []
+        for row in cur:
+            node = _node_from_row(row)
+            child_id = node["id"]
+            node["children"] = None
+            self._node_cache[child_id] = node
+            children.append(node)
+        if node_id in self._node_cache:
+            self._node_cache[node_id]["children"] = children
+
+    def get_candidate_nodes(self) -> list[dict]:
+        candidates = []
+        if not self.path:
+            candidates = [self._node_cache[nid] for nid in self._root_ids if nid in self._node_cache]
+        else:
+            for node_id in self.path:
+                if node_id in self._node_cache:
+                    candidates.append(self._node_cache[node_id])
+            current_id = self.path[-1]
+            if current_id in self._node_cache:
+                current = self._node_cache[current_id]
+                if current["children"] is None:
+                    self._load_children(current_id)
+                candidates.extend(current["children"])
+        return candidates
+
+    def move_to_node(self, node_id: int):
+        if node_id in self.path:
+            idx = self.path.index(node_id)
+            self.path = self.path[:idx+1]
+            return
+        if self.path:
+            current_id = self.path[-1]
+            if current_id in self._node_cache:
+                current = self._node_cache[current_id]
+                if current["children"] is None:
+                    self._load_children(current_id)
+                if any(child["id"] == node_id for child in current["children"]):
+                    self.path.append(node_id)
+                    return
+        if node_id in self._root_ids:
+            self.path = [node_id]
+            return
+        self.path = [node_id]
+
+    def get_roots(self) -> list[dict]:
+        return [self._node_cache[nid] for nid in self._root_ids if nid in self._node_cache]
+
+    def is_leaf(self) -> bool:
+        if not self.path:
+            return False
+        current_id = self.path[-1]
+        if current_id not in self._node_cache:
+            return False
+        current = self._node_cache[current_id]
+        if current["children"] is None:
+            self._load_children(current_id)
+        return len(current["children"]) == 0
+
+    def get_timeout(self) -> int:
+        return 5 if self.is_leaf() else 10
+
 class RuleBot:
     DEFAULT_MODEL = "Alto"
     MAX_TREES = 3
-    INACTIVITY_TIMEOUT = 10
-    ENDED_TIMEOUT = 5
-    DEFAULT_CACHE_TURNS = 5
-    DEFAULT_MAX_CACHED_GROUPS = 3
+    GROUP_CACHE_SIZE = 3
 
-    def __init__(self, model_name: str | None = None, threshold: int = 70,
-                 group_cache_turns: int = DEFAULT_CACHE_TURNS,
-                 max_cached_groups: int = DEFAULT_MAX_CACHED_GROUPS):
-        """
-        :param model_name: Name of the model to load.
-        :param threshold: Minimum fuzzy match score to consider a match.
-        :param group_cache_turns: Number of turns a group stays in cache without use before being evicted.
-        :param max_cached_groups: Maximum number of groups to keep in the LRU cache.
-        """
+    def __init__(self, model_name: str | None = None, threshold: int = 70):
         self.threshold = threshold
         self.fallback = "I'm sorry, I didn't understand that."
-        self.group_cache_turns = group_cache_turns
-        self.max_cached_groups = max_cached_groups
 
         model = model_name or self.DEFAULT_MODEL
         db_path = _get_model_db_path(model)
@@ -103,10 +192,8 @@ class RuleBot:
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.row_factory = sqlite3.Row
 
-        # LRU cache: group_id -> (group_data, last_used_turn)
         self._group_cache = OrderedDict()
-        # Follow‑up tree cache (cleared when group evicted)
-        self._followup_cache = {}
+        self._session_trees: dict[int, SessionTree] = {}
 
         self.turn = 0
 
@@ -118,26 +205,11 @@ class RuleBot:
     def __del__(self):
         self.close()
 
-    # ---------- Group loading with turn‑based LRU cache ----------
-    def _load_group(self, group_id: int) -> dict:
-        """
-        Load a group, using cache if fresh. If the group is not in cache or has expired,
-        load from database, add to cache, and enforce max cache size.
-        """
-        # Check cache
+    def _get_group(self, group_id: int) -> dict:
         if group_id in self._group_cache:
-            group_data, last_turn = self._group_cache[group_id]
-            if self.turn - last_turn < self.group_cache_turns:
-                # Fresh – move to end (most recent) and return
-                self._group_cache.move_to_end(group_id)
-                self._group_cache[group_id] = (group_data, self.turn)
-                return group_data
-            else:
-                # Expired – remove from caches
-                del self._group_cache[group_id]
-                self._followup_cache.pop(group_id, None)
+            self._group_cache.move_to_end(group_id)
+            return self._group_cache[group_id]
 
-        # Load from database
         cur = self.conn.execute(
             "SELECT id, group_name, topic, priority, section, "
             "questions_blob, answers_blob FROM groups WHERE id = ?",
@@ -146,67 +218,44 @@ class RuleBot:
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group id {group_id} not found")
-        group_data = _group_from_row(row)
+        group = _group_from_row(row)
 
-        # Insert into cache, respecting max size
-        self._group_cache[group_id] = (group_data, self.turn)
+        self._group_cache[group_id] = group
         self._group_cache.move_to_end(group_id)
-        if len(self._group_cache) > self.max_cached_groups:
-            # Remove least recently used (first item)
+        if len(self._group_cache) > self.GROUP_CACHE_SIZE:
             oldest_id, _ = self._group_cache.popitem(last=False)
-            self._followup_cache.pop(oldest_id, None)
+            self._session_trees.pop(oldest_id, None)
 
-        return group_data
+        return group
 
-    def _load_groups(self, group_ids: list[int]) -> list[dict]:
-        """
-        Load multiple groups, using cache where possible.
-        Returns groups in the same order as group_ids (but cached ones may come first).
-        """
-        if not group_ids:
-            return []
+    def _get_session_tree(self, group_id: int) -> SessionTree | None:
+        return self._session_trees.get(group_id)
 
-        result = []
-        uncached_ids = []
+    def _create_session_tree(self, group_id: int) -> SessionTree:
+        tree = SessionTree(self.conn, group_id, self.turn)
+        self._session_trees[group_id] = tree
 
-        for gid in group_ids:
-            if gid in self._group_cache:
-                group_data, last_turn = self._group_cache[gid]
-                if self.turn - last_turn < self.group_cache_turns:
-                    # Fresh – use and update
-                    self._group_cache.move_to_end(gid)
-                    self._group_cache[gid] = (group_data, self.turn)
-                    result.append(group_data)
-                else:
-                    # Expired – remove and queue for reload
-                    del self._group_cache[gid]
-                    self._followup_cache.pop(gid, None)
-                    uncached_ids.append(gid)
-            else:
-                uncached_ids.append(gid)
+        if len(self._session_trees) > self.MAX_TREES:
+            oldest_id = min(self._session_trees.items(), key=lambda x: x[1].last_used_turn)[0]
+            del self._session_trees[oldest_id]
 
-        if uncached_ids:
-            fresh_groups = _get_groups_by_ids(self.conn, uncached_ids)
-            for g in fresh_groups:
-                gid = g["id"]
-                self._group_cache[gid] = (g, self.turn)
-                self._group_cache.move_to_end(gid)
-                result.append(g)
+        return tree
 
-        # Enforce max size after batch additions
-        while len(self._group_cache) > self.max_cached_groups:
-            oldest_id, _ = self._group_cache.popitem(last=False)
-            self._followup_cache.pop(oldest_id, None)
+    def _prune_session_trees(self):
+        expired = []
+        for gid, tree in self._session_trees.items():
+            timeout = tree.get_timeout()
+            if self.turn - tree.last_used_turn > timeout:
+                expired.append(gid)
+        for gid in expired:
+            del self._session_trees[gid]
 
-        return result
-
-    # ---------- Matching (unchanged) ----------
     def _best_match_in_nodes(self, user_input: str, nodes: list[dict]) -> tuple[int | None, dict | None]:
         best_score = 0
         best_node = None
         user_lower = user_input.lower()
         for node in nodes:
-            for q in node["questions"]:
+            for q in node.get("questions", []):
                 q_lower = q.lower()
                 score = fuzz.token_set_ratio(user_lower, q_lower)
                 if score > best_score:
@@ -231,128 +280,57 @@ class RuleBot:
             return best_score, best_group
         return None, None
 
-    def _random_answer(self, group: dict) -> str:
-        if group and group.get("answers"):
-            return random.choice(group["answers"])
+    def _random_answer(self, group_or_node: dict) -> str:
+        if group_or_node and group_or_node.get("answers"):
+            return random.choice(group_or_node["answers"])
         return self.fallback
-
-    def _random_answer_from_node(self, node: dict) -> str:
-        if node and node.get("answers"):
-            return random.choice(node["answers"])
-        return self.fallback
-
-    def _get_follow_up_nodes(self, group_id: int) -> list[dict]:
-        if group_id not in self._followup_cache:
-            cur = self.conn.execute("SELECT follow_ups_blob FROM groups WHERE id = ?", (group_id,))
-            row = cur.fetchone()
-            if row and row[0]:
-                nodes = _unpack_array(row[0])
-                self._followup_cache[group_id] = nodes
-            else:
-                self._followup_cache[group_id] = []
-        return self._followup_cache[group_id]
-
-    def _prune_trees(self, trees: list) -> list:
-        new_trees = []
-        for tree in trees:
-            if tree.get("ended_turn") is not None:
-                if self.turn - tree["ended_turn"] < self.ENDED_TIMEOUT:
-                    new_trees.append(tree)
-            else:
-                if self.turn - tree["last_used"] < self.INACTIVITY_TIMEOUT:
-                    new_trees.append(tree)
-        return new_trees
-
-    def _evict_lru(self, trees: list):
-        if not trees:
-            return
-        lru_idx = min(range(len(trees)), key=lambda i: trees[i]["last_used"])
-        trees.pop(lru_idx)
-
-    def _handle_root_match(self, group: dict, trees: list) -> tuple[str, list]:
-        group_id = group["id"]
-        for idx, tree in enumerate(trees):
-            if tree["group_id"] == group_id:
-                tree["current_nodes"] = self._get_follow_up_nodes(group_id)
-                tree["last_used"] = self.turn
-                tree.pop("ended_turn", None)
-                trees.pop(idx)
-                trees.insert(0, tree)
-                return self._random_answer(group), trees
-
-        follow_nodes = self._get_follow_up_nodes(group_id)
-        if follow_nodes:
-            new_tree = {
-                "group_id": group_id,
-                "current_nodes": follow_nodes,
-                "last_used": self.turn,
-                "ended_turn": None
-            }
-            trees.insert(0, new_tree)
-            if len(trees) > self.MAX_TREES:
-                self._evict_lru(trees)
-        return self._random_answer(group), trees
 
     def get_response(self, user_input: str, state: dict = None) -> tuple[str, dict]:
         self.turn += 1
         if state is None:
             state = {}
-        trees = state.get("trees", [])
-        trees = [dict(t) for t in trees]
+
+        self._prune_session_trees()
 
         norm_words = [_normalize_word(w) for w in user_input.split() if w]
 
-        # 1. Match against active follow‑up trees
-        candidates = []
-        for ti, tree in enumerate(trees):
-            if tree.get("ended_turn") is not None:
+        for gid, tree in list(self._session_trees.items()):
+            candidates = tree.get_candidate_nodes()
+            if not candidates:
                 continue
-            for node in tree["current_nodes"]:
-                candidates.append((node, ti))
+            score, matched_node = self._best_match_in_nodes(user_input, candidates)
+            if matched_node:
+                tree.last_used_turn = self.turn
+                tree.move_to_node(matched_node['id'])
+                self._get_group(gid)
+                return self._random_answer(matched_node), {"trees": []}
 
-        if candidates:
-            best_score = 0
-            best_node = None
-            best_ti = None
-            for node, ti in candidates:
-                score, _ = self._best_match_in_nodes(user_input, [node])
-                if score and score > best_score:
-                    best_score = score
-                    best_node = node
-                    best_ti = ti
-
-            if best_score >= self.threshold:
-                tree = trees[best_ti]
-                tree["last_used"] = self.turn
-                if best_node.get("children"):
-                    tree["current_nodes"] = best_node["children"]
-                    tree.pop("ended_turn", None)
-                else:
-                    tree["current_nodes"] = []
-                    tree["ended_turn"] = self.turn
-                trees.pop(best_ti)
-                trees.insert(0, tree)
-                trees = self._prune_trees(trees)
-                return self._random_answer_from_node(best_node), {"trees": trees}
-
-        # 2. Use FTS index to find candidate groups
         candidate_group_ids = _get_group_ids_for_words(self.conn, norm_words)
         if candidate_group_ids:
-            candidate_groups = self._load_groups(list(candidate_group_ids))
+            candidate_groups = _get_groups_by_ids(self.conn, list(candidate_group_ids))
             score, matched_group = self._best_match_in_groups(user_input, candidate_groups)
             if matched_group:
-                answer, new_trees = self._handle_root_match(matched_group, trees)
-                new_trees = self._prune_trees(new_trees)
-                return answer, {"trees": new_trees}
+                gid = matched_group["id"]
+                self._get_group(gid)
+                tree = self._get_session_tree(gid)
+                if not tree:
+                    tree = self._create_session_tree(gid)
+                root_score, matched_root = self._best_match_in_nodes(user_input, tree.get_roots())
+                if matched_root:
+                    tree.last_used_turn = self.turn
+                    tree.move_to_node(matched_root['id'])
+                    return self._random_answer(matched_root), {"trees": []}
+                return self._random_answer(matched_group), {"trees": []}
 
-        # 3. No match at all
-        trees = self._prune_trees(trees)
-        return self.fallback, {"trees": trees}
+        return self.fallback, {"trees": []}
 
 def handle(text: str, state: dict = None) -> tuple[str, dict]:
-    bot = RuleBot()
+    global _bot
+    if _bot is None:
+        _bot = RuleBot()
     try:
-        response, new_state = bot.get_response(text, state)
-    finally:
-        bot.close()
+        response, new_state = _bot.get_response(text, state)
+    except Exception:
+        _bot = RuleBot()
+        response, new_state = _bot.get_response(text, state)
     return response, new_state

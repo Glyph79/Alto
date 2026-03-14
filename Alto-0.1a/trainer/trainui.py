@@ -13,7 +13,6 @@ trainer_stdin = None
 trainer_stdout = None
 
 async def log_trainer_stderr():
-    """Read and print trainer's stderr to the console."""
     global trainer_process
     while trainer_process and trainer_process.stderr:
         line = await trainer_process.stderr.readline()
@@ -28,11 +27,10 @@ async def start_trainer():
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE   # capture stderr
+        stderr=asyncio.subprocess.PIPE
     )
     trainer_stdin = trainer_process.stdin
     trainer_stdout = trainer_process.stdout
-    # Start a background task to log stderr
     asyncio.create_task(log_trainer_stderr())
 
 async def stop_trainer():
@@ -52,7 +50,6 @@ async def send_command(command, **kwargs):
     await trainer_stdin.drain()
     response_line = await trainer_stdout.readline()
     if not response_line:
-        # Process died, restart and retry once
         await stop_trainer()
         await start_trainer()
         trainer_stdin.write(line.encode())
@@ -65,9 +62,6 @@ async def send_command(command, **kwargs):
     except json.JSONDecodeError:
         return {"error": "Invalid JSON from trainer"}
 
-# ----------------------------------------------------------------------
-# API routes (unchanged)
-# ----------------------------------------------------------------------
 @app.route('/static/<path:filename>')
 async def serve_static(filename):
     return await send_from_directory('static', filename)
@@ -270,7 +264,6 @@ async def delete_section(name, section):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# -------------------- Native .db import (creates new model) --------------------
 @app.route('/api/models/import-db', methods=['POST'])
 async def import_db():
     files = await request.files
@@ -300,7 +293,6 @@ async def import_db():
         return jsonify(result), status
     return jsonify(result)
 
-# -------------------- Native .db export (download current model's db) ---------
 @app.route('/api/models/<name>/export-db', methods=['GET'])
 async def export_db(name):
     result = await send_command("get-model-db-path", name=name)

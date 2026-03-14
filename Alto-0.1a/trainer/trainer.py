@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Alto Trainer – per‑model SQLite backend with MessagePack BLOBs and FTS5 full‑text search.
+Normalized follow‑up nodes for memory‑efficient AI.
 Each model is stored in models/<timestamp>_<safe_name>/model.db.
 No central registry – folder scanning is used.
 """
@@ -77,7 +78,52 @@ def _update_fts_index(conn: sqlite3.Connection, group_id: int, questions: List[s
         conn.execute("INSERT INTO questions_fts(group_id, question) VALUES (?, ?)", (group_id, question))
 
 # ----------------------------------------------------------------------
-# Model DB initialization (FTS5 schema)
+# Follow‑up node helpers (normalized)
+# ----------------------------------------------------------------------
+def _insert_followup_tree(conn: sqlite3.Connection, group_id: int, tree: List[Dict], parent_id: Optional[int] = None):
+    """Recursively insert follow‑up nodes into followup_nodes table."""
+    for node in tree:
+        questions_blob = _pack_array(node.get("questions", []))
+        answers_blob = _pack_array(node.get("answers", []))
+        cursor = conn.execute(
+            """INSERT INTO followup_nodes (group_id, parent_id, branch_name, questions_blob, answers_blob)
+               VALUES (?, ?, ?, ?, ?) RETURNING id""",
+            (group_id, parent_id, node.get("branch_name", ""), questions_blob, answers_blob)
+        )
+        node_id = cursor.fetchone()[0]
+        if node.get("children"):
+            _insert_followup_tree(conn, group_id, node["children"], parent_id=node_id)
+
+def _delete_followup_tree(conn: sqlite3.Connection, group_id: int):
+    """Delete all follow‑up nodes for a group."""
+    conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
+
+def _load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None) -> List[Dict]:
+    """Recursively load follow‑up nodes from followup_nodes table."""
+    if parent_id is None:
+        cur = conn.execute(
+            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
+            (group_id,)
+        )
+    else:
+        cur = conn.execute(
+            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes WHERE parent_id = ? ORDER BY id",
+            (parent_id,)
+        )
+    nodes = []
+    for row in cur:
+        node = {
+            "id": row[0],
+            "branch_name": row[1],
+            "questions": _unpack_array(row[2]),
+            "answers": _unpack_array(row[3]),
+            "children": _load_followup_tree(conn, group_id, parent_id=row[0])
+        }
+        nodes.append(node)
+    return nodes
+
+# ----------------------------------------------------------------------
+# Model DB initialization (new schema)
 # ----------------------------------------------------------------------
 def _init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
     conn.execute("""
@@ -99,16 +145,31 @@ def _init_model_db(conn: sqlite3.Connection, model_name: str, description: str, 
             priority TEXT NOT NULL,
             section TEXT NOT NULL,
             questions_blob BLOB NOT NULL,
-            answers_blob BLOB NOT NULL,
-            follow_ups_blob BLOB NOT NULL
+            answers_blob BLOB NOT NULL
         )
     """)
+    # FTS5 virtual table for questions
     conn.execute("""
         CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(
             group_id UNINDEXED,
             question
         )
     """)
+    # Normalized follow‑up nodes table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS followup_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            parent_id INTEGER,
+            branch_name TEXT NOT NULL,
+            questions_blob BLOB NOT NULL,
+            answers_blob BLOB NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (parent_id) REFERENCES followup_nodes(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group ON followup_nodes(group_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_parent ON followup_nodes(parent_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_section ON groups(section)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_topic ON groups(topic)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_priority ON groups(priority)")
@@ -169,7 +230,7 @@ def _group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "section": row[4],
         "questions": _unpack_array(row[5]),
         "answers": _unpack_array(row[6]),
-        "follow_ups": _unpack_array(row[7])
+        # follow_ups are loaded separately
     }
 
 def _insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
@@ -179,22 +240,23 @@ def _insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[st
     group_dict.setdefault("topic", "general")
     group_dict.setdefault("priority", "medium")
     group_dict.setdefault("section", "")
-    group_dict.setdefault("follow_ups", [])
 
     questions_blob = _pack_array(group_dict["questions"])
     answers_blob = _pack_array(group_dict["answers"])
-    follow_ups_blob = _pack_array(group_dict["follow_ups"])
 
     conn.execute("BEGIN IMMEDIATE")
     try:
         cursor = conn.execute(
-            """INSERT INTO groups (group_name, topic, priority, section, questions_blob, answers_blob, follow_ups_blob)
-               VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
+            """INSERT INTO groups (group_name, topic, priority, section, questions_blob, answers_blob)
+               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
             (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
-             group_dict["section"], questions_blob, answers_blob, follow_ups_blob)
+             group_dict["section"], questions_blob, answers_blob)
         )
         group_id = cursor.fetchone()[0]
         _update_fts_index(conn, group_id, group_dict["questions"])
+        # Insert follow‑ups if provided
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            _insert_followup_tree(conn, group_id, group_dict["follow_ups"])
         conn.commit()
         return group_id
     except Exception:
@@ -208,21 +270,23 @@ def _update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str,
     group_dict.setdefault("topic", "general")
     group_dict.setdefault("priority", "medium")
     group_dict.setdefault("section", "")
-    group_dict.setdefault("follow_ups", [])
 
     questions_blob = _pack_array(group_dict["questions"])
     answers_blob = _pack_array(group_dict["answers"])
-    follow_ups_blob = _pack_array(group_dict["follow_ups"])
 
     conn.execute("BEGIN IMMEDIATE")
     try:
         conn.execute(
             """UPDATE groups SET group_name = ?, topic = ?, priority = ?, section = ?,
-               questions_blob = ?, answers_blob = ?, follow_ups_blob = ? WHERE id = ?""",
+               questions_blob = ?, answers_blob = ? WHERE id = ?""",
             (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
-             group_dict["section"], questions_blob, answers_blob, follow_ups_blob, group_id)
+             group_dict["section"], questions_blob, answers_blob, group_id)
         )
         _update_fts_index(conn, group_id, group_dict["questions"])
+        # Replace follow‑ups
+        _delete_followup_tree(conn, group_id)
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            _insert_followup_tree(conn, group_id, group_dict["follow_ups"])
         conn.commit()
     except Exception:
         conn.rollback()
@@ -232,6 +296,7 @@ def _delete_group(conn: sqlite3.Connection, group_id: int):
     conn.execute("BEGIN IMMEDIATE")
     try:
         conn.execute("DELETE FROM questions_fts WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
         conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
         conn.commit()
     except Exception:
@@ -239,7 +304,7 @@ def _delete_group(conn: sqlite3.Connection, group_id: int):
         raise
 
 # ----------------------------------------------------------------------
-# Model class (caches summaries and follow-ups only)
+# Model class (caches summaries only)
 # ----------------------------------------------------------------------
 class Model:
     def __init__(self, name: str):
@@ -255,9 +320,7 @@ class Model:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.row_factory = sqlite3.Row
 
-        # Caches (lightweight)
-        self._group_summaries = None          # list of (id, name, topic, priority, section)
-        self._followup_cache = {}              # id -> follow_ups list
+        self._group_summaries = None
 
     def close(self):
         if self.conn:
@@ -276,7 +339,6 @@ class Model:
         return self._group_summaries
 
     def get_group_by_index(self, index: int) -> Dict:
-        """Return full group data for the group at given index (always fresh)."""
         summaries = self.get_group_summaries()
         if index < 0 or index >= len(summaries):
             raise IndexError("Group index out of range")
@@ -284,49 +346,39 @@ class Model:
         return self.get_group_by_id(group_id)
 
     def get_group_by_id(self, group_id: int) -> Dict:
-        """Always load from DB – no persistent cache."""
         cur = self.conn.execute(
             "SELECT id, group_name, topic, priority, section, "
-            "questions_blob, answers_blob, follow_ups_blob FROM groups WHERE id = ?",
+            "questions_blob, answers_blob FROM groups WHERE id = ?",
             (group_id,)
         )
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group id {group_id} not found")
-        return _group_from_row(row)   # fresh data each time
-
-    def get_follow_ups(self, group_id: int) -> List:
-        """Cache follow‑ups (small, infrequently changed)."""
-        if group_id not in self._followup_cache:
-            cur = self.conn.execute("SELECT follow_ups_blob FROM groups WHERE id = ?", (group_id,))
-            row = cur.fetchone()
-            self._followup_cache[group_id] = _unpack_array(row[0]) if row and row[0] else []
-        return self._followup_cache[group_id]
+        group = _group_from_row(row)
+        # Load follow‑ups
+        group["follow_ups"] = _load_followup_tree(self.conn, group_id)
+        return group
 
     def get_all_groups_full(self) -> List[Dict]:
-        """Return all groups with full data (used for full export)."""
         summaries = self.get_group_summaries()
         full_groups = []
         for s in summaries:
-            g = self.get_group_by_id(s["id"])   # each loads fresh
+            g = self.get_group_by_id(s["id"])
             full_groups.append(g)
         return full_groups
 
     def insert_group(self, group_dict: Dict) -> int:
         group_id = _insert_group(self.conn, self.name, group_dict)
         self._group_summaries = None
-        self._followup_cache.pop(group_id, None)
         return group_id
 
     def update_group(self, group_id: int, group_dict: Dict):
         _update_group(self.conn, group_id, group_dict)
         self._group_summaries = None
-        self._followup_cache.pop(group_id, None)
 
     def delete_group(self, group_id: int):
         _delete_group(self.conn, group_id)
         self._group_summaries = None
-        self._followup_cache.pop(group_id, None)
 
 # Global model cache
 _model_cache: Dict[str, Model] = {}
@@ -342,7 +394,7 @@ def _close_all_models():
     _model_cache.clear()
 
 # ----------------------------------------------------------------------
-# Command handlers (unchanged, all use Model methods)
+# Command handlers
 # ----------------------------------------------------------------------
 def cmd_list_models(**kwargs) -> List[Dict]:
     models = []
@@ -589,7 +641,8 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
-        return model.get_follow_ups(group_id)
+        group = model.get_group_by_id(group_id)
+        return group.get("follow_ups", [])
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
@@ -655,7 +708,6 @@ def cmd_rename_section(name: str, old: str, new: str, **kwargs) -> Dict:
             conn.execute("UPDATE groups SET section = ? WHERE id = ?", (new, row[0]))
         conn.commit()
         model._group_summaries = None
-        model._followup_cache.clear()
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
@@ -700,7 +752,6 @@ def cmd_delete_section(name: str, section: str, action: str = "uncategorized",
         )
         conn.commit()
         model._group_summaries = None
-        model._followup_cache.clear()
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
@@ -709,7 +760,7 @@ def cmd_delete_section(name: str, section: str, action: str = "uncategorized",
         return {"error": str(e)}
 
 # ----------------------------------------------------------------------
-# Import/Export helpers (unchanged)
+# Import/Export helpers
 # ----------------------------------------------------------------------
 def delete_with_retry(path, max_attempts=5, delay=0.1):
     for attempt in range(max_attempts):
