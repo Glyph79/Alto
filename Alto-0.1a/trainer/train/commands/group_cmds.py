@@ -1,0 +1,178 @@
+"""Commands for group and Q&A operations."""
+import json
+from typing import Dict
+from ..model import get_model
+
+def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
+    try:
+        group_dict = json.loads(data)
+        model = get_model(name)
+        group_id = model.insert_group(group_dict)
+        return {"status": "ok", "group_id": group_id}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_update_group(name: str, index: int, data: str, **kwargs) -> Dict:
+    try:
+        group_dict = json.loads(data)
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        model.update_group(group_id, group_dict)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_delete_group(name: str, index: int, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        model.delete_group(group_id)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_add_question(name: str, index: int, text: str, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        group["questions"].append(text)
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_update_question(name: str, index: int, qidx: int, text: str, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        if qidx < 0 or qidx >= len(group["questions"]):
+            return {"error": "Question index out of range"}
+        group["questions"][qidx] = text
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_delete_question(name: str, index: int, qidx: int, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        if qidx < 0 or qidx >= len(group["questions"]):
+            return {"error": "Question index out of range"}
+        del group["questions"][qidx]
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_add_answer(name: str, index: int, text: str, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        group["answers"].append(text)
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_update_answer(name: str, index: int, aidx: int, text: str, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        if aidx < 0 or aidx >= len(group["answers"]):
+            return {"error": "Answer index out of range"}
+        group["answers"][aidx] = text
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_delete_answer(name: str, index: int, aidx: int, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        if aidx < 0 or aidx >= len(group["answers"]):
+            return {"error": "Answer index out of range"}
+        del group["answers"][aidx]
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        return group.get("follow_ups", [])
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_save_followups(name: str, index: int, data: str, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        group["follow_ups"] = json.loads(data)
+        model.update_group(group_id, group)
+        return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}

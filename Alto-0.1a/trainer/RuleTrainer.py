@@ -7,7 +7,7 @@ Replaces the original monolithic trainer.py.
 import argparse
 import json
 import sys
-from train.commands import COMMANDS
+from train.cmd_router import COMMANDS
 from train.model import close_all_models
 
 def interactive_loop():
