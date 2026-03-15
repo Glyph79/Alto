@@ -4,7 +4,7 @@ import datetime
 from typing import List, Dict, Optional, Any
 from .core import (
     get_model_db_path, pack_array, unpack_array, update_fts_index,
-    insert_followup_tree, delete_followup_tree, load_followup_tree
+    insert_followup_tree, delete_followup_tree, load_followup_tree_full
 )
 
 # ----------------------------------------------------------------------
@@ -19,7 +19,8 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             version TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            sections TEXT NOT NULL
+            sections TEXT NOT NULL,
+            topics TEXT NOT NULL
         )
     """)
     conn.execute("""
@@ -59,7 +60,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
 
     now = datetime.datetime.now().isoformat()
     sections = json.dumps(["General", "Technical", "Creative"], separators=(',', ':'))
-    # Add default topics
     default_topics = json.dumps(["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"], separators=(',', ':'))
     conn.execute(
         """INSERT INTO model_info
@@ -237,13 +237,6 @@ class Model:
             self._load_group_summaries()
         return self._group_summaries
 
-    def get_group_by_index(self, index: int) -> Dict:
-        summaries = self.get_group_summaries()
-        if index < 0 or index >= len(summaries):
-            raise IndexError("Group index out of range")
-        group_id = summaries[index]["id"]
-        return self.get_group_by_id(group_id)
-
     def get_group_by_id(self, group_id: int) -> Dict:
         cur = self.conn.execute(
             "SELECT id, group_name, topic, priority, section, "
@@ -254,7 +247,7 @@ class Model:
         if not row:
             raise ValueError(f"Group id {group_id} not found")
         group = group_from_row(row)
-        group["follow_ups"] = load_followup_tree(self.conn, group_id)
+        group["follow_ups"] = load_followup_tree_full(self.conn, group_id)
         return group
 
     def get_all_groups_full(self) -> List[Dict]:

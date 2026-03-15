@@ -1,11 +1,12 @@
-from quart import Quart, request, jsonify, send_file, render_template, send_from_directory
+# trainui.py
+from quart import Quart, request, jsonify, send_file, send_from_directory
 import asyncio
 import json
 import os
 import sys
 import tempfile
 
-app = Quart(__name__, template_folder="templates", static_folder="static")
+app = Quart(__name__, static_folder="static")  # static folder only, no templates
 
 TRAINER_CLI = os.path.join(os.path.dirname(__file__), "RuleTrainer.py")
 trainer_process = None
@@ -62,13 +63,13 @@ async def send_command(command, **kwargs):
     except json.JSONDecodeError:
         return {"error": "Invalid JSON from trainer"}
 
+@app.route('/')
+async def index():
+    return await app.send_static_file('index.html')
+
 @app.route('/static/<path:filename>')
 async def serve_static(filename):
     return await send_from_directory('static', filename)
-
-@app.route('/')
-async def index():
-    return await render_template('index.html')
 
 @app.route('/api/models', methods=['GET'])
 async def list_models():
@@ -282,7 +283,6 @@ async def delete_section(name, section):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# ========== New topic routes ==========
 @app.route('/api/models/<name>/topics', methods=['GET'])
 async def get_topics(name):
     result = await send_command("get-topics", name=name)

@@ -1,10 +1,13 @@
+<!-- static/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alto Trainer · Full Editor</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="/static/groups/style/groups.css">
+    <link rel="stylesheet" href="/static/groups/style/tree.css">
+    <link rel="stylesheet" href="/static/topics/style/topics.css">
 </head>
 <body>
     <header>
@@ -187,12 +190,12 @@
     </div>
 
     <!-- JavaScript files in dependency order -->
-    <script src="{{ url_for('static', filename='groups/core.js') }}"></script>
-    <script src="{{ url_for('static', filename='groups/display.js') }}"></script>
-    <script src="{{ url_for('static', filename='groups/groups.js') }}"></script>
-    <script src="{{ url_for('static', filename='groups/models.js') }}"></script>
-    <script src="{{ url_for('static', filename='groups/tree.js') }}"></script>
-    <script src="{{ url_for('static', filename='topics/topics.js') }}"></script>
+    <script src="/static/groups/javascript/core.js"></script>
+    <script src="/static/groups/javascript/display.js"></script>
+    <script src="/static/groups/javascript/groups.js"></script>
+    <script src="/static/groups/javascript/models.js"></script>
+    <script src="/static/groups/javascript/tree.js"></script>
+    <script src="/static/topics/javascript/topics.js"></script>
 
     <!-- Tab switching logic with sidebar toggling -->
     <script>

@@ -61,7 +61,6 @@ window.setControlsEnabled = function(enabled) {
     ];
     modelDependentControls.forEach(ctrl => { if (ctrl) ctrl.disabled = !enabled; });
 
-    // Import and create model buttons are always enabled
     document.getElementById('importBtn').disabled = false;
     document.getElementById('createModelBtn').disabled = false;
     document.getElementById('createFirstModelBtn').disabled = false;

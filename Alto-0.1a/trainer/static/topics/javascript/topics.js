@@ -154,6 +154,7 @@ function addTopic() {
             await window.apiPost(`/api/models/${window.currentModel}/topics`, { topic: vals.topic });
             await window.loadTopics();
             document.getElementById('simpleModal').style.display = 'none';
+            // popModal is called inside showSimpleModal's cancel/save
         } catch (err) {
             errorDiv.textContent = err.message;
             errorDiv.style.display = 'block';
@@ -203,6 +204,7 @@ function editTopic(oldName) {
         </div>
     `;
     modal.style.display = 'flex';
+    window.pushModal('simpleModal');
 
     // Attach edit/delete handlers
     document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
@@ -211,12 +213,10 @@ function editTopic(oldName) {
             const li = e.target.closest('.group-usage-item');
             const groupIndex = li.dataset.groupIndex;
             if (groupIndex !== undefined) {
-                // Hide topic modal
-                modal.style.display = 'none';
-                // Open group modal with callback to reopen topic modal
+                // Open group modal – stacking handles it
                 window.openGroupModal(parseInt(groupIndex), () => {
-                    const currentTopicName = document.getElementById('editTopicName').value;
-                    editTopic(currentTopicName);
+                    // After group modal closes, we don't need to do anything
+                    // The topic modal is still there (with hidden backdrop) and will reappear
                 });
             }
         });
@@ -234,9 +234,13 @@ function editTopic(oldName) {
                     li.remove();
                     // Update group counts in window.groups and topic card
                     await window.loadGroupsAndSections();
-                    // Re-open the edit modal for the same topic (will have updated list)
+                    // Refresh the group count on the topic card
+                    // We'll just re-render the topic modal to show updated list
+                    const currentTopicName = document.getElementById('editTopicName').value;
+                    // Close current modal and reopen
                     modal.style.display = 'none';
-                    editTopic(oldName);
+                    window.popModal();
+                    editTopic(currentTopicName);
                 });
             }
         });
@@ -244,6 +248,7 @@ function editTopic(oldName) {
 
     document.getElementById('editTopicCancelBtn').onclick = () => {
         modal.style.display = 'none';
+        window.popModal();
     };
     document.getElementById('editTopicSaveBtn').onclick = async () => {
         const newName = document.getElementById('editTopicName').value.trim();
@@ -253,12 +258,14 @@ function editTopic(oldName) {
         }
         if (newName === oldName) {
             modal.style.display = 'none';
+            window.popModal();
             return;
         }
         try {
             await window.apiPut(`/api/models/${window.currentModel}/topics/${oldName}`, { new_name: newName });
             await window.loadTopics();
             modal.style.display = 'none';
+            window.popModal();
         } catch (err) {
             alert('Failed to rename topic: ' + err.message);
         }
@@ -300,8 +307,12 @@ function deleteTopic(topic) {
         </div>
     `;
     modal.style.display = 'flex';
+    window.pushModal('simpleModal');
 
-    document.getElementById('deleteCancelBtn').onclick = () => { modal.style.display = 'none'; };
+    document.getElementById('deleteCancelBtn').onclick = () => {
+        modal.style.display = 'none';
+        window.popModal();
+    };
     document.getElementById('deleteConfirmBtn').onclick = async () => {
         if (groupsUsing > 0) {
             const action = document.querySelector('input[name="deleteAction"]:checked').value;
@@ -312,6 +323,7 @@ function deleteTopic(topic) {
                 await window.apiDelete(url);
                 await window.loadTopics();
                 modal.style.display = 'none';
+                window.popModal();
             } catch (err) {
                 alert('Failed to delete topic: ' + err.message);
             }
@@ -320,12 +332,14 @@ function deleteTopic(topic) {
             if (!target) {
                 alert('Cannot delete the last topic.');
                 modal.style.display = 'none';
+                window.popModal();
                 return;
             }
             try {
                 await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=${target}`);
                 await window.loadTopics();
                 modal.style.display = 'none';
+                window.popModal();
             } catch (err) {
                 alert('Failed to delete topic: ' + err.message);
             }

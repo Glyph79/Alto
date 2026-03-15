@@ -1,3 +1,42 @@
+// ========== Modal Stack Management ==========
+let modalStack = [];
+
+window.pushModal = function(modalId) {
+    if (!modalStack.includes(modalId)) {
+        modalStack.push(modalId);
+        updateModalBackdrops();
+    }
+};
+
+window.popModal = function() {
+    modalStack.pop();
+    updateModalBackdrops();
+};
+
+function updateModalBackdrops() {
+    const modals = ['groupModal', 'treeModal', 'simpleModal'];
+    modals.forEach(id => {
+        const modal = document.getElementById(id);
+        if (!modal) return;
+
+        const stackIndex = modalStack.indexOf(id);
+        if (stackIndex !== -1) {
+            const baseZ = 1000;
+            const topZ = baseZ + modalStack.length;
+            if (stackIndex === modalStack.length - 1) {
+                modal.style.zIndex = topZ;
+                modal.classList.remove('modal-backdrop-hidden');
+            } else {
+                modal.style.zIndex = baseZ + stackIndex + 1;
+                modal.classList.add('modal-backdrop-hidden');
+            }
+        } else {
+            modal.style.zIndex = 1000;
+            modal.classList.add('modal-backdrop-hidden');
+        }
+    });
+}
+
 // ========== Modal Helpers ==========
 window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
     const modal = document.getElementById('simpleModal');
@@ -17,8 +56,12 @@ window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
             </div>`;
     content.innerHTML = html;
     modal.style.display = 'flex';
+    window.pushModal('simpleModal');
 
-    document.getElementById('simpleCancelBtn').onclick = () => { modal.style.display = 'none'; };
+    document.getElementById('simpleCancelBtn').onclick = () => {
+        modal.style.display = 'none';
+        window.popModal();
+    };
     document.getElementById('simpleSaveBtn').onclick = () => {
         const values = {};
         fields.forEach(f => values[f.name] = document.getElementById(`simple_${f.name}`).value);
@@ -40,10 +83,15 @@ window.showConfirmModal = function(message, onConfirm) {
         </div>
     `;
     modal.style.display = 'flex';
+    window.pushModal('simpleModal');
 
-    document.getElementById('confirmNoBtn').onclick = () => { modal.style.display = 'none'; };
+    document.getElementById('confirmNoBtn').onclick = () => {
+        modal.style.display = 'none';
+        window.popModal();
+    };
     document.getElementById('confirmYesBtn').onclick = () => {
         modal.style.display = 'none';
+        window.popModal();
         onConfirm();
     };
 };

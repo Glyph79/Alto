@@ -2,7 +2,7 @@
 import json
 from typing import Dict
 from ..model import get_model
-from ..core import load_followup_tree, unpack_array
+from ..core import load_followup_tree_skeleton, unpack_array
 
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
@@ -155,8 +155,8 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
-        # Load skeleton only (no details)
-        tree = load_followup_tree(model.conn, group_id, include_details=False)
+        # Load skeleton only
+        tree = load_followup_tree_skeleton(model.conn, group_id)
         return tree
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}

@@ -5,7 +5,8 @@ import sqlite3
 import shutil
 from typing import Dict
 from ..core import (
-    MODELS_BASE_DIR, find_model_dir, ensure_model_dir, delete_with_retry
+    MODELS_BASE_DIR, find_model_dir, ensure_model_dir, delete_with_retry,
+    safe_filename
 )
 from ..model import _model_cache, get_model_info
 
@@ -54,7 +55,8 @@ def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) 
         print(f"[DEBUG] No existing model found for '{final_name}'", file=sys.stderr)
 
     folder = ensure_model_dir(final_name)
-    dest_path = os.path.join(MODELS_BASE_DIR, folder, "model.db")
+    safe = safe_filename(final_name)
+    dest_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
     print(f"[DEBUG] Creating new model at {dest_path}", file=sys.stderr)
 
     try:

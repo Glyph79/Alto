@@ -47,7 +47,8 @@ def get_model_db_path(model_name: str) -> Optional[str]:
     folder = find_model_dir(model_name)
     if not folder:
         return None
-    return os.path.join(MODELS_BASE_DIR, folder, "model.db")
+    safe = safe_filename(model_name)
+    return os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
 
 # ----------------------------------------------------------------------
 # MsgPack helpers
@@ -67,7 +68,7 @@ def update_fts_index(conn: sqlite3.Connection, group_id: int, questions: List[st
         conn.execute("INSERT INTO questions_fts(group_id, question) VALUES (?, ?)", (group_id, question))
 
 # ----------------------------------------------------------------------
-# Follow‑up node helpers (normalized)
+# Follow‑up node helpers (normalized) – lazy loading mandatory
 # ----------------------------------------------------------------------
 def insert_followup_tree(conn: sqlite3.Connection, group_id: int, tree: List[Dict], parent_id: Optional[int] = None):
     for node in tree:
@@ -85,8 +86,30 @@ def insert_followup_tree(conn: sqlite3.Connection, group_id: int, tree: List[Dic
 def delete_followup_tree(conn: sqlite3.Connection, group_id: int):
     conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
 
-def load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None, include_details: bool = True) -> List[Dict]:
-    """Recursively load follow‑up nodes. If include_details=False, questions/answers are omitted."""
+def load_followup_tree_skeleton(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None) -> List[Dict]:
+    """Recursively load only the structure (ids and branch names) of follow‑up nodes."""
+    if parent_id is None:
+        cur = conn.execute(
+            "SELECT id, branch_name FROM followup_nodes WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
+            (group_id,)
+        )
+    else:
+        cur = conn.execute(
+            "SELECT id, branch_name FROM followup_nodes WHERE parent_id = ? ORDER BY id",
+            (parent_id,)
+        )
+    nodes = []
+    for row in cur:
+        node = {
+            "id": row[0],
+            "branch_name": row[1],
+        }
+        node["children"] = load_followup_tree_skeleton(conn, group_id, parent_id=row[0])
+        nodes.append(node)
+    return nodes
+
+def load_followup_tree_full(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None) -> List[Dict]:
+    """Recursively load full follow‑up nodes with questions and answers."""
     if parent_id is None:
         cur = conn.execute(
             "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
@@ -102,11 +125,10 @@ def load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optio
         node = {
             "id": row[0],
             "branch_name": row[1],
+            "questions": unpack_array(row[2]),
+            "answers": unpack_array(row[3]),
         }
-        if include_details:
-            node["questions"] = unpack_array(row[2])
-            node["answers"] = unpack_array(row[3])
-        node["children"] = load_followup_tree(conn, group_id, parent_id=row[0], include_details=include_details)
+        node["children"] = load_followup_tree_full(conn, group_id, parent_id=row[0])
         nodes.append(node)
     return nodes
 
