@@ -3,14 +3,48 @@ let modalStack = [];
 
 window.pushModal = function(modalId) {
     if (!modalStack.includes(modalId)) {
+        const wasEmpty = modalStack.length === 0;
         modalStack.push(modalId);
         updateModalBackdrops();
+
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+
+        if (wasEmpty) {
+            // First modal: animate in
+            modal.classList.remove('no-transition');
+            modal.classList.add('visible');
+        } else {
+            // Subsequent modal: appear instantly
+            modal.classList.add('no-transition');
+            modal.classList.add('visible');
+            // Force reflow to skip transition
+            void modal.offsetHeight;
+            modal.classList.remove('no-transition');
+        }
     }
 };
 
 window.popModal = function() {
-    modalStack.pop();
+    const closingId = modalStack.pop();
     updateModalBackdrops();
+
+    if (closingId) {
+        const modal = document.getElementById(closingId);
+        if (!modal) return;
+
+        const stillOpen = modalStack.length > 0;
+        if (stillOpen) {
+            // There are still modals open: disappear instantly
+            modal.classList.add('no-transition');
+            modal.classList.remove('visible');
+            void modal.offsetHeight;
+            modal.classList.remove('no-transition');
+        } else {
+            // Last modal: animate out
+            modal.classList.remove('visible');
+        }
+    }
 };
 
 function updateModalBackdrops() {
@@ -55,19 +89,25 @@ window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
                 <button class="cancel" id="simpleCancelBtn">Cancel</button>
             </div>`;
     content.innerHTML = html;
-    modal.classList.add('visible');
     window.pushModal('simpleModal');
 
     document.getElementById('simpleCancelBtn').onclick = () => {
-        modal.classList.remove('visible');
         window.popModal();
     };
-    document.getElementById('simpleSaveBtn').onclick = () => {
+    document.getElementById('simpleSaveBtn').onclick = async () => {
         const values = {};
         fields.forEach(f => values[f.name] = document.getElementById(`simple_${f.name}`).value);
         const errorDiv = document.getElementById('simpleModalError');
         errorDiv.style.display = 'none';
-        onSave(values, errorDiv);
+        try {
+            await onSave(values, errorDiv);
+            if (errorDiv.style.display === 'none') {
+                window.popModal();   // success – close
+            }
+        } catch (err) {
+            errorDiv.textContent = err.message || 'An error occurred';
+            errorDiv.style.display = 'block';
+        }
     };
 };
 
@@ -78,20 +118,17 @@ window.showConfirmModal = function(message, onConfirm) {
         <h2>Confirm</h2>
         <p style="margin: 20px 0; color: #ccc;">${message}</p>
         <div class="modal-actions">
-            <button class="cancel" id="confirmNoBtn">No</button>
             <button class="save" id="confirmYesBtn">Yes</button>
+            <button class="cancel" id="confirmNoBtn">No</button>
         </div>
     `;
-    modal.classList.add('visible');
     window.pushModal('simpleModal');
 
-    document.getElementById('confirmNoBtn').onclick = () => {
-        modal.classList.remove('visible');
-        window.popModal();
-    };
     document.getElementById('confirmYesBtn').onclick = () => {
-        modal.classList.remove('visible');
         window.popModal();
         onConfirm();
+    };
+    document.getElementById('confirmNoBtn').onclick = () => {
+        window.popModal();
     };
 };

@@ -25,7 +25,7 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,  -- no AUTOINCREMENT
             group_name TEXT NOT NULL,
             topic TEXT NOT NULL,
             priority TEXT NOT NULL,
@@ -44,7 +44,7 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS followup_nodes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,  -- no AUTOINCREMENT
             group_id INTEGER NOT NULL,
             parent_id INTEGER,
             branch_name TEXT NOT NULL,
@@ -54,11 +54,12 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             FOREIGN KEY (parent_id) REFERENCES followup_nodes(id) ON DELETE CASCADE
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group ON followup_nodes(group_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_parent ON followup_nodes(parent_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_section ON groups(section)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_topic ON groups(topic)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_priority ON groups(priority)")
+    # Composite index for fast root/child queries
+    conn.execute("CREATE INDEX idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
+    conn.execute("CREATE INDEX idx_followup_nodes_parent ON followup_nodes(parent_id)")
+    conn.execute("CREATE INDEX idx_groups_section ON groups(section)")
+    conn.execute("CREATE INDEX idx_groups_topic ON groups(topic)")
+    conn.execute("CREATE INDEX idx_groups_priority ON groups(priority)")
 
     now = datetime.datetime.now().isoformat()
     sections = json.dumps(["General", "Technical", "Creative"], separators=(',', ':'))
@@ -112,7 +113,8 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
 # ----------------------------------------------------------------------
 # Group operations
 # ----------------------------------------------------------------------
-def group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
+def group_from_row_full(row: sqlite3.Row) -> Dict[str, Any]:
+    """Full group with both questions and answers."""
     return {
         "id": row[0],
         "group_name": row[1],
@@ -121,6 +123,18 @@ def group_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         "section": row[4],
         "questions": unpack_array(row[5]),
         "answers": unpack_array(row[6]),
+    }
+
+def group_from_row_light(row: sqlite3.Row) -> Dict[str, Any]:
+    """Light group with only questions (answers set to None)."""
+    return {
+        "id": row[0],
+        "group_name": row[1],
+        "topic": row[2],
+        "priority": row[3],
+        "section": row[4],
+        "questions": unpack_array(row[5]),
+        "answers": None,
     }
 
 def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
@@ -200,6 +214,11 @@ def delete_group(conn: sqlite3.Connection, group_id: int):
         conn.rollback()
         raise
 
+def load_group_answers(conn: sqlite3.Connection, group_id: int) -> List[str]:
+    cur = conn.execute("SELECT answers_blob FROM groups WHERE id = ?", (group_id,))
+    row = cur.fetchone()
+    return unpack_array(row[0]) if row else []
+
 # ----------------------------------------------------------------------
 # Model class (caches summaries only)
 # ----------------------------------------------------------------------
@@ -217,10 +236,12 @@ class Model:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.row_factory = sqlite3.Row
 
-        # Ensure topics column exists for older models
+        # Ensure topics column exists for older models (if any remain)
         self._ensure_topics_column()
         # Ensure count columns exist for older models
         self._ensure_count_columns()
+        # Ensure the composite index exists (optional, for new databases it's already there)
+        self._ensure_tree_index()
 
         self._group_summaries = None
 
@@ -229,7 +250,6 @@ class Model:
         try:
             self.conn.execute("SELECT topics FROM model_info LIMIT 1")
         except sqlite3.OperationalError:
-            # Column doesn't exist – add it with default
             default_topics = json.dumps(["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"], separators=(',', ':'))
             self.conn.execute(f"ALTER TABLE model_info ADD COLUMN topics TEXT NOT NULL DEFAULT '{default_topics}'")
             self.conn.commit()
@@ -241,13 +261,24 @@ class Model:
         except sqlite3.OperationalError:
             self.conn.execute("ALTER TABLE groups ADD COLUMN question_count INTEGER NOT NULL DEFAULT 0")
             self.conn.execute("ALTER TABLE groups ADD COLUMN answer_count INTEGER NOT NULL DEFAULT 0")
-            # Backfill counts for existing groups
             cur = self.conn.execute("SELECT id, questions_blob, answers_blob FROM groups")
             for row in cur:
                 q_count = len(unpack_array(row[1]))
                 a_count = len(unpack_array(row[2]))
                 self.conn.execute("UPDATE groups SET question_count = ?, answer_count = ? WHERE id = ?",
                                   (q_count, a_count, row[0]))
+            self.conn.commit()
+
+    def _ensure_tree_index(self):
+        """Add the composite index if missing (for old DBs that might be migrated)."""
+        try:
+            self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_followup_nodes_group_parent'").fetchone()
+        except:
+            self.conn.execute("CREATE INDEX idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
+            self.conn.execute("CREATE INDEX idx_followup_nodes_parent ON followup_nodes(parent_id)")
+            # Optionally drop old indexes
+            self.conn.execute("DROP INDEX IF EXISTS idx_followup_nodes_group")
+            self.conn.execute("DROP INDEX IF EXISTS idx_followup_nodes_parent_old")  # just in case
             self.conn.commit()
 
     def close(self):
@@ -287,21 +318,32 @@ class Model:
         return summaries
 
     def get_sections(self) -> List[str]:
-        """Return the list of sections for this model."""
         info = get_model_info(self.conn)
         return info["sections"]
 
-    def get_group_by_id(self, group_id: int) -> Dict:
-        cur = self.conn.execute(
-            "SELECT id, group_name, topic, priority, section, "
-            "questions_blob, answers_blob FROM groups WHERE id = ?",
-            (group_id,)
-        )
-        row = cur.fetchone()
-        if not row:
-            raise ValueError(f"Group id {group_id} not found")
-        group = group_from_row(row)
-        group["follow_ups"] = load_followup_tree_full(self.conn, group_id)
+    def get_group_by_id(self, group_id: int, include_answers: bool = True) -> Dict:
+        """Get a group. If include_answers=False, answers will be None."""
+        if include_answers:
+            cur = self.conn.execute(
+                "SELECT id, group_name, topic, priority, section, "
+                "questions_blob, answers_blob FROM groups WHERE id = ?",
+                (group_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"Group id {group_id} not found")
+            group = group_from_row_full(row)
+            group["follow_ups"] = load_followup_tree_full(self.conn, group_id)
+        else:
+            cur = self.conn.execute(
+                "SELECT id, group_name, topic, priority, section, "
+                "questions_blob FROM groups WHERE id = ?",
+                (group_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"Group id {group_id} not found")
+            group = group_from_row_light(row)
         return group
 
     def get_all_groups_full(self) -> List[Dict]:
@@ -313,7 +355,6 @@ class Model:
         return full_groups
 
     def _validate_topic(self, topic: str):
-        """Raise ValueError if topic not in model's topics list."""
         topics = self.get_topics()
         if topic not in topics:
             raise ValueError(f"Topic '{topic}' is not in model's topics list")
@@ -334,7 +375,6 @@ class Model:
         self._group_summaries = None
 
     def get_topics(self) -> List[str]:
-        """Return the list of topics for this model."""
         cur = self.conn.execute("SELECT topics FROM model_info")
         row = cur.fetchone()
         if not row:
@@ -342,7 +382,6 @@ class Model:
         return json.loads(row[0])
 
     def update_topics(self, topics: List[str]):
-        """Replace the topics list and update timestamp."""
         info = get_model_info(self.conn)
         info["updated_at"] = datetime.datetime.now().isoformat()
         self.conn.execute(

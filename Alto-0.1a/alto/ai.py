@@ -30,12 +30,24 @@ def _get_model_db_path(model_name: str) -> str | None:
     folder = _find_model_dir(model_name)
     if not folder:
         return None
-    return os.path.join(MODELS_BASE_DIR, folder, "model.db")
+    safe = _safe_filename(model_name)
+    return os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
 
 def _unpack_array(data: bytes) -> list:
     return msgpack.unpackb(data, raw=False)
 
-def _group_from_row(row: sqlite3.Row) -> dict:
+def _node_from_row_light(row: sqlite3.Row) -> dict:
+    """Create node with only id, branch_name, questions; answers = None."""
+    return {
+        "id": row[0],
+        "branch_name": row[1],
+        "questions": _unpack_array(row[2]),
+        "answers": None,
+        "children": None
+    }
+
+def _group_from_row_light(row: sqlite3.Row) -> dict:
+    """Create group with only metadata and questions; answers = None."""
     return {
         "id": row[0],
         "group_name": row[1],
@@ -43,16 +55,7 @@ def _group_from_row(row: sqlite3.Row) -> dict:
         "priority": row[3],
         "section": row[4],
         "questions": _unpack_array(row[5]),
-        "answers": _unpack_array(row[6]),
-    }
-
-def _node_from_row(row: sqlite3.Row) -> dict:
-    return {
-        "id": row[0],
-        "branch_name": row[1],
-        "questions": _unpack_array(row[2]),
-        "answers": _unpack_array(row[3]),
-        "children": None  # to be loaded lazily
+        "answers": None
     }
 
 def _normalize_word(word: str) -> str:
@@ -68,18 +71,28 @@ def _get_group_ids_for_words(conn: sqlite3.Connection, words: list[str]) -> set[
     )
     return {row[0] for row in cur}
 
-def _get_groups_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[dict]:
+def _get_group_light_by_ids(conn: sqlite3.Connection, group_ids: list[int]) -> list[dict]:
     if not group_ids:
         return []
     placeholders = ','.join(['?'] * len(group_ids))
     query = f"""
         SELECT id, group_name, topic, priority, section,
-               questions_blob, answers_blob
+               questions_blob
         FROM groups
         WHERE id IN ({placeholders})
     """
     cur = conn.execute(query, group_ids)
-    return [_group_from_row(row) for row in cur]
+    return [_group_from_row_light(row) for row in cur]
+
+def _load_node_answers(conn: sqlite3.Connection, node_id: int) -> list:
+    cur = conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+    row = cur.fetchone()
+    return _unpack_array(row[0]) if row else []
+
+def _load_group_answers(conn: sqlite3.Connection, group_id: int) -> list:
+    cur = conn.execute("SELECT answers_blob FROM groups WHERE id = ?", (group_id,))
+    row = cur.fetchone()
+    return _unpack_array(row[0]) if row else []
 
 class SessionTree:
     def __init__(self, conn: sqlite3.Connection, group_id: int, turn: int):
@@ -87,7 +100,7 @@ class SessionTree:
         self.group_id = group_id
         self.last_used_turn = turn
 
-        self._node_cache = {}
+        self._node_cache = {}          # node_id -> node dict (light, answers=None)
         self._root_ids = set()
         self.path = []
 
@@ -95,12 +108,12 @@ class SessionTree:
 
     def _load_roots(self):
         cur = self.conn.execute(
-            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes "
+            "SELECT id, branch_name, questions_blob FROM followup_nodes "
             "WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
             (self.group_id,)
         )
         for row in cur:
-            node = _node_from_row(row)
+            node = _node_from_row_light(row)
             node_id = node["id"]
             node["children"] = None
             self._node_cache[node_id] = node
@@ -108,19 +121,24 @@ class SessionTree:
 
     def _load_children(self, node_id: int):
         cur = self.conn.execute(
-            "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes "
+            "SELECT id, branch_name, questions_blob FROM followup_nodes "
             "WHERE parent_id = ? ORDER BY id",
             (node_id,)
         )
         children = []
         for row in cur:
-            node = _node_from_row(row)
+            node = _node_from_row_light(row)
             child_id = node["id"]
             node["children"] = None
             self._node_cache[child_id] = node
             children.append(node)
         if node_id in self._node_cache:
             self._node_cache[node_id]["children"] = children
+
+    def ensure_node_answers(self, node_id: int):
+        node = self._node_cache.get(node_id)
+        if node and node["answers"] is None:
+            node["answers"] = _load_node_answers(self.conn, node_id)
 
     def get_candidate_nodes(self) -> list[dict]:
         candidates = []
@@ -192,7 +210,7 @@ class RuleBot:
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.row_factory = sqlite3.Row
 
-        self._group_cache = OrderedDict()
+        self._group_cache = OrderedDict()   # group_id -> group dict (light)
         self._session_trees: dict[int, SessionTree] = {}
 
         self.turn = 0
@@ -205,20 +223,21 @@ class RuleBot:
     def __del__(self):
         self.close()
 
-    def _get_group(self, group_id: int) -> dict:
+    def _get_group_light(self, group_id: int) -> dict:
+        """Get group with questions only (answers None)."""
         if group_id in self._group_cache:
             self._group_cache.move_to_end(group_id)
             return self._group_cache[group_id]
 
         cur = self.conn.execute(
             "SELECT id, group_name, topic, priority, section, "
-            "questions_blob, answers_blob FROM groups WHERE id = ?",
+            "questions_blob FROM groups WHERE id = ?",
             (group_id,)
         )
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group id {group_id} not found")
-        group = _group_from_row(row)
+        group = _group_from_row_light(row)
 
         self._group_cache[group_id] = group
         self._group_cache.move_to_end(group_id)
@@ -294,6 +313,7 @@ class RuleBot:
 
         norm_words = [_normalize_word(w) for w in user_input.split() if w]
 
+        # 1. Check existing sessions
         for gid, tree in list(self._session_trees.items()):
             candidates = tree.get_candidate_nodes()
             if not candidates:
@@ -302,16 +322,19 @@ class RuleBot:
             if matched_node:
                 tree.last_used_turn = self.turn
                 tree.move_to_node(matched_node['id'])
-                self._get_group(gid)
+                tree.ensure_node_answers(matched_node['id'])   # load answers now
+                # group might already be in cache; if not, load light
+                self._get_group_light(gid)
                 return self._random_answer(matched_node), {"trees": []}
 
+        # 2. Search all groups via FTS
         candidate_group_ids = _get_group_ids_for_words(self.conn, norm_words)
         if candidate_group_ids:
-            candidate_groups = _get_groups_by_ids(self.conn, list(candidate_group_ids))
+            candidate_groups = _get_group_light_by_ids(self.conn, list(candidate_group_ids))
             score, matched_group = self._best_match_in_groups(user_input, candidate_groups)
             if matched_group:
                 gid = matched_group["id"]
-                self._get_group(gid)
+                group = self._get_group_light(gid)   # light version already in cache
                 tree = self._get_session_tree(gid)
                 if not tree:
                     tree = self._create_session_tree(gid)
@@ -319,8 +342,12 @@ class RuleBot:
                 if matched_root:
                     tree.last_used_turn = self.turn
                     tree.move_to_node(matched_root['id'])
+                    tree.ensure_node_answers(matched_root['id'])
                     return self._random_answer(matched_root), {"trees": []}
-                return self._random_answer(matched_group), {"trees": []}
+                # No root matched – use group answer
+                if group["answers"] is None:
+                    group["answers"] = _load_group_answers(self.conn, gid)
+                return self._random_answer(group), {"trees": []}
 
         return self.fallback, {"trees": []}
 

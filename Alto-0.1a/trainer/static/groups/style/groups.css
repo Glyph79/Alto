@@ -254,15 +254,22 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     z-index: 1000;
     backdrop-filter: blur(0px); /* start with no blur when hidden */
     
-    /* transition for smooth open/close */
+    /* transition for smooth open/close (backdrop-filter removed to avoid flicker) */
     visibility: hidden;
     opacity: 0;
-    transition: visibility 0.2s, opacity 0.2s, backdrop-filter 0.2s;
+    transition: visibility 0.2s, opacity 0.2s;
 }
 .modal.visible {
     visibility: visible;
     opacity: 1;
-    backdrop-filter: blur(4px); /* blur when visible */
+    backdrop-filter: blur(4px); /* blur when visible – instant, no transition */
+}
+/* Helper to disable transition temporarily */
+.modal.no-transition {
+    transition: none !important;
+}
+.modal.no-transition .modal-content {
+    animation: none; /* prevent content animation when opening without transition */
 }
 .modal-content {
     background: #252547; 
@@ -426,4 +433,5 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 /* ========== Modal Backdrop Helpers ========== */
 .modal-backdrop-hidden {
     background: transparent !important;
+    backdrop-filter: none !important;  /* prevent double blur */
 }

@@ -153,8 +153,6 @@ function addTopic() {
         try {
             await window.apiPost(`/api/models/${window.currentModel}/topics`, { topic: vals.topic });
             await window.loadTopics();
-            document.getElementById('simpleModal').style.display = 'none';
-            // popModal is called inside showSimpleModal's cancel/save
         } catch (err) {
             errorDiv.textContent = err.message;
             errorDiv.style.display = 'block';
@@ -203,7 +201,6 @@ function editTopic(oldName) {
             <button class="save" id="editTopicSaveBtn">Save</button>
         </div>
     `;
-    modal.style.display = 'flex';
     window.pushModal('simpleModal');
 
     // Attach edit/delete handlers
@@ -238,7 +235,6 @@ function editTopic(oldName) {
                     // We'll just re-render the topic modal to show updated list
                     const currentTopicName = document.getElementById('editTopicName').value;
                     // Close current modal and reopen
-                    modal.style.display = 'none';
                     window.popModal();
                     editTopic(currentTopicName);
                 });
@@ -247,7 +243,6 @@ function editTopic(oldName) {
     });
 
     document.getElementById('editTopicCancelBtn').onclick = () => {
-        modal.style.display = 'none';
         window.popModal();
     };
     document.getElementById('editTopicSaveBtn').onclick = async () => {
@@ -257,14 +252,12 @@ function editTopic(oldName) {
             return;
         }
         if (newName === oldName) {
-            modal.style.display = 'none';
             window.popModal();
             return;
         }
         try {
             await window.apiPut(`/api/models/${window.currentModel}/topics/${oldName}`, { new_name: newName });
             await window.loadTopics();
-            modal.style.display = 'none';
             window.popModal();
         } catch (err) {
             alert('Failed to rename topic: ' + err.message);
@@ -306,11 +299,9 @@ function deleteTopic(topic) {
             <button class="save" id="deleteConfirmBtn">Delete</button>
         </div>
     `;
-    modal.style.display = 'flex';
     window.pushModal('simpleModal');
 
     document.getElementById('deleteCancelBtn').onclick = () => {
-        modal.style.display = 'none';
         window.popModal();
     };
     document.getElementById('deleteConfirmBtn').onclick = async () => {
@@ -322,7 +313,6 @@ function deleteTopic(topic) {
                 if (target) url += `&target=${target}`;
                 await window.apiDelete(url);
                 await window.loadTopics();
-                modal.style.display = 'none';
                 window.popModal();
             } catch (err) {
                 alert('Failed to delete topic: ' + err.message);
@@ -331,14 +321,12 @@ function deleteTopic(topic) {
             const target = window.topicsList.find(t => t !== topic);
             if (!target) {
                 alert('Cannot delete the last topic.');
-                modal.style.display = 'none';
                 window.popModal();
                 return;
             }
             try {
                 await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=${target}`);
                 await window.loadTopics();
-                modal.style.display = 'none';
                 window.popModal();
             } catch (err) {
                 alert('Failed to delete topic: ' + err.message);

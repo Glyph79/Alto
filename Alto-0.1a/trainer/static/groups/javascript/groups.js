@@ -137,8 +137,6 @@ function attachGroupModalHandlers() {
             if (!modalGroupCopy.questions) modalGroupCopy.questions = [];
             modalGroupCopy.questions.push(vals.text);
             refreshModalLists();
-            document.getElementById('simpleModal').style.display = 'none';
-            window.popModal();
         }, 'Add');
     };
 
@@ -152,8 +150,6 @@ function attachGroupModalHandlers() {
             if (!modalGroupCopy.answers) modalGroupCopy.answers = [];
             modalGroupCopy.answers.push(vals.text);
             refreshModalLists();
-            document.getElementById('simpleModal').style.display = 'none';
-            window.popModal();
         }, 'Add');
     };
 
@@ -168,7 +164,6 @@ function attachGroupModalHandlers() {
 
         await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
         await window.loadGroupsAndSections();
-        document.getElementById('groupModal').classList.remove('visible');
         window.popModal();
         modalGroupCopy = null;
 
@@ -180,7 +175,6 @@ function attachGroupModalHandlers() {
 
     document.getElementById('modalCancelBtn').onclick = () => {
         modalGroupCopy = null;
-        document.getElementById('groupModal').classList.remove('visible');
         window.popModal();
         window._groupModalOnSave = null;
     };
@@ -210,7 +204,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
     // Temporarily replace content with a loading indicator
     const originalContent = content.innerHTML;
     content.innerHTML = '<div style="text-align:center; padding:40px;">Loading group details...</div>';
-    modal.classList.add('visible');
     window.pushModal('groupModal');
 
     try {
@@ -247,7 +240,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
     } catch (err) {
         alert('Error loading group details: ' + err.message);
         // Close modal on error
-        modal.classList.remove('visible');
         window.popModal();
     }
 };
@@ -292,8 +284,6 @@ window.editQuestion = (qIdx) => {
         }
         modalGroupCopy.questions[qIdx] = vals.text;
         refreshModalLists();
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
     }, 'Save');
 };
 
@@ -313,8 +303,6 @@ window.editAnswer = (aIdx) => {
         }
         modalGroupCopy.answers[aIdx] = vals.text;
         refreshModalLists();
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
     }, 'Save');
 };
 

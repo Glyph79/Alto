@@ -27,15 +27,11 @@ window.openTreeModal = function(treeData) {
     selectedNodeId = null;
     treeUnsaved = false;
     renderTree();
-    document.getElementById('treeModal').classList.add('visible');
     window.pushModal('treeModal');
     updateToolbarButtons();
     document.getElementById('nodeQAPanel').style.display = 'none';
     document.getElementById('noNodeSelected').style.display = 'flex';
 };
-
-// The old inline onclick for modalEditFollowupsBtn has been removed.
-// The button is now handled in groups.js, which calls window.openTreeModal.
 
 function renderTree() {
     const container = document.getElementById('treeContainer');
@@ -264,8 +260,6 @@ document.getElementById('editNodeBtn').onclick = () => {
         }
         node.branch_name = vals.name;
         treeUnsaved = true;
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
         renderTree();
     }, 'Save');
 };
@@ -308,8 +302,6 @@ window.editTreeNodeQuestion = (qIdx) => {
         node.questions[qIdx] = vals.text;
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
 };
@@ -336,8 +328,6 @@ window.editTreeNodeAnswer = (aIdx) => {
         node.answers[aIdx] = vals.text;
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
 };
@@ -365,8 +355,6 @@ document.getElementById('treeAddQuestionBtn').onclick = () => {
         node.questions.push(vals.text);
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
         showNodeQAPanel(selectedNodeId);
     }, 'Add');
 };
@@ -384,8 +372,6 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
         node.answers.push(vals.text);
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
         showNodeQAPanel(selectedNodeId);
     }, 'Add');
 };
@@ -412,7 +398,6 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
             modalGroupCopy.follow_ups = treeToSave;
         }
         treeUnsaved = false;
-        document.getElementById('treeModal').classList.remove('visible');
         window.popModal();
     } catch (err) {
         alert('Failed to save follow‑up tree: ' + err.message);
@@ -422,11 +407,9 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
 document.getElementById('treeModalCancelBtn').onclick = () => {
     if (treeUnsaved) {
         window.showConfirmModal('You have unsaved changes. Discard them?', () => {
-            document.getElementById('treeModal').classList.remove('visible');
             window.popModal();
         });
     } else {
-        document.getElementById('treeModal').classList.remove('visible');
         window.popModal();
     }
 };

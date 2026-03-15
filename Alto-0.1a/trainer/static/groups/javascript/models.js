@@ -60,8 +60,6 @@ document.getElementById('createModelBtn').onclick = () => {
         });
         if (response.ok) {
             await loadModels();
-            document.getElementById('simpleModal').style.display = 'none';
-            window.popModal();
         } else {
             const err = await response.json();
             errorDiv.textContent = err.error || 'Failed to create model.';
@@ -138,8 +136,6 @@ document.getElementById('editModelBtn').onclick = async () => {
             select.value = vals.name;
             await switchModel(vals.name);
         }
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
     }, 'Save');
 };
 
@@ -236,16 +232,13 @@ function showImportConflictDialog(existingName, dbName) {
                 <button class="cancel" id="cancelImportBtn">Cancel</button>
             </div>
         `;
-        modal.style.display = 'flex';
         window.pushModal('simpleModal');
 
         document.getElementById('cancelImportBtn').onclick = () => {
-            modal.style.display = 'none';
             window.popModal();
             resolve(null);
         };
         document.getElementById('confirmOverwriteBtn').onclick = () => {
-            modal.style.display = 'none';
             window.popModal();
             resolve({ overwrite: true, name: existingName });
         };
@@ -255,7 +248,6 @@ function showImportConflictDialog(existingName, dbName) {
                 alert('Please enter a new name.');
                 return;
             }
-            modal.style.display = 'none';
             window.popModal();
             resolve({ overwrite: false, name: newName });
         };
