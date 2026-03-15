@@ -2,7 +2,12 @@
 import json
 from typing import Dict
 from ..model import get_model
-from ..core import load_followup_tree_skeleton, unpack_array
+from ..core import (
+    load_followup_tree_skeleton,
+    load_followup_tree_full,
+    unpack_array,
+    merge_followup_trees
+)
 
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
@@ -155,7 +160,7 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
-        # Load skeleton only
+        # Load skeleton only (for performance)
         tree = load_followup_tree_skeleton(model.conn, group_id)
         return tree
     except FileNotFoundError:
@@ -165,15 +170,24 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
 
 def cmd_save_followups(name: str, index: int, data: str, **kwargs) -> Dict:
     try:
-        group_dict = json.loads(data)
+        incoming_tree = json.loads(data)
         model = get_model(name)
         summaries = model.get_group_summaries()
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
+
+        # Load current full tree from database
+        current_tree = load_followup_tree_full(model.conn, group_id)
+
+        # Merge incoming tree (which may have empty Q&A for unselected nodes) with current tree
+        merged_tree = merge_followup_trees(current_tree, incoming_tree)
+
+        # Update group with merged tree
         group = model.get_group_by_id(group_id)
-        group["follow_ups"] = group_dict
+        group["follow_ups"] = merged_tree
         model.update_group(group_id, group)
+
         return {"status": "ok"}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}

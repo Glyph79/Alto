@@ -378,11 +378,12 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
 
 // Tree modal save/cancel
 document.getElementById('treeModalSaveBtn').onclick = async () => {
-    // Build full tree by merging skeleton with cached details
+    // Build full tree by merging skeleton with cached details, including real ids
     function buildFullTree(nodes) {
         return nodes.map(node => {
             const details = nodeDetailsCache.get(node.id) || { questions: [], answers: [] };
             return {
+                id: node.dbId,                     // include real DB id (undefined for new nodes)
                 branch_name: node.branch_name,
                 questions: details.questions || [],
                 answers: details.answers || [],

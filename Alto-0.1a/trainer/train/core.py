@@ -132,6 +132,60 @@ def load_followup_tree_full(conn: sqlite3.Connection, group_id: int, parent_id: 
         nodes.append(node)
     return nodes
 
+def merge_followup_trees(current_tree: List[Dict], incoming_tree: List[Dict]) -> List[Dict]:
+    """
+    Merge incoming tree (with possibly missing Q&A) into current full tree.
+    - Nodes in incoming that have an 'id' field: if their questions/answers are empty,
+      replace with values from current tree (if node exists). Otherwise keep incoming.
+    - Nodes in incoming without 'id' are new and kept as is.
+    - Nodes in current not present in incoming are considered deleted and omitted.
+    """
+    # Build map of current nodes by id for quick lookup
+    current_map = {}
+    def build_map(nodes):
+        for node in nodes:
+            node_id = node.get('id')
+            if node_id:
+                current_map[node_id] = node
+            if node.get('children'):
+                build_map(node['children'])
+    build_map(current_tree)
+
+    def merge_nodes(incoming_nodes):
+        merged = []
+        for inode in incoming_nodes:
+            node_id = inode.get('id')
+            if node_id and node_id in current_map:
+                # Existing node: copy Q&A from current if missing in incoming
+                cnode = current_map[node_id]
+                questions = inode.get('questions')
+                if not questions:  # empty or None
+                    questions = cnode.get('questions', [])
+                answers = inode.get('answers')
+                if not answers:
+                    answers = cnode.get('answers', [])
+                # Recursively merge children
+                children = merge_nodes(inode.get('children', [])) if inode.get('children') else []
+                merged.append({
+                    'id': node_id,
+                    'branch_name': inode.get('branch_name', cnode.get('branch_name', '')),
+                    'questions': questions,
+                    'answers': answers,
+                    'children': children
+                })
+            else:
+                # New node (no id) – keep as is, but ensure children merged recursively (though they should be new too)
+                children = merge_nodes(inode.get('children', [])) if inode.get('children') else []
+                merged.append({
+                    'branch_name': inode.get('branch_name', ''),
+                    'questions': inode.get('questions', []),
+                    'answers': inode.get('answers', []),
+                    'children': children
+                })
+        return merged
+
+    return merge_nodes(incoming_tree)
+
 # ----------------------------------------------------------------------
 # Import/Export helper
 # ----------------------------------------------------------------------
