@@ -7,7 +7,7 @@ import tempfile
 
 app = Quart(__name__, template_folder="templates", static_folder="static")
 
-TRAINER_CLI = os.path.join(os.path.dirname(__file__), "RuleTrainer.py")   # was trainer.py
+TRAINER_CLI = os.path.join(os.path.dirname(__file__), "RuleTrainer.py")
 trainer_process = None
 trainer_stdin = None
 trainer_stdout = None
@@ -240,6 +240,14 @@ async def save_followups(name, group_index):
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
+
+# New route: get node details (questions/answers) for a specific node
+@app.route('/api/models/<name>/groups/<int:group_index>/nodes/<int:node_id>', methods=['GET'])
+async def get_node_details(name, group_index, node_id):
+    result = await send_command("get-node-details", name=name, index=group_index, node_id=node_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
 
 @app.route('/api/models/<name>/sections', methods=['POST'])
 async def add_section(name):

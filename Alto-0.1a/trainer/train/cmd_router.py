@@ -7,7 +7,7 @@ from .commands.group_cmds import (
     cmd_add_group, cmd_update_group, cmd_delete_group,
     cmd_add_question, cmd_update_question, cmd_delete_question,
     cmd_add_answer, cmd_update_answer, cmd_delete_answer,
-    cmd_get_followups, cmd_save_followups
+    cmd_get_followups, cmd_save_followups, cmd_get_node_details
 )
 from .commands.section_cmds import (
     cmd_add_section, cmd_rename_section, cmd_delete_section
@@ -33,6 +33,7 @@ COMMANDS = {
     "delete-answer":    cmd_delete_answer,
     "get-followups":    cmd_get_followups,
     "save-followups":   cmd_save_followups,
+    "get-node-details": cmd_get_node_details,
     "add-section":      cmd_add_section,
     "rename-section":   cmd_rename_section,
     "delete-section":   cmd_delete_section,

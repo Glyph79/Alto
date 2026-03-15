@@ -85,7 +85,8 @@ def insert_followup_tree(conn: sqlite3.Connection, group_id: int, tree: List[Dic
 def delete_followup_tree(conn: sqlite3.Connection, group_id: int):
     conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
 
-def load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None) -> List[Dict]:
+def load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optional[int] = None, include_details: bool = True) -> List[Dict]:
+    """Recursively load follow‑up nodes. If include_details=False, questions/answers are omitted."""
     if parent_id is None:
         cur = conn.execute(
             "SELECT id, branch_name, questions_blob, answers_blob FROM followup_nodes WHERE group_id = ? AND parent_id IS NULL ORDER BY id",
@@ -101,10 +102,11 @@ def load_followup_tree(conn: sqlite3.Connection, group_id: int, parent_id: Optio
         node = {
             "id": row[0],
             "branch_name": row[1],
-            "questions": unpack_array(row[2]),
-            "answers": unpack_array(row[3]),
-            "children": load_followup_tree(conn, group_id, parent_id=row[0])
         }
+        if include_details:
+            node["questions"] = unpack_array(row[2])
+            node["answers"] = unpack_array(row[3])
+        node["children"] = load_followup_tree(conn, group_id, parent_id=row[0], include_details=include_details)
         nodes.append(node)
     return nodes
 

@@ -90,11 +90,11 @@ async function deleteGroup(index) {
 }
 
 // ========== Group Modal ==========
-let selectedGroupIndex = -1;
+window.selectedGroupIndex = -1;   // make it global
 let modalGroupCopy = null;
 
 window.openGroupModal = function(index) {
-    selectedGroupIndex = index;
+    window.selectedGroupIndex = index;
     const group = window.groups[index];
     if (!group) return;
 
@@ -132,7 +132,6 @@ function refreshModalLists() {
     });
 }
 
-// Expose helpers for inline onclick
 window.editQuestion = (qIdx) => {
     window.showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: modalGroupCopy.questions[qIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
@@ -173,7 +172,6 @@ window.deleteAnswer = (aIdx) => {
     });
 };
 
-// Modal buttons
 document.getElementById('modalAddQuestionBtn').onclick = () => {
     window.showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
         if (!vals.text) {
@@ -203,7 +201,7 @@ document.getElementById('modalAddAnswerBtn').onclick = () => {
 };
 
 document.getElementById('modalSaveBtn').onclick = async () => {
-    if (selectedGroupIndex === -1 || !modalGroupCopy) return;
+    if (window.selectedGroupIndex === -1 || !modalGroupCopy) return;
 
     modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
     modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
@@ -211,7 +209,7 @@ document.getElementById('modalSaveBtn').onclick = async () => {
     modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
     modalGroupCopy.priority = document.getElementById('modalGroupPriority').value;
 
-    await window.apiPut(`/api/models/${window.currentModel}/groups/${selectedGroupIndex}`, modalGroupCopy);
+    await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
     await window.loadGroupsAndSections();
     document.getElementById('groupModal').style.display = 'none';
     modalGroupCopy = null;

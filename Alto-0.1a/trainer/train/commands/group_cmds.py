@@ -2,6 +2,7 @@
 import json
 from typing import Dict
 from ..model import get_model
+from ..core import load_followup_tree, unpack_array
 
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
@@ -154,8 +155,9 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
-        group = model.get_group_by_id(group_id)
-        return group.get("follow_ups", [])
+        # Load skeleton only (no details)
+        tree = load_followup_tree(model.conn, group_id, include_details=False)
+        return tree
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
@@ -163,15 +165,39 @@ def cmd_get_followups(name: str, index: int, **kwargs) -> Dict:
 
 def cmd_save_followups(name: str, index: int, data: str, **kwargs) -> Dict:
     try:
+        group_dict = json.loads(data)
         model = get_model(name)
         summaries = model.get_group_summaries()
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
         group = model.get_group_by_id(group_id)
-        group["follow_ups"] = json.loads(data)
+        group["follow_ups"] = group_dict
         model.update_group(group_id, group)
         return {"status": "ok"}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        cur = model.conn.execute(
+            "SELECT questions_blob, answers_blob FROM followup_nodes WHERE id = ? AND group_id = ?",
+            (node_id, group_id)
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"error": "Node not found"}
+        return {
+            "questions": unpack_array(row[0]),
+            "answers": unpack_array(row[1])
+        }
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:

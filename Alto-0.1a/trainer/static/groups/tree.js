@@ -1,18 +1,24 @@
 // ========== Tree Editor State ==========
 let currentTree = [];
 let nodeMap = new Map();
+let nodeDetailsCache = new Map(); // nodeId -> { questions, answers }
 let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
 
+// Global to track loading animation for the currently selected node
+window.currentNodeAnimation = null;
+
 // ========== Open Tree Modal ==========
 document.getElementById('modalEditFollowupsBtn').onclick = async () => {
-    if (typeof selectedGroupIndex === 'undefined' || selectedGroupIndex === -1) return;
-    currentTree = await window.apiGet(`/api/models/${window.currentModel}/groups/${selectedGroupIndex}/followups`);
+    if (typeof window.selectedGroupIndex === 'undefined' || window.selectedGroupIndex === -1) return;
+    currentTree = await window.apiGet(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`);
     nodeMap.clear();
+    nodeDetailsCache.clear();
     nextNodeId = 0;
     function buildMap(nodes) {
         nodes.forEach(node => {
+            node.dbId = node.id;          // preserve real DB id (undefined for new nodes)
             node.id = `node_${nextNodeId++}`;
             nodeMap.set(node.id, node);
             if (node.children) buildMap(node.children);
@@ -102,11 +108,101 @@ function selectNode(nodeId) {
     updateToolbarButtons();
 }
 
-function showNodeQAPanel(nodeId) {
+async function showNodeQAPanel(nodeId) {
+    // Clear any existing loading animation from previous node
+    if (window.currentNodeAnimation) {
+        clearTimeout(window.currentNodeAnimation.timeout);
+        clearInterval(window.currentNodeAnimation.interval);
+        window.currentNodeAnimation = null;
+    }
+
     const node = nodeMap.get(nodeId);
     if (!node) return;
+
+    // Show the Q&A panel immediately (blank initially)
     document.getElementById('nodeQAPanel').style.display = 'block';
     document.getElementById('noNodeSelected').style.display = 'none';
+
+    // If node is new (no dbId) or we already have cached details, render instantly
+    if (!node.dbId) {
+        node.questions = node.questions || [];
+        node.answers = node.answers || [];
+        renderNodeQAPanel(node);
+        return;
+    }
+
+    if (nodeDetailsCache.has(nodeId)) {
+        const details = nodeDetailsCache.get(nodeId);
+        node.questions = details.questions;
+        node.answers = details.answers;
+        renderNodeQAPanel(node);
+        return;
+    }
+
+    // Set a timeout to show loading animation after 300ms if request still pending
+    let loadingTimeout = setTimeout(() => {
+        // Initial loading text
+        document.getElementById('treeQuestionsList').innerHTML = '<li>Loading questions</li>';
+        document.getElementById('treeAnswersList').innerHTML = '<li>Loading answers</li>';
+        
+        // Start animation
+        let dots = 0;
+        const loadingInterval = setInterval(() => {
+            dots = (dots + 1) % 4; // 0,1,2,3
+            const dotsStr = '.'.repeat(dots);
+            document.getElementById('treeQuestionsList').innerHTML = `<li>Loading questions${dotsStr}</li>`;
+            document.getElementById('treeAnswersList').innerHTML = `<li>Loading answers${dotsStr}</li>`;
+        }, 300);
+        
+        window.currentNodeAnimation = { timeout: loadingTimeout, interval: loadingInterval };
+    }, 300);
+
+    // Fetch with retry (max 3 attempts)
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError;
+
+    while (attempts < maxAttempts) {
+        attempts++;
+        try {
+            const details = await window.apiGet(
+                `/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/nodes/${node.dbId}`
+            );
+            // Clear any pending loading animation
+            if (window.currentNodeAnimation) {
+                clearTimeout(window.currentNodeAnimation.timeout);
+                clearInterval(window.currentNodeAnimation.interval);
+                window.currentNodeAnimation = null;
+            } else {
+                clearTimeout(loadingTimeout);
+            }
+            node.questions = details.questions;
+            node.answers = details.answers;
+            nodeDetailsCache.set(nodeId, details);
+            renderNodeQAPanel(node);
+            return; // success
+        } catch (err) {
+            lastError = err;
+            if (attempts < maxAttempts) {
+                // wait before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
+            }
+        }
+    }
+
+    // All retries failed
+    if (window.currentNodeAnimation) {
+        clearTimeout(window.currentNodeAnimation.timeout);
+        clearInterval(window.currentNodeAnimation.interval);
+        window.currentNodeAnimation = null;
+    } else {
+        clearTimeout(loadingTimeout);
+    }
+    document.getElementById('treeQuestionsList').innerHTML = '<li style="color: #ff6b9d;">Error loading questions</li>';
+    document.getElementById('treeAnswersList').innerHTML = '<li style="color: #ff6b9d;">Error loading answers</li>';
+}
+
+function renderNodeQAPanel(node) {
     const qList = document.getElementById('treeQuestionsList');
     qList.innerHTML = '';
     (node.questions || []).forEach((q, i) => {
@@ -114,6 +210,7 @@ function showNodeQAPanel(nodeId) {
         li.innerHTML = `<span>${q}</span> <span><button onclick="editTreeNodeQuestion(${i})">✎</button><button onclick="deleteTreeNodeQuestion(${i})">🗑</button></span>`;
         qList.appendChild(li);
     });
+
     const aList = document.getElementById('treeAnswersList');
     aList.innerHTML = '';
     (node.answers || []).forEach((a, i) => {
@@ -208,6 +305,7 @@ window.editTreeNodeQuestion = (qIdx) => {
         }
         node.questions[qIdx] = vals.text;
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
@@ -218,6 +316,7 @@ window.deleteTreeNodeQuestion = (qIdx) => {
     window.showConfirmModal('Delete this question?', () => {
         node.questions.splice(qIdx, 1);
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     });
 };
@@ -233,6 +332,7 @@ window.editTreeNodeAnswer = (aIdx) => {
         }
         node.answers[aIdx] = vals.text;
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
@@ -243,6 +343,7 @@ window.deleteTreeNodeAnswer = (aIdx) => {
     window.showConfirmModal('Delete this answer?', () => {
         node.answers.splice(aIdx, 1);
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     });
 };
@@ -259,6 +360,7 @@ document.getElementById('treeAddQuestionBtn').onclick = () => {
         if (!node.questions) node.questions = [];
         node.questions.push(vals.text);
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
     }, 'Add');
@@ -276,6 +378,7 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
         if (!node.answers) node.answers = [];
         node.answers.push(vals.text);
         treeUnsaved = true;
+        nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         document.getElementById('simpleModal').style.display = 'none';
         showNodeQAPanel(selectedNodeId);
     }, 'Add');
@@ -283,16 +386,22 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
 
 // Tree modal save/cancel
 document.getElementById('treeModalSaveBtn').onclick = async () => {
-    function stripIds(nodes) {
+    // Build full tree by merging skeleton with cached details
+    function buildFullTree(nodes) {
         return nodes.map(node => {
-            const { id, ...rest } = node;
-            return { ...rest, children: stripIds(node.children || []) };
+            const details = nodeDetailsCache.get(node.id) || { questions: [], answers: [] };
+            return {
+                branch_name: node.branch_name,
+                questions: details.questions || [],
+                answers: details.answers || [],
+                children: buildFullTree(node.children || [])
+            };
         });
     }
-    const treeToSave = stripIds(currentTree);
+    const treeToSave = buildFullTree(currentTree);
     try {
-        await window.apiPut(`/api/models/${window.currentModel}/groups/${selectedGroupIndex}/followups`, treeToSave);
-        // Keep modalGroupCopy in sync if present
+        await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`, treeToSave);
+        // Update modalGroupCopy if present
         if (typeof modalGroupCopy !== 'undefined' && modalGroupCopy) {
             modalGroupCopy.follow_ups = treeToSave;
         }
