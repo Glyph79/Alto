@@ -241,7 +241,6 @@ async def save_followups(name, group_index):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# New route: get node details (questions/answers) for a specific node
 @app.route('/api/models/<name>/groups/<int:group_index>/nodes/<int:node_id>', methods=['GET'])
 async def get_node_details(name, group_index, node_id):
     result = await send_command("get-node-details", name=name, index=group_index, node_id=node_id)
@@ -282,6 +281,48 @@ async def delete_section(name, section):
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
+
+# ========== New topic routes ==========
+@app.route('/api/models/<name>/topics', methods=['GET'])
+async def get_topics(name):
+    result = await send_command("get-topics", name=name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/topics', methods=['POST'])
+async def add_topic(name):
+    data = await request.get_json()
+    topic = data.get('topic')
+    if not topic:
+        return jsonify({"error": "Topic name required"}), 400
+    result = await send_command("add-topic", name=name, topic=topic)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/topics/<old_name>', methods=['PUT'])
+async def rename_topic(name, old_name):
+    data = await request.get_json()
+    new_name = data.get('new_name')
+    if not new_name:
+        return jsonify({"error": "New name required"}), 400
+    result = await send_command("rename-topic", name=name, old=old_name, new=new_name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/topics/<topic>', methods=['DELETE'])
+async def delete_topic(name, topic):
+    action = request.args.get('action', 'reassign')
+    target = request.args.get('target')
+    kwargs = {"name": name, "topic": topic, "action": action}
+    if target:
+        kwargs["target"] = target
+    result = await send_command("delete-topic", **kwargs)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
 
 @app.route('/api/models/import-db', methods=['POST'])
 async def import_db():

@@ -37,6 +37,7 @@ async function loadModels() {
 async function switchModel(modelName) {
     window.currentModel = modelName;
     await window.loadGroupsAndSections();
+    await window.loadTopics();   // load topics as well
 }
 
 // ========== Model CRUD ==========

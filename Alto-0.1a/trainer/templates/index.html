@@ -22,26 +22,70 @@
 
     <div class="main-container">
         <div class="sidebar">
-            <h3>Sections</h3>
-            <select id="sectionFilter" disabled>
-                <option value="All Sections">All Sections</option>
-            </select>
-            <button id="addGroupBtn" class="primary" disabled>+ New Group</button>
+            <!-- Groups controls (visible when Groups tab active) -->
+            <div id="groupsSidebar" class="sidebar-section">
+                <h3>Search</h3>
+                <input type="text" id="groupSearch" placeholder="Search groups..." disabled>
+                <h3>Sections</h3>
+                <select id="sectionFilter" disabled>
+                    <option value="All Sections">All Sections</option>
+                </select>
+                <button id="addGroupBtn" class="primary" disabled>+ New Group</button>
+            </div>
+
+            <!-- Topics controls (visible when Topics tab active) -->
+            <div id="topicsSidebar" class="sidebar-section" style="display: none;">
+                <h3>Search</h3>
+                <input type="text" id="topicSearch" placeholder="Search topics..." disabled>
+                <h3>Section Filter</h3>
+                <select id="topicSectionFilter" disabled>
+                    <option value="All Sections">All Sections</option>
+                </select>
+                <h3>Usage</h3>
+                <select id="topicFilter" disabled>
+                    <option value="all">All topics</option>
+                    <option value="used">With groups</option>
+                    <option value="unused">Unused</option>
+                </select>
+                <h3>Sort By</h3>
+                <select id="topicSort" disabled>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="usage-desc">Most used</option>
+                    <option value="usage-asc">Least used</option>
+                </select>
+                <button id="addTopicBtn" class="primary" disabled>+ Add Topic</button>
+            </div>
         </div>
 
         <div class="content">
-            <div id="groupsGridContainer"></div>
-            <div id="noModelsEmptyState" class="empty-state" style="display: none;">
-                <p>No models found. Create your first model to get started.</p>
-                <button id="createFirstModelBtn">Create Model</button>
+            <!-- Tab bar -->
+            <div class="tab-bar">
+                <button id="groupsTab" class="tab active">Groups</button>
+                <button id="topicsTab" class="tab">Topics</button>
             </div>
-            <div id="noGroupsEmptyState" class="empty-state" style="display: none;">
-                <p>This model has no groups yet.</p>
-                <button id="createFirstGroupBtn">Create First Group</button>
+
+            <!-- Groups content -->
+            <div id="groupsContent">
+                <div id="groupsGridContainer"></div>
+                <div id="noModelsEmptyState" class="empty-state" style="display: none;">
+                    <p>No models found. Create your first model to get started.</p>
+                    <button id="createFirstModelBtn">Create Model</button>
+                </div>
+                <div id="noGroupsEmptyState" class="empty-state" style="display: none;">
+                    <p>This model has no groups yet.</p>
+                    <button id="createFirstGroupBtn">Create First Group</button>
+                </div>
+            </div>
+
+            <!-- Topics content -->
+            <div id="topicsContent" style="display: none;">
+                <div id="topicsGridContainer"></div>
             </div>
         </div>
     </div>
 
+    <!-- Group Modal -->
     <div id="groupModal" class="modal">
         <div class="modal-content">
             <h2>Edit Group</h2>
@@ -61,13 +105,7 @@
                 <div style="flex:1;">
                     <label>Topic</label>
                     <select id="modalGroupTopic">
-                        <option value="greeting">greeting</option>
-                        <option value="programming">programming</option>
-                        <option value="ai">ai</option>
-                        <option value="gaming">gaming</option>
-                        <option value="creative">creative</option>
-                        <option value="thanks">thanks</option>
-                        <option value="general">general</option>
+                        <!-- populated dynamically -->
                     </select>
                 </div>
                 <div style="flex:1;">
@@ -103,6 +141,7 @@
         </div>
     </div>
 
+    <!-- Tree Modal -->
     <div id="treeModal" class="modal">
         <div class="modal-content tree-modal-content">
             <h2>Follow-up Tree Editor</h2>
@@ -142,15 +181,54 @@
         </div>
     </div>
 
+    <!-- Simple Modal (used for prompts and confirmations) -->
     <div id="simpleModal" class="modal">
         <div class="modal-content" id="simpleModalContent"></div>
     </div>
 
     <!-- JavaScript files in dependency order -->
-    <script src="{{ url_for('static', filename='core.js') }}"></script>
+    <script src="{{ url_for('static', filename='groups/core.js') }}"></script>
     <script src="{{ url_for('static', filename='groups/display.js') }}"></script>
     <script src="{{ url_for('static', filename='groups/groups.js') }}"></script>
     <script src="{{ url_for('static', filename='groups/models.js') }}"></script>
     <script src="{{ url_for('static', filename='groups/tree.js') }}"></script>
+    <script src="{{ url_for('static', filename='topics/topics.js') }}"></script>
+
+    <!-- Tab switching logic with sidebar toggling -->
+    <script>
+        document.getElementById('groupsTab').addEventListener('click', () => {
+            document.getElementById('groupsTab').classList.add('active');
+            document.getElementById('topicsTab').classList.remove('active');
+            document.getElementById('groupsContent').style.display = 'block';
+            document.getElementById('topicsContent').style.display = 'none';
+            document.getElementById('groupsSidebar').style.display = 'block';
+            document.getElementById('topicsSidebar').style.display = 'none';
+            if (window.currentModel) {
+                window.loadGroupsAndSections();
+                // Enable groups sidebar controls
+                document.getElementById('groupSearch').disabled = false;
+                document.getElementById('sectionFilter').disabled = false;
+                document.getElementById('addGroupBtn').disabled = false;
+            }
+        });
+
+        document.getElementById('topicsTab').addEventListener('click', () => {
+            document.getElementById('topicsTab').classList.add('active');
+            document.getElementById('groupsTab').classList.remove('active');
+            document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('topicsContent').style.display = 'block';
+            document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('topicsSidebar').style.display = 'block';
+            if (window.currentModel) {
+                window.loadTopics();
+                // Enable topics sidebar controls
+                document.getElementById('topicSearch').disabled = false;
+                document.getElementById('topicSectionFilter').disabled = false;
+                document.getElementById('topicFilter').disabled = false;
+                document.getElementById('topicSort').disabled = false;
+                document.getElementById('addTopicBtn').disabled = false;
+            }
+        });
+    </script>
 </body>
 </html>

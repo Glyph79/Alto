@@ -59,16 +59,18 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
 
     now = datetime.datetime.now().isoformat()
     sections = json.dumps(["General", "Technical", "Creative"], separators=(',', ':'))
+    # Add default topics
+    default_topics = json.dumps(["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"], separators=(',', ':'))
     conn.execute(
         """INSERT INTO model_info
-           (name, description, author, version, created_at, updated_at, sections)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (model_name, description, author, version, now, now, sections)
+           (name, description, author, version, created_at, updated_at, sections, topics)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (model_name, description, author, version, now, now, sections, default_topics)
     )
     conn.commit()
 
 def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
-    cur = conn.execute("SELECT name, description, author, version, created_at, updated_at, sections FROM model_info")
+    cur = conn.execute("SELECT name, description, author, version, created_at, updated_at, sections, topics FROM model_info")
     row = cur.fetchone()
     if not row:
         raise ValueError("Model info not found")
@@ -79,7 +81,8 @@ def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
         "version": row[3],
         "created_at": row[4],
         "updated_at": row[5],
-        "sections": json.loads(row[6])
+        "sections": json.loads(row[6]),
+        "topics": json.loads(row[7]) if row[7] else []
     }
 
 def update_model_info(conn: sqlite3.Connection, **kwargs):
@@ -90,13 +93,16 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
         info["author"] = kwargs["author"]
     if "version" in kwargs:
         info["version"] = kwargs["version"]
+    if "topics" in kwargs:
+        info["topics"] = kwargs["topics"]
     info["updated_at"] = datetime.datetime.now().isoformat()
     conn.execute(
         """UPDATE model_info
-           SET description = ?, author = ?, version = ?, updated_at = ?, sections = ?
+           SET description = ?, author = ?, version = ?, updated_at = ?, sections = ?, topics = ?
            WHERE name = ?""",
         (info["description"], info["author"], info["version"],
-         info["updated_at"], json.dumps(info["sections"], separators=(',', ':')), info["name"])
+         info["updated_at"], json.dumps(info["sections"], separators=(',', ':')),
+         json.dumps(info["topics"], separators=(',', ':')), info["name"])
     )
     conn.commit()
     return info
@@ -200,7 +206,20 @@ class Model:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.row_factory = sqlite3.Row
 
+        # Ensure topics column exists for older models
+        self._ensure_topics_column()
+
         self._group_summaries = None
+
+    def _ensure_topics_column(self):
+        """Add topics column to model_info if it doesn't exist."""
+        try:
+            self.conn.execute("SELECT topics FROM model_info LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist – add it with default
+            default_topics = json.dumps(["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"], separators=(',', ':'))
+            self.conn.execute(f"ALTER TABLE model_info ADD COLUMN topics TEXT NOT NULL DEFAULT '{default_topics}'")
+            self.conn.commit()
 
     def close(self):
         if self.conn:
@@ -246,18 +265,44 @@ class Model:
             full_groups.append(g)
         return full_groups
 
+    def _validate_topic(self, topic: str):
+        """Raise ValueError if topic not in model's topics list."""
+        topics = self.get_topics()
+        if topic not in topics:
+            raise ValueError(f"Topic '{topic}' is not in model's topics list")
+
     def insert_group(self, group_dict: Dict) -> int:
+        self._validate_topic(group_dict.get("topic", "general"))
         group_id = insert_group(self.conn, self.name, group_dict)
         self._group_summaries = None
         return group_id
 
     def update_group(self, group_id: int, group_dict: Dict):
+        self._validate_topic(group_dict.get("topic", "general"))
         update_group(self.conn, group_id, group_dict)
         self._group_summaries = None
 
     def delete_group(self, group_id: int):
         delete_group(self.conn, group_id)
         self._group_summaries = None
+
+    def get_topics(self) -> List[str]:
+        """Return the list of topics for this model."""
+        cur = self.conn.execute("SELECT topics FROM model_info")
+        row = cur.fetchone()
+        if not row:
+            return []
+        return json.loads(row[0])
+
+    def update_topics(self, topics: List[str]):
+        """Replace the topics list and update timestamp."""
+        info = get_model_info(self.conn)
+        info["updated_at"] = datetime.datetime.now().isoformat()
+        self.conn.execute(
+            "UPDATE model_info SET topics = ?, updated_at = ? WHERE name = ?",
+            (json.dumps(topics, separators=(',', ':')), info["updated_at"], self.name)
+        )
+        self.conn.commit()
 
 # ----------------------------------------------------------------------
 # Global model cache

@@ -13,6 +13,9 @@ from .commands.section_cmds import (
     cmd_add_section, cmd_rename_section, cmd_delete_section
 )
 from .commands.import_export import cmd_import_db
+from .commands.topic_cmds import (
+    cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic
+)
 
 COMMANDS = {
     "list-models":      cmd_list_models,
@@ -38,4 +41,9 @@ COMMANDS = {
     "rename-section":   cmd_rename_section,
     "delete-section":   cmd_delete_section,
     "import-db":        cmd_import_db,
+    # New topic commands
+    "get-topics":       cmd_get_topics,
+    "add-topic":        cmd_add_topic,
+    "rename-topic":     cmd_rename_topic,
+    "delete-topic":     cmd_delete_topic,
 }
