@@ -249,6 +249,21 @@ async def get_node_details(name, group_index, node_id):
         return jsonify(result), 400
     return jsonify(result)
 
+# ========== New lightweight group routes ==========
+@app.route('/api/models/<name>/groups/summaries', methods=['GET'])
+async def get_group_summaries(name):
+    result = await send_command("get-group-summaries", name=name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+@app.route('/api/models/<name>/groups/<int:index>/full', methods=['GET'])
+async def get_group_full(name, index):
+    result = await send_command("get-group-full", name=name, index=index)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
 @app.route('/api/models/<name>/sections', methods=['POST'])
 async def add_section(name):
     data = await request.get_json()

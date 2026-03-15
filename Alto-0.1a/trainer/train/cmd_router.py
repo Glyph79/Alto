@@ -7,7 +7,8 @@ from .commands.group_cmds import (
     cmd_add_group, cmd_update_group, cmd_delete_group,
     cmd_add_question, cmd_update_question, cmd_delete_question,
     cmd_add_answer, cmd_update_answer, cmd_delete_answer,
-    cmd_get_followups, cmd_save_followups, cmd_get_node_details
+    cmd_get_followups, cmd_save_followups, cmd_get_node_details,
+    cmd_get_group_summaries, cmd_get_group_full   # <-- added
 )
 from .commands.section_cmds import (
     cmd_add_section, cmd_rename_section, cmd_delete_section
@@ -46,4 +47,7 @@ COMMANDS = {
     "add-topic":        cmd_add_topic,
     "rename-topic":     cmd_rename_topic,
     "delete-topic":     cmd_delete_topic,
+    # New lightweight group commands
+    "get-group-summaries": cmd_get_group_summaries,
+    "get-group-full":      cmd_get_group_full,
 }

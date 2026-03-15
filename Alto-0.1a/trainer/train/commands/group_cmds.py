@@ -202,3 +202,32 @@ def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
+
+# ========== New lightweight commands ==========
+def cmd_get_group_summaries(name: str, **kwargs) -> Dict:
+    """Return lightweight group summaries (no questions/answers/followups)."""
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries_with_counts()
+        sections = model.get_sections()
+        return {"groups": summaries, "sections": sections}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}
+
+def cmd_get_group_full(name: str, index: int, **kwargs) -> Dict:
+    """Return full group details (with questions, answers, followups) by index."""
+    try:
+        model = get_model(name)
+        summaries = model.get_group_summaries()
+        if index < 0 or index >= len(summaries):
+            return {"error": "Group index out of range"}
+        group_id = summaries[index]["id"]
+        group = model.get_group_by_id(group_id)
+        del group["id"]  # frontend doesn't need internal id
+        return group
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}

@@ -242,7 +242,7 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
 
 /* ========== Modals (shared) ========== */
 .modal {
-    display: none; 
+    display: flex; 
     position: fixed; 
     top: 0; 
     left: 0; 
@@ -252,7 +252,17 @@ header h1 { font-size: 1.5rem; font-weight: 400; color: #fff; }
     justify-content: center; 
     align-items: center; 
     z-index: 1000;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(0px); /* start with no blur when hidden */
+    
+    /* transition for smooth open/close */
+    visibility: hidden;
+    opacity: 0;
+    transition: visibility 0.2s, opacity 0.2s, backdrop-filter 0.2s;
+}
+.modal.visible {
+    visibility: visible;
+    opacity: 1;
+    backdrop-filter: blur(4px); /* blur when visible */
 }
 .modal-content {
     background: #252547; 

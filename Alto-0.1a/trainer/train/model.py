@@ -31,7 +31,9 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             priority TEXT NOT NULL,
             section TEXT NOT NULL,
             questions_blob BLOB NOT NULL,
-            answers_blob BLOB NOT NULL
+            answers_blob BLOB NOT NULL,
+            question_count INTEGER NOT NULL DEFAULT 0,
+            answer_count INTEGER NOT NULL DEFAULT 0
         )
     """)
     conn.execute("""
@@ -129,19 +131,23 @@ def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str
     group_dict.setdefault("priority", "medium")
     group_dict.setdefault("section", "")
 
-    questions_blob = pack_array(group_dict["questions"])
-    answers_blob = pack_array(group_dict["answers"])
+    questions = group_dict["questions"]
+    answers = group_dict["answers"]
+    questions_blob = pack_array(questions)
+    answers_blob = pack_array(answers)
+    q_count = len(questions)
+    a_count = len(answers)
 
     conn.execute("BEGIN IMMEDIATE")
     try:
         cursor = conn.execute(
-            """INSERT INTO groups (group_name, topic, priority, section, questions_blob, answers_blob)
-               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            """INSERT INTO groups (group_name, topic, priority, section, questions_blob, answers_blob, question_count, answer_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
-             group_dict["section"], questions_blob, answers_blob)
+             group_dict["section"], questions_blob, answers_blob, q_count, a_count)
         )
         group_id = cursor.fetchone()[0]
-        update_fts_index(conn, group_id, group_dict["questions"])
+        update_fts_index(conn, group_id, questions)
         if "follow_ups" in group_dict and group_dict["follow_ups"]:
             insert_followup_tree(conn, group_id, group_dict["follow_ups"])
         conn.commit()
@@ -158,18 +164,23 @@ def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, 
     group_dict.setdefault("priority", "medium")
     group_dict.setdefault("section", "")
 
-    questions_blob = pack_array(group_dict["questions"])
-    answers_blob = pack_array(group_dict["answers"])
+    questions = group_dict["questions"]
+    answers = group_dict["answers"]
+    questions_blob = pack_array(questions)
+    answers_blob = pack_array(answers)
+    q_count = len(questions)
+    a_count = len(answers)
 
     conn.execute("BEGIN IMMEDIATE")
     try:
         conn.execute(
             """UPDATE groups SET group_name = ?, topic = ?, priority = ?, section = ?,
-               questions_blob = ?, answers_blob = ? WHERE id = ?""",
+               questions_blob = ?, answers_blob = ?, question_count = ?, answer_count = ?
+               WHERE id = ?""",
             (group_dict["group_name"], group_dict["topic"], group_dict["priority"],
-             group_dict["section"], questions_blob, answers_blob, group_id)
+             group_dict["section"], questions_blob, answers_blob, q_count, a_count, group_id)
         )
-        update_fts_index(conn, group_id, group_dict["questions"])
+        update_fts_index(conn, group_id, questions)
         delete_followup_tree(conn, group_id)
         if "follow_ups" in group_dict and group_dict["follow_ups"]:
             insert_followup_tree(conn, group_id, group_dict["follow_ups"])
@@ -208,6 +219,8 @@ class Model:
 
         # Ensure topics column exists for older models
         self._ensure_topics_column()
+        # Ensure count columns exist for older models
+        self._ensure_count_columns()
 
         self._group_summaries = None
 
@@ -219,6 +232,22 @@ class Model:
             # Column doesn't exist – add it with default
             default_topics = json.dumps(["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"], separators=(',', ':'))
             self.conn.execute(f"ALTER TABLE model_info ADD COLUMN topics TEXT NOT NULL DEFAULT '{default_topics}'")
+            self.conn.commit()
+
+    def _ensure_count_columns(self):
+        """Add question_count and answer_count columns to groups if they don't exist."""
+        try:
+            self.conn.execute("SELECT question_count FROM groups LIMIT 1")
+        except sqlite3.OperationalError:
+            self.conn.execute("ALTER TABLE groups ADD COLUMN question_count INTEGER NOT NULL DEFAULT 0")
+            self.conn.execute("ALTER TABLE groups ADD COLUMN answer_count INTEGER NOT NULL DEFAULT 0")
+            # Backfill counts for existing groups
+            cur = self.conn.execute("SELECT id, questions_blob, answers_blob FROM groups")
+            for row in cur:
+                q_count = len(unpack_array(row[1]))
+                a_count = len(unpack_array(row[2]))
+                self.conn.execute("UPDATE groups SET question_count = ?, answer_count = ? WHERE id = ?",
+                                  (q_count, a_count, row[0]))
             self.conn.commit()
 
     def close(self):
@@ -236,6 +265,31 @@ class Model:
         if self._group_summaries is None:
             self._load_group_summaries()
         return self._group_summaries
+
+    def get_group_summaries_with_counts(self) -> List[Dict]:
+        """Return summaries with question and answer counts (using stored counts)."""
+        cur = self.conn.execute(
+            """SELECT id, group_name, topic, priority, section,
+                      question_count, answer_count
+               FROM groups ORDER BY id"""
+        )
+        summaries = []
+        for row in cur:
+            summaries.append({
+                "id": row[0],
+                "group_name": row[1],
+                "topic": row[2],
+                "priority": row[3],
+                "section": row[4],
+                "question_count": row[5],
+                "answer_count": row[6]
+            })
+        return summaries
+
+    def get_sections(self) -> List[str]:
+        """Return the list of sections for this model."""
+        info = get_model_info(self.conn)
+        return info["sections"]
 
     def get_group_by_id(self, group_id: int) -> Dict:
         cur = self.conn.execute(

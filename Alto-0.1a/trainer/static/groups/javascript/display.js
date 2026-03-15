@@ -55,11 +55,11 @@ window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
                 <button class="cancel" id="simpleCancelBtn">Cancel</button>
             </div>`;
     content.innerHTML = html;
-    modal.style.display = 'flex';
+    modal.classList.add('visible');
     window.pushModal('simpleModal');
 
     document.getElementById('simpleCancelBtn').onclick = () => {
-        modal.style.display = 'none';
+        modal.classList.remove('visible');
         window.popModal();
     };
     document.getElementById('simpleSaveBtn').onclick = () => {
@@ -82,15 +82,15 @@ window.showConfirmModal = function(message, onConfirm) {
             <button class="save" id="confirmYesBtn">Yes</button>
         </div>
     `;
-    modal.style.display = 'flex';
+    modal.classList.add('visible');
     window.pushModal('simpleModal');
 
     document.getElementById('confirmNoBtn').onclick = () => {
-        modal.style.display = 'none';
+        modal.classList.remove('visible');
         window.popModal();
     };
     document.getElementById('confirmYesBtn').onclick = () => {
-        modal.style.display = 'none';
+        modal.classList.remove('visible');
         window.popModal();
         onConfirm();
     };

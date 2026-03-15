@@ -9,10 +9,9 @@ let treeUnsaved = false;
 // Global to track loading animation for the currently selected node
 window.currentNodeAnimation = null;
 
-// ========== Open Tree Modal ==========
-document.getElementById('modalEditFollowupsBtn').onclick = async () => {
-    if (typeof window.selectedGroupIndex === 'undefined' || window.selectedGroupIndex === -1) return;
-    currentTree = await window.apiGet(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`);
+// ========== Open Tree Modal (called from groups.js) ==========
+window.openTreeModal = function(treeData) {
+    currentTree = treeData;
     nodeMap.clear();
     nodeDetailsCache.clear();
     nextNodeId = 0;
@@ -28,12 +27,15 @@ document.getElementById('modalEditFollowupsBtn').onclick = async () => {
     selectedNodeId = null;
     treeUnsaved = false;
     renderTree();
-    document.getElementById('treeModal').style.display = 'flex';
+    document.getElementById('treeModal').classList.add('visible');
     window.pushModal('treeModal');
     updateToolbarButtons();
     document.getElementById('nodeQAPanel').style.display = 'none';
     document.getElementById('noNodeSelected').style.display = 'flex';
 };
+
+// The old inline onclick for modalEditFollowupsBtn has been removed.
+// The button is now handled in groups.js, which calls window.openTreeModal.
 
 function renderTree() {
     const container = document.getElementById('treeContainer');
@@ -410,7 +412,7 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
             modalGroupCopy.follow_ups = treeToSave;
         }
         treeUnsaved = false;
-        document.getElementById('treeModal').style.display = 'none';
+        document.getElementById('treeModal').classList.remove('visible');
         window.popModal();
     } catch (err) {
         alert('Failed to save follow‑up tree: ' + err.message);
@@ -420,11 +422,11 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
 document.getElementById('treeModalCancelBtn').onclick = () => {
     if (treeUnsaved) {
         window.showConfirmModal('You have unsaved changes. Discard them?', () => {
-            document.getElementById('treeModal').style.display = 'none';
+            document.getElementById('treeModal').classList.remove('visible');
             window.popModal();
         });
     } else {
-        document.getElementById('treeModal').style.display = 'none';
+        document.getElementById('treeModal').classList.remove('visible');
         window.popModal();
     }
 };

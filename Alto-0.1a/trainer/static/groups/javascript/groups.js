@@ -2,13 +2,14 @@
 window.loadGroupsAndSections = async function() {
     if (!window.currentModel) return;
     try {
-        const data = await window.apiGet(`/api/models/${window.currentModel}/groups`);
+        // Fetch only summaries (lightweight)
+        const data = await window.apiGet(`/api/models/${window.currentModel}/groups/summaries`);
         window.groups = data.groups || [];
         window.sections = data.sections || ["General", "Technical", "Creative"];
         renderGroups();
         renderSectionFilter();
-        document.getElementById('groupModal').style.display = 'none';
-        document.getElementById('treeModal').style.display = 'none';
+        document.getElementById('groupModal').classList.remove('visible');
+        document.getElementById('treeModal').classList.remove('visible');
         document.getElementById('groupSearch').disabled = false;
         document.getElementById('sectionFilter').disabled = false;
         document.getElementById('addGroupBtn').disabled = false;
@@ -56,8 +57,8 @@ function renderGroups() {
                 <h4>${g.group_name || 'Unnamed'}</h4>
                 <div class="description">${g.group_description || ''}</div>
                 <div class="stats">
-                    <span>❓ ${g.questions?.length || 0}</span>
-                    <span>💬 ${g.answers?.length || 0}</span>
+                    <span>❓ ${g.question_count || 0}</span>
+                    <span>💬 ${g.answer_count || 0}</span>
                 </div>
             </div>
         `;
@@ -124,40 +125,135 @@ async function deleteGroup(index, callback) {
 window.selectedGroupIndex = -1;
 let modalGroupCopy = null;
 
-window.openGroupModal = function(index, onSaveCallback) {
+// Function to attach event listeners to modal buttons (called after content restore)
+function attachGroupModalHandlers() {
+    document.getElementById('modalAddQuestionBtn').onclick = () => {
+        window.showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
+            if (!vals.text) {
+                errorDiv.textContent = 'Question cannot be empty.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (!modalGroupCopy.questions) modalGroupCopy.questions = [];
+            modalGroupCopy.questions.push(vals.text);
+            refreshModalLists();
+            document.getElementById('simpleModal').style.display = 'none';
+            window.popModal();
+        }, 'Add');
+    };
+
+    document.getElementById('modalAddAnswerBtn').onclick = () => {
+        window.showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
+            if (!vals.text) {
+                errorDiv.textContent = 'Answer cannot be empty.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (!modalGroupCopy.answers) modalGroupCopy.answers = [];
+            modalGroupCopy.answers.push(vals.text);
+            refreshModalLists();
+            document.getElementById('simpleModal').style.display = 'none';
+            window.popModal();
+        }, 'Add');
+    };
+
+    document.getElementById('modalSaveBtn').onclick = async () => {
+        if (window.selectedGroupIndex === -1 || !modalGroupCopy) return;
+
+        modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
+        modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
+        modalGroupCopy.section = document.getElementById('modalGroupSection').value;
+        modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
+        modalGroupCopy.priority = document.getElementById('modalGroupPriority').value;
+
+        await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
+        await window.loadGroupsAndSections();
+        document.getElementById('groupModal').classList.remove('visible');
+        window.popModal();
+        modalGroupCopy = null;
+
+        if (window._groupModalOnSave) {
+            window._groupModalOnSave();
+            window._groupModalOnSave = null;
+        }
+    };
+
+    document.getElementById('modalCancelBtn').onclick = () => {
+        modalGroupCopy = null;
+        document.getElementById('groupModal').classList.remove('visible');
+        window.popModal();
+        window._groupModalOnSave = null;
+    };
+
+    document.getElementById('modalEditFollowupsBtn').onclick = async () => {
+        if (typeof window.selectedGroupIndex === 'undefined' || window.selectedGroupIndex === -1) return;
+        // Fetch the skeleton tree and open the tree modal
+        try {
+            const treeData = await window.apiGet(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`);
+            if (window.openTreeModal) {
+                window.openTreeModal(treeData);
+            } else {
+                console.error('Tree modal handler not available');
+            }
+        } catch (err) {
+            alert('Error loading follow-up tree: ' + err.message);
+        }
+    };
+}
+
+window.openGroupModal = async function(index, onSaveCallback) {
     window.selectedGroupIndex = index;
-    const group = window.groups[index];
-    if (!group) return;
 
-    modalGroupCopy = JSON.parse(JSON.stringify(group));
-
-    document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
-    document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
-
-    const sectionSelect = document.getElementById('modalGroupSection');
-    sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
-    sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
-
-    const topicSelect = document.getElementById('modalGroupTopic');
-    if (window.topicsList && window.topicsList.length) {
-        topicSelect.innerHTML = window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
-        topicSelect.value = modalGroupCopy.topic || window.topicsList[0] || '';
-    } else {
-        topicSelect.innerHTML = '<option value="general">general</option>';
-        topicSelect.value = modalGroupCopy.topic || 'general';
-    }
-
-    document.getElementById('modalGroupPriority').value = modalGroupCopy.priority || 'medium';
-
-    refreshModalLists();
-    document.getElementById('groupModal').style.display = 'flex';
+    // Show modal with loading state first
+    const modal = document.getElementById('groupModal');
+    const content = modal.querySelector('.modal-content');
+    // Temporarily replace content with a loading indicator
+    const originalContent = content.innerHTML;
+    content.innerHTML = '<div style="text-align:center; padding:40px;">Loading group details...</div>';
+    modal.classList.add('visible');
     window.pushModal('groupModal');
 
-    window._groupModalOnSave = onSaveCallback;
+    try {
+        // Fetch full group details
+        const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
+        modalGroupCopy = fullGroup;
+
+        // Restore original content and populate
+        content.innerHTML = originalContent;
+        document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
+        document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
+
+        const sectionSelect = document.getElementById('modalGroupSection');
+        sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+        sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
+
+        const topicSelect = document.getElementById('modalGroupTopic');
+        if (window.topicsList && window.topicsList.length) {
+            topicSelect.innerHTML = window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+            topicSelect.value = modalGroupCopy.topic || window.topicsList[0] || '';
+        } else {
+            topicSelect.innerHTML = '<option value="general">general</option>';
+            topicSelect.value = modalGroupCopy.topic || 'general';
+        }
+
+        document.getElementById('modalGroupPriority').value = modalGroupCopy.priority || 'medium';
+
+        refreshModalLists();
+
+        // Re-attach event handlers for modal buttons
+        attachGroupModalHandlers();
+
+        window._groupModalOnSave = onSaveCallback;
+    } catch (err) {
+        alert('Error loading group details: ' + err.message);
+        // Close modal on error
+        modal.classList.remove('visible');
+        window.popModal();
+    }
 };
 
 window.refreshGroupModalTopicDropdown = function() {
-    if (document.getElementById('groupModal').style.display === 'flex' && modalGroupCopy) {
+    if (document.getElementById('groupModal').classList.contains('visible') && modalGroupCopy) {
         const topicSelect = document.getElementById('modalGroupTopic');
         topicSelect.innerHTML = window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
         if (window.topicsList.includes(modalGroupCopy.topic)) {
@@ -229,64 +325,6 @@ window.deleteAnswer = (aIdx) => {
     });
 };
 
-document.getElementById('modalAddQuestionBtn').onclick = () => {
-    window.showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
-        if (!vals.text) {
-            errorDiv.textContent = 'Question cannot be empty.';
-            errorDiv.style.display = 'block';
-            return;
-        }
-        if (!modalGroupCopy.questions) modalGroupCopy.questions = [];
-        modalGroupCopy.questions.push(vals.text);
-        refreshModalLists();
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
-    }, 'Add');
-};
-
-document.getElementById('modalAddAnswerBtn').onclick = () => {
-    window.showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
-        if (!vals.text) {
-            errorDiv.textContent = 'Answer cannot be empty.';
-            errorDiv.style.display = 'block';
-            return;
-        }
-        if (!modalGroupCopy.answers) modalGroupCopy.answers = [];
-        modalGroupCopy.answers.push(vals.text);
-        refreshModalLists();
-        document.getElementById('simpleModal').style.display = 'none';
-        window.popModal();
-    }, 'Add');
-};
-
-document.getElementById('modalSaveBtn').onclick = async () => {
-    if (window.selectedGroupIndex === -1 || !modalGroupCopy) return;
-
-    modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
-    modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
-    modalGroupCopy.section = document.getElementById('modalGroupSection').value;
-    modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
-    modalGroupCopy.priority = document.getElementById('modalGroupPriority').value;
-
-    await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
-    await window.loadGroupsAndSections();
-    document.getElementById('groupModal').style.display = 'none';
-    window.popModal();
-    modalGroupCopy = null;
-
-    if (window._groupModalOnSave) {
-        window._groupModalOnSave();
-        window._groupModalOnSave = null;
-    }
-};
-
-document.getElementById('modalCancelBtn').onclick = () => {
-    modalGroupCopy = null;
-    document.getElementById('groupModal').style.display = 'none';
-    window.popModal();
-    window._groupModalOnSave = null;
-};
-
 // Create new group
 async function createNewGroup() {
     if (!window.currentModel) {
@@ -311,3 +349,6 @@ document.getElementById('createFirstGroupBtn').onclick = createNewGroup;
 
 document.getElementById('groupSearch').addEventListener('input', filterAndSortGroups);
 document.getElementById('sectionFilter').onchange = filterAndSortGroups;
+
+// Initial attachment of modal handlers (when page loads)
+attachGroupModalHandlers();
