@@ -18,6 +18,19 @@ window.loadTopics = async function() {
     }
 };
 
+// ========== Clear Topics (when no model) ==========
+window.clearTopics = function() {
+    window.topicsList = [];
+    const container = document.getElementById('topicsGridContainer');
+    if (container) container.innerHTML = '';
+    // Disable sidebar controls
+    document.getElementById('topicSearch').disabled = true;
+    document.getElementById('topicSectionFilter').disabled = true;
+    document.getElementById('topicFilter').disabled = true;
+    document.getElementById('topicSort').disabled = true;
+    document.getElementById('addTopicBtn').disabled = true;
+};
+
 function populateTopicSectionFilter() {
     const select = document.getElementById('topicSectionFilter');
     select.innerHTML = '<option value="All Sections">All Sections</option>';
@@ -37,7 +50,7 @@ function renderTopicsGrid() {
     const groupCounts = {};
     window.groups.forEach(g => {
         const topic = g.topic;
-        groupCounts[topic] = (groupCounts[topic] || 0) + 1;
+        if (topic) groupCounts[topic] = (groupCounts[topic] || 0) + 1;
     });
 
     let html = '<div class="topics-grid">';
@@ -150,6 +163,11 @@ function addTopic() {
             errorDiv.style.display = 'block';
             return;
         }
+        if (vals.topic.toLowerCase() === 'null') {
+            errorDiv.textContent = 'Topic name cannot be "null".';
+            errorDiv.style.display = 'block';
+            return;
+        }
         try {
             await window.apiPost(`/api/models/${window.currentModel}/topics`, { topic: vals.topic });
             await window.loadTopics();
@@ -251,6 +269,10 @@ function editTopic(oldName) {
             alert('Topic name cannot be empty.');
             return;
         }
+        if (newName.toLowerCase() === 'null') {
+            alert('Topic name cannot be "null".');
+            return;
+        }
         if (newName === oldName) {
             window.popModal();
             return;
@@ -273,6 +295,15 @@ function deleteTopic(topic) {
         message = `Topic "${topic}" is used by ${groupsUsing} group(s).`;
     }
 
+    // Build reassign dropdown options
+    const otherTopics = window.topicsList.filter(t => t !== topic);
+    let reassignOptions = '';
+    if (otherTopics.length === 0) {
+        reassignOptions = '<option value="">(No topic)</option>';
+    } else {
+        reassignOptions = otherTopics.map(t => `<option value="${t}">${t}</option>`).join('');
+    }
+
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
@@ -284,7 +315,7 @@ function deleteTopic(topic) {
                 <input type="radio" name="deleteAction" value="reassign" checked>
                 Reassign groups to:
                 <select id="reassignTarget">
-                    ${window.topicsList.filter(t => t !== topic).map(t => `<option value="${t}">${t}</option>`).join('')}
+                    ${reassignOptions}
                 </select>
             </label>
             <br><br>
@@ -310,7 +341,7 @@ function deleteTopic(topic) {
             const target = action === 'reassign' ? document.getElementById('reassignTarget').value : null;
             try {
                 let url = `/api/models/${window.currentModel}/topics/${topic}?action=${action}`;
-                if (target) url += `&target=${target}`;
+                if (target !== null) url += `&target=${target}`;
                 await window.apiDelete(url);
                 await window.loadTopics();
                 window.popModal();
@@ -318,14 +349,10 @@ function deleteTopic(topic) {
                 alert('Failed to delete topic: ' + err.message);
             }
         } else {
-            const target = window.topicsList.find(t => t !== topic);
-            if (!target) {
-                alert('Cannot delete the last topic.');
-                window.popModal();
-                return;
-            }
+            // No groups using this topic – just delete it
             try {
-                await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=${target}`);
+                // For no groups, we can just delete with reassign to empty (no effect)
+                await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=`);
                 await window.loadTopics();
                 window.popModal();
             } catch (err) {

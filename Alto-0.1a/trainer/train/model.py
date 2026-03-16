@@ -288,6 +288,9 @@ class Model:
         return group
 
     def _validate_topic(self, topic: str):
+        """Allow empty string (no topic), otherwise check against topics list."""
+        if topic == "":
+            return
         topics = self.get_topics()
         if topic not in topics:
             raise ValueError(f"Topic '{topic}' is not in model's topics list")

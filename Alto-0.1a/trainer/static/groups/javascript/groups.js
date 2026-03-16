@@ -220,14 +220,16 @@ window.openGroupModal = async function(index, onSaveCallback) {
         sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
         sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
 
+        // Topic dropdown: include empty option
         const topicSelect = document.getElementById('modalGroupTopic');
+        let topicOptions = '<option value="">(No topic)</option>';
         if (window.topicsList && window.topicsList.length) {
-            topicSelect.innerHTML = window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
-            topicSelect.value = modalGroupCopy.topic || window.topicsList[0] || '';
+            topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
         } else {
-            topicSelect.innerHTML = '<option value="general">general</option>';
-            topicSelect.value = modalGroupCopy.topic || 'general';
+            topicOptions += '<option value="general">general</option>';
         }
+        topicSelect.innerHTML = topicOptions;
+        topicSelect.value = modalGroupCopy.topic || '';  // empty string if no topic
 
         document.getElementById('modalGroupPriority').value = modalGroupCopy.priority || 'medium';
 
@@ -313,7 +315,7 @@ window.deleteAnswer = (aIdx) => {
     });
 };
 
-// Create new group
+// Create new group – now with empty topic
 async function createNewGroup() {
     if (!window.currentModel) {
         alert('Please select or create a model first.');
@@ -324,7 +326,7 @@ async function createNewGroup() {
         group_description: '',
         questions: [],
         answers: [],
-        topic: 'general',
+        topic: '',                     // empty means no topic
         priority: 'medium',
         section: window.sections[0] || ''
     };

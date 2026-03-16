@@ -20,14 +20,22 @@ async function loadModels() {
             await switchModel(models[0].name);
             document.getElementById('noModelsEmptyState').style.display = 'none';
             window.setControlsEnabled(true);
+            setTabsEnabled(true);
         } else {
+            // No models – clear everything and switch to Groups tab
             window.currentModel = null;
             window.groups = [];
             window.sections = [];
             if (typeof renderGroups === 'function') renderGroups();
+            // Clear topics and variants
+            if (window.clearTopics) window.clearTopics();
+            if (window.clearVariants) window.clearVariants();
+            // Switch to Groups tab
+            document.getElementById('groupsTab').click();
             document.getElementById('noModelsEmptyState').style.display = 'block';
             document.getElementById('noGroupsEmptyState').style.display = 'none';
             window.setControlsEnabled(false);
+            setTabsEnabled(false);
         }
     } catch (err) {
         alert('Error loading models: ' + err.message);

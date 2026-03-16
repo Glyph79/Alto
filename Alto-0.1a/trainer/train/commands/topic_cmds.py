@@ -13,6 +13,8 @@ def cmd_get_topics(name: str, **kwargs) -> List[str]:
         return {"error": str(e)}
 
 def cmd_add_topic(name: str, topic: str, **kwargs) -> Dict:
+    if topic.lower() == "null":
+        return {"error": "Topic name cannot be 'null'"}
     try:
         model = get_model(name)
         topics = model.get_topics()
@@ -27,6 +29,8 @@ def cmd_add_topic(name: str, topic: str, **kwargs) -> Dict:
         return {"error": str(e)}
 
 def cmd_rename_topic(name: str, old: str, new: str, **kwargs) -> Dict:
+    if new.lower() == "null":
+        return {"error": "Topic name cannot be 'null'"}
     try:
         model = get_model(name)
         topics = model.get_topics()
@@ -58,17 +62,16 @@ def cmd_delete_topic(name: str, topic: str, action: str = "reassign",
         topics = model.get_topics()
         if topic not in topics:
             return {"error": f"Topic '{topic}' not found"}
-        if len(topics) == 1:
-            return {"error": "Cannot delete the last topic"}
 
         # Find groups using this topic
         summaries = model.get_group_summaries()
         groups_to_update = [s for s in summaries if s["topic"] == topic]
 
         if action == "reassign":
-            if not target:
-                return {"error": "Target topic required for reassign action"}
-            if target not in topics:
+            # target can be empty string (meaning no topic) or a valid topic
+            if target is None:
+                target = ""   # default to no topic
+            if target != "" and target not in topics:
                 return {"error": f"Target topic '{target}' not found"}
             # Move groups to target topic
             for s in groups_to_update:

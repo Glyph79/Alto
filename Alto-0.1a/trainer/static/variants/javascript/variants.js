@@ -16,6 +16,17 @@ window.loadVariants = async function() {
     }
 };
 
+// ========== Clear Variants (when no model) ==========
+window.clearVariants = function() {
+    window.variants = [];
+    const container = document.getElementById('variantsGridContainer');
+    if (container) container.innerHTML = '';
+    // Disable sidebar controls
+    document.getElementById('variantSearch').disabled = true;
+    document.getElementById('variantTopicFilter').disabled = true;
+    document.getElementById('addVariantBtn').disabled = true;
+};
+
 function renderVariantsGrid() {
     const container = document.getElementById('variantsGridContainer');
     if (!container) return;
