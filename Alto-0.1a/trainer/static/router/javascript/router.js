@@ -1,0 +1,203 @@
+// ========== Router State ==========
+window.routes = [];
+let routeCards = [];
+
+// ========== Load Routes ==========
+window.loadRoutes = async function() {
+    try {
+        window.routes = await window.apiGet('/api/router/routes');
+        renderRoutesGrid();
+        document.getElementById('routeSearch').disabled = false;
+        document.getElementById('addRouteBtn').disabled = false;
+    } catch (err) {
+        console.error('Error loading routes:', err);
+    }
+};
+
+function renderRoutesGrid() {
+    const container = document.getElementById('routesGridContainer');
+    if (!container) return;
+
+    if (window.routes.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding: 40px;"><p>No routes defined.</p></div>';
+        routeCards = [];
+        return;
+    }
+
+    let html = '<div class="routes-grid">';
+    window.routes.forEach((route, idx) => {
+        const variants = route.variants.join(', ');
+        html += `
+            <div class="route-card" data-index="${idx}">
+                <div class="header">
+                    <span class="module-badge">${route.module_name}</span>
+                    <div class="card-actions">
+                        <button class="edit-route" title="Edit">✎</button>
+                        <button class="delete-route" title="Delete">🗑</button>
+                    </div>
+                </div>
+                <div class="variants">${variants}</div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+
+    routeCards = Array.from(document.querySelectorAll('.route-card')).map(card => ({
+        element: card,
+        route: window.routes[parseInt(card.dataset.index)],
+        index: parseInt(card.dataset.index)
+    }));
+
+    routeCards.forEach(card => {
+        const index = card.index;
+        card.element.addEventListener('click', (e) => {
+            if (e.target.closest('.card-actions')) return;
+            openRouteModal(index);
+        });
+        card.element.querySelector('.edit-route').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openRouteModal(index);
+        });
+        card.element.querySelector('.delete-route').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteRoute(index);
+        });
+    });
+
+    filterRoutes();
+}
+
+function filterRoutes() {
+    const searchTerm = document.getElementById('routeSearch').value.toLowerCase();
+    let visibleCards = routeCards.filter(card => {
+        const moduleName = card.route.module_name.toLowerCase();
+        const variants = card.route.variants.join(' ').toLowerCase();
+        return moduleName.includes(searchTerm) || variants.includes(searchTerm);
+    });
+    const grid = document.querySelector('.routes-grid');
+    visibleCards.forEach(card => grid.appendChild(card.element));
+    routeCards.forEach(card => {
+        card.element.style.display = visibleCards.includes(card) ? 'flex' : 'none';
+    });
+}
+
+// ========== Route Modal Functions ==========
+let currentRouteIndex = -1;
+let currentRouteVariants = [];
+
+function openRouteModal(index) {
+    currentRouteIndex = index;
+    const modal = document.getElementById('routeModal');
+    const title = document.getElementById('routeModalTitle');
+    const moduleInput = document.getElementById('routeModuleName');
+
+    if (index === -1) {
+        title.textContent = 'Add Route';
+        moduleInput.value = '';
+        currentRouteVariants = [];
+    } else {
+        title.textContent = 'Edit Route';
+        const route = window.routes[index];
+        moduleInput.value = route.module_name;
+        currentRouteVariants = [...route.variants];
+    }
+    renderRouteVariantsList();
+
+    document.getElementById('routeAddVariantBtn').onclick = addRouteVariant;
+    document.getElementById('routeSaveBtn').onclick = saveRouteModal;
+    document.getElementById('routeCancelBtn').onclick = closeRouteModal;
+
+    window.pushModal('routeModal');
+}
+
+function closeRouteModal() {
+    window.popModal();
+    currentRouteIndex = -1;
+    currentRouteVariants = [];
+}
+
+function renderRouteVariantsList() {
+    const list = document.getElementById('routeVariantsList');
+    list.innerHTML = '';
+    currentRouteVariants.forEach((variant, idx) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+            <span>${variant}</span>
+            <span>
+                <button onclick="editRouteVariant(${idx})">✎</button>
+                <button onclick="deleteRouteVariant(${idx})">🗑</button>
+            </span>
+        `;
+        list.appendChild(li);
+    });
+}
+
+function addRouteVariant() {
+    window.showSimpleModal('Add Variant Phrase', [{ name: 'phrase', label: 'Phrase', value: '' }], (vals) => {
+        const phrase = vals.phrase.trim();
+        if (!phrase) {
+            alert('Phrase cannot be empty.');
+            return;
+        }
+        currentRouteVariants.push(phrase);
+        renderRouteVariantsList();
+    }, 'Add');
+}
+
+window.editRouteVariant = function(idx) {
+    const oldPhrase = currentRouteVariants[idx];
+    window.showSimpleModal('Edit Variant Phrase', [{ name: 'phrase', label: 'Phrase', value: oldPhrase }], (vals) => {
+        const newPhrase = vals.phrase.trim();
+        if (!newPhrase) {
+            alert('Phrase cannot be empty.');
+            return;
+        }
+        currentRouteVariants[idx] = newPhrase;
+        renderRouteVariantsList();
+    }, 'Save');
+};
+
+window.deleteRouteVariant = function(idx) {
+    window.showConfirmModal('Delete this variant phrase?', () => {
+        currentRouteVariants.splice(idx, 1);
+        renderRouteVariantsList();
+    });
+};
+
+async function saveRouteModal() {
+    const moduleName = document.getElementById('routeModuleName').value.trim();
+    if (!moduleName) {
+        alert('Module name is required.');
+        return;
+    }
+    if (currentRouteVariants.length === 0) {
+        alert('At least one variant phrase is required.');
+        return;
+    }
+
+    const data = { module_name: moduleName, variants: currentRouteVariants };
+
+    try {
+        if (currentRouteIndex === -1) {
+            await window.apiPost('/api/router/routes', data);
+        } else {
+            await window.apiPut(`/api/router/routes/${currentRouteIndex}`, data);
+        }
+        closeRouteModal();
+        await window.loadRoutes();
+    } catch (err) {
+        alert('Error saving route: ' + err.message);
+    }
+}
+
+async function deleteRoute(index) {
+    window.showConfirmModal('Delete this route?', async () => {
+        await window.apiDelete(`/api/router/routes/${index}`);
+        await window.loadRoutes();
+    });
+}
+
+// Event listeners
+document.getElementById('routeSearch').addEventListener('input', filterRoutes);
+document.getElementById('addRouteBtn').addEventListener('click', () => openRouteModal(-1));

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import sqlite3
 
 app = Quart(__name__, static_folder="static")  # static folder only, no templates
 
@@ -302,6 +303,110 @@ async def delete_variant(name, variant_id):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
+# ========== Router routes ==========
+ROUTER_DB_PATH = os.path.join(os.path.dirname(__file__), 'routing', 'router.db')
+
+def get_router_connection():
+    os.makedirs(os.path.dirname(ROUTER_DB_PATH), exist_ok=True)
+    if not os.path.exists(ROUTER_DB_PATH):
+        conn = sqlite3.connect(ROUTER_DB_PATH)
+        conn.execute('''
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_name TEXT NOT NULL,
+                variants TEXT NOT NULL
+            )
+        ''')
+        default_variants = json.dumps([
+            "what's the weather",
+            "what is the weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "weather today",
+            "weather tomorrow"
+        ])
+        conn.execute('INSERT INTO routes (module_name, variants) VALUES (?, ?)',
+                     ('weather', default_variants))
+        conn.commit()
+        conn.close()
+    return sqlite3.connect(ROUTER_DB_PATH)
+
+@app.route('/api/router/routes', methods=['GET'])
+async def get_router_routes():
+    try:
+        conn = get_router_connection()
+        cur = conn.execute('SELECT id, module_name, variants FROM routes ORDER BY id')
+        routes = []
+        for row in cur:
+            routes.append({
+                'id': row[0],
+                'module_name': row[1],
+                'variants': json.loads(row[2])
+            })
+        conn.close()
+        return jsonify(routes)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/router/routes', methods=['POST'])
+async def add_router_route():
+    try:
+        data = await request.get_json()
+        module_name = data.get('module_name')
+        variants = data.get('variants')
+        if not module_name or not variants:
+            return jsonify({'error': 'Module name and variants required'}), 400
+        conn = get_router_connection()
+        conn.execute('INSERT INTO routes (module_name, variants) VALUES (?, ?)',
+                     (module_name, json.dumps(variants)))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/router/routes/<int:index>', methods=['PUT'])
+async def update_router_route(index):
+    try:
+        data = await request.get_json()
+        module_name = data.get('module_name')
+        variants = data.get('variants')
+        if not module_name or not variants:
+            return jsonify({'error': 'Module name and variants required'}), 400
+        conn = get_router_connection()
+        cur = conn.execute('SELECT id FROM routes ORDER BY id')
+        rows = cur.fetchall()
+        if index < 0 or index >= len(rows):
+            conn.close()
+            return jsonify({'error': 'Index out of range'}), 404
+        route_id = rows[index][0]
+        conn.execute('UPDATE routes SET module_name = ?, variants = ? WHERE id = ?',
+                     (module_name, json.dumps(variants), route_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/router/routes/<int:index>', methods=['DELETE'])
+async def delete_router_route(index):
+    try:
+        conn = get_router_connection()
+        cur = conn.execute('SELECT id FROM routes ORDER BY id')
+        rows = cur.fetchall()
+        if index < 0 or index >= len(rows):
+            conn.close()
+            return jsonify({'error': 'Index out of range'}), 404
+        route_id = rows[index][0]
+        conn.execute('DELETE FROM routes WHERE id = ?', (route_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ========== Import/Export ==========
 @app.route('/api/models/import-db', methods=['POST'])
 async def import_db():
     files = await request.files

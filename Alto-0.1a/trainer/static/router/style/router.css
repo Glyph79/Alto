@@ -1,0 +1,86 @@
+/* ========== Router Sidebar ========== */
+#routerSidebar input[type="text"] {
+    width: 100%;
+    background: #2d2d5a;
+    border: 1px solid #4a4a7a;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+}
+#routerSidebar input:focus {
+    outline: none;
+    border-color: #6c63ff;
+    box-shadow: 0 0 0 2px rgba(108,99,255,0.3);
+}
+#routerSidebar button.primary {
+    width: 100%;
+    background: #00ff88;
+    color: black;
+    font-weight: bold;
+    border: none;
+    padding: 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all 0.2s;
+}
+#routerSidebar button.primary:hover {
+    background: #00cc6a;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,255,136,0.2);
+}
+#routerSidebar button.primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ========== Routes Grid ========== */
+.routes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+.route-card {
+    background: #252547;
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid #2d2d5a;
+    display: flex;
+    flex-direction: column;
+}
+.route-card:hover {
+    background: #2d2d5a;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    border-color: #6c63ff;
+}
+.route-card .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.route-card .module-badge {
+    background: #6c63ff;
+    color: white;
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+.route-card .variants {
+    font-size: 0.9rem;
+    color: #b0b0d0;
+    word-break: break-word;
+    line-height: 1.4;
+}
