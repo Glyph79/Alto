@@ -54,6 +54,16 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             FOREIGN KEY (parent_id) REFERENCES followup_nodes(id) ON DELETE CASCADE
         )
     """)
+    # Word variants table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS word_variants (
+            id INTEGER PRIMARY KEY,
+            topic TEXT,                     -- NULL means global
+            words TEXT NOT NULL              -- JSON array of synonyms
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_variants_topic ON word_variants(topic)")
+
     # Composite index for fast root/child queries
     conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_parent ON followup_nodes(parent_id)")
@@ -312,6 +322,11 @@ class Model:
             (json.dumps(topics, separators=(',', ':')), info["updated_at"], self.name)
         )
         self.conn.commit()
+
+    # Optional convenience method for variants
+    def get_variants(self) -> List[Dict]:
+        cur = self.conn.execute("SELECT id, topic, words FROM word_variants ORDER BY id")
+        return [{"id": r[0], "topic": r[1], "words": json.loads(r[2])} for r in cur]
 
 # ----------------------------------------------------------------------
 # Global model cache

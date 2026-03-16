@@ -269,6 +269,39 @@ async def delete_topic(name, topic):
         return jsonify(result), 400
     return jsonify(result)
 
+# ========== Variant routes ==========
+@app.route('/api/models/<name>/variants', methods=['GET'])
+async def get_variants(name):
+    result = await send_command("get-variants", name=name)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/variants', methods=['POST'])
+async def add_variant(name):
+    data = await request.get_json()
+    result = await send_command("add-variant", name=name,
+                                data=json.dumps(data, separators=(',', ':')))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/variants/<int:variant_id>', methods=['PUT'])
+async def update_variant(name, variant_id):
+    data = await request.get_json()
+    result = await send_command("update-variant", name=name, variant_id=variant_id,
+                                data=json.dumps(data, separators=(',', ':')))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/models/<name>/variants/<int:variant_id>', methods=['DELETE'])
+async def delete_variant(name, variant_id):
+    result = await send_command("delete-variant", name=name, variant_id=variant_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok"})
+
 @app.route('/api/models/import-db', methods=['POST'])
 async def import_db():
     files = await request.files

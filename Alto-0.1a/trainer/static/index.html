@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/groups/style/groups.css">
     <link rel="stylesheet" href="/static/groups/style/tree.css">
     <link rel="stylesheet" href="/static/topics/style/topics.css">
+    <link rel="stylesheet" href="/static/variants/style/variants.css">
 </head>
 <body>
     <header>
@@ -59,6 +60,17 @@
                 </select>
                 <button id="addTopicBtn" class="primary" disabled>+ Add Topic</button>
             </div>
+
+            <!-- Variants controls (visible when Variants tab active) -->
+            <div id="variantsSidebar" class="sidebar-section" style="display: none;">
+                <h3>Search</h3>
+                <input type="text" id="variantSearch" placeholder="Search words..." disabled>
+                <h3>Topic Filter</h3>
+                <select id="variantTopicFilter" disabled>
+                    <option value="All">All Topics</option>
+                </select>
+                <button id="addVariantBtn" class="primary" disabled>+ Add Variant</button>
+            </div>
         </div>
 
         <div class="content">
@@ -66,6 +78,7 @@
             <div class="tab-bar">
                 <button id="groupsTab" class="tab active">Groups</button>
                 <button id="topicsTab" class="tab">Topics</button>
+                <button id="variantsTab" class="tab">Variants</button>
             </div>
 
             <!-- Groups content -->
@@ -84,6 +97,11 @@
             <!-- Topics content -->
             <div id="topicsContent" style="display: none;">
                 <div id="topicsGridContainer"></div>
+            </div>
+
+            <!-- Variants content -->
+            <div id="variantsContent" style="display: none;">
+                <div id="variantsGridContainer"></div>
             </div>
         </div>
     </div>
@@ -196,19 +214,22 @@
     <script src="/static/groups/javascript/models.js"></script>
     <script src="/static/groups/javascript/tree.js"></script>
     <script src="/static/topics/javascript/topics.js"></script>
+    <script src="/static/variants/javascript/variants.js"></script>
 
     <!-- Tab switching logic with sidebar toggling -->
     <script>
         document.getElementById('groupsTab').addEventListener('click', () => {
             document.getElementById('groupsTab').classList.add('active');
             document.getElementById('topicsTab').classList.remove('active');
+            document.getElementById('variantsTab').classList.remove('active');
             document.getElementById('groupsContent').style.display = 'block';
             document.getElementById('topicsContent').style.display = 'none';
+            document.getElementById('variantsContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'block';
             document.getElementById('topicsSidebar').style.display = 'none';
+            document.getElementById('variantsSidebar').style.display = 'none';
             if (window.currentModel) {
                 window.loadGroupsAndSections();
-                // Enable groups sidebar controls
                 document.getElementById('groupSearch').disabled = false;
                 document.getElementById('sectionFilter').disabled = false;
                 document.getElementById('addGroupBtn').disabled = false;
@@ -218,18 +239,47 @@
         document.getElementById('topicsTab').addEventListener('click', () => {
             document.getElementById('topicsTab').classList.add('active');
             document.getElementById('groupsTab').classList.remove('active');
+            document.getElementById('variantsTab').classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'block';
+            document.getElementById('variantsContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'block';
+            document.getElementById('variantsSidebar').style.display = 'none';
             if (window.currentModel) {
                 window.loadTopics();
-                // Enable topics sidebar controls
                 document.getElementById('topicSearch').disabled = false;
                 document.getElementById('topicSectionFilter').disabled = false;
                 document.getElementById('topicFilter').disabled = false;
                 document.getElementById('topicSort').disabled = false;
                 document.getElementById('addTopicBtn').disabled = false;
+            }
+        });
+
+        document.getElementById('variantsTab').addEventListener('click', () => {
+            document.getElementById('variantsTab').classList.add('active');
+            document.getElementById('groupsTab').classList.remove('active');
+            document.getElementById('topicsTab').classList.remove('active');
+            document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('topicsContent').style.display = 'none';
+            document.getElementById('variantsContent').style.display = 'block';
+            document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('topicsSidebar').style.display = 'none';
+            document.getElementById('variantsSidebar').style.display = 'block';
+            if (window.currentModel) {
+                window.loadVariants();
+                document.getElementById('variantSearch').disabled = false;
+                document.getElementById('variantTopicFilter').disabled = false;
+                document.getElementById('addVariantBtn').disabled = false;
+                // Populate topic filter with sections + Global
+                const select = document.getElementById('variantTopicFilter');
+                select.innerHTML = '<option value="All">All Topics</option><option value="Global">Global</option>';
+                window.sections.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    select.appendChild(opt);
+                });
             }
         });
     </script>

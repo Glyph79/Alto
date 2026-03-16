@@ -15,6 +15,9 @@ from .commands.import_export import cmd_import_db
 from .commands.topic_cmds import (
     cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic
 )
+from .commands.variant_cmds import (
+    cmd_get_variants, cmd_add_variant, cmd_update_variant, cmd_delete_variant
+)
 
 COMMANDS = {
     "list-models":      cmd_list_models,
@@ -40,4 +43,9 @@ COMMANDS = {
     "delete-topic":     cmd_delete_topic,
     "get-group-summaries": cmd_get_group_summaries,
     "get-group-full":      cmd_get_group_full,
+    # New variant commands
+    "get-variants":     cmd_get_variants,
+    "add-variant":      cmd_add_variant,
+    "update-variant":   cmd_update_variant,
+    "delete-variant":   cmd_delete_variant,
 }
