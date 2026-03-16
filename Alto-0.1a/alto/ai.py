@@ -304,6 +304,30 @@ class RuleBot:
             return random.choice(group_or_node["answers"])
         return self.fallback
 
+    def _expand_with_synonyms(self, words: list[str]) -> set[str]:
+        """
+        For each normalized word, find all synonyms (including itself)
+        from the variant_words table. Returns a set of distinct words.
+        """
+        if not words:
+            return set(words)
+
+        expanded = set()
+        for w in words:
+            # Find all words in any variant group that contains w
+            cur = self.conn.execute("""
+                SELECT DISTINCT v2.word
+                FROM variant_words v1
+                JOIN variant_words v2 ON v1.group_id = v2.group_id
+                WHERE v1.word = ?
+            """, (w,))
+            rows = cur.fetchall()
+            if rows:
+                expanded.update(row[0] for row in rows)
+            else:
+                expanded.add(w)  # keep original if no synonyms
+        return expanded
+
     def get_response(self, user_input: str, state: dict = None) -> tuple[str, dict]:
         self.turn += 1
         if state is None:
@@ -312,6 +336,8 @@ class RuleBot:
         self._prune_session_trees()
 
         norm_words = [_normalize_word(w) for w in user_input.split() if w]
+        # Expand with synonyms
+        expanded_words = self._expand_with_synonyms(norm_words)
 
         # 1. Check existing sessions
         for gid, tree in list(self._session_trees.items()):
@@ -327,27 +353,28 @@ class RuleBot:
                 self._get_group_light(gid)
                 return self._random_answer(matched_node), {"trees": []}
 
-        # 2. Search all groups via FTS
-        candidate_group_ids = _get_group_ids_for_words(self.conn, norm_words)
-        if candidate_group_ids:
-            candidate_groups = _get_group_light_by_ids(self.conn, list(candidate_group_ids))
-            score, matched_group = self._best_match_in_groups(user_input, candidate_groups)
-            if matched_group:
-                gid = matched_group["id"]
-                group = self._get_group_light(gid)   # light version already in cache
-                tree = self._get_session_tree(gid)
-                if not tree:
-                    tree = self._create_session_tree(gid)
-                root_score, matched_root = self._best_match_in_nodes(user_input, tree.get_roots())
-                if matched_root:
-                    tree.last_used_turn = self.turn
-                    tree.move_to_node(matched_root['id'])
-                    tree.ensure_node_answers(matched_root['id'])
-                    return self._random_answer(matched_root), {"trees": []}
-                # No root matched – use group answer
-                if group["answers"] is None:
-                    group["answers"] = _load_group_answers(self.conn, gid)
-                return self._random_answer(group), {"trees": []}
+        # 2. Search all groups via FTS using expanded words
+        if expanded_words:
+            candidate_group_ids = _get_group_ids_for_words(self.conn, list(expanded_words))
+            if candidate_group_ids:
+                candidate_groups = _get_group_light_by_ids(self.conn, list(candidate_group_ids))
+                score, matched_group = self._best_match_in_groups(user_input, candidate_groups)
+                if matched_group:
+                    gid = matched_group["id"]
+                    group = self._get_group_light(gid)   # light version already in cache
+                    tree = self._get_session_tree(gid)
+                    if not tree:
+                        tree = self._create_session_tree(gid)
+                    root_score, matched_root = self._best_match_in_nodes(user_input, tree.get_roots())
+                    if matched_root:
+                        tree.last_used_turn = self.turn
+                        tree.move_to_node(matched_root['id'])
+                        tree.ensure_node_answers(matched_root['id'])
+                        return self._random_answer(matched_root), {"trees": []}
+                    # No root matched – use group answer
+                    if group["answers"] is None:
+                        group["answers"] = _load_group_answers(self.conn, gid)
+                    return self._random_answer(group), {"trees": []}
 
         return self.fallback, {"trees": []}
 
@@ -361,4 +388,3 @@ def handle(text: str, state: dict = None) -> tuple[str, dict]:
         _bot = RuleBot()
         response, new_state = _bot.get_response(text, state)
     return response, new_state
-    

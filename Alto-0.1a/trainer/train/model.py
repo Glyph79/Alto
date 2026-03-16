@@ -54,15 +54,22 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             FOREIGN KEY (parent_id) REFERENCES followup_nodes(id) ON DELETE CASCADE
         )
     """)
-    # Word variants table
+    # Variant tables (normalized)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS word_variants (
+        CREATE TABLE IF NOT EXISTS variant_groups (
             id INTEGER PRIMARY KEY,
-            topic TEXT,                     -- NULL means global
-            words TEXT NOT NULL              -- JSON array of synonyms
+            topic TEXT,
+            created_at TEXT NOT NULL
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_word_variants_topic ON word_variants(topic)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS variant_words (
+            word TEXT NOT NULL,
+            group_id INTEGER NOT NULL REFERENCES variant_groups(id) ON DELETE CASCADE,
+            PRIMARY KEY (word, group_id)
+        ) WITHOUT ROWID
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_variant_words_word ON variant_words(word)")
 
     # Composite index for fast root/child queries
     conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
@@ -326,10 +333,20 @@ class Model:
         )
         self.conn.commit()
 
-    # Optional convenience method for variants
     def get_variants(self) -> List[Dict]:
-        cur = self.conn.execute("SELECT id, topic, words FROM word_variants ORDER BY id")
-        return [{"id": r[0], "topic": r[1], "words": json.loads(r[2])} for r in cur]
+        """Return all variant groups (id, topic, words)."""
+        cur = self.conn.execute("""
+            SELECT g.id, g.topic, GROUP_CONCAT(w.word, ',') as words
+            FROM variant_groups g
+            LEFT JOIN variant_words w ON w.group_id = g.id
+            GROUP BY g.id
+            ORDER BY g.id
+        """)
+        variants = []
+        for row in cur:
+            words = row[2].split(',') if row[2] else []
+            variants.append({"id": row[0], "topic": row[1], "words": words})
+        return variants
 
 # ----------------------------------------------------------------------
 # Global model cache

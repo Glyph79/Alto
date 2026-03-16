@@ -1,6 +1,8 @@
 // ========== Variants State ==========
 window.variants = [];
 let variantCards = [];
+let currentVariantId = null;          // null for new variant, else existing id
+let currentVariantWords = [];          // array of words for the variant being edited
 
 // ========== Load Variants ==========
 window.loadVariants = async function() {
@@ -21,7 +23,6 @@ window.clearVariants = function() {
     window.variants = [];
     const container = document.getElementById('variantsGridContainer');
     if (container) container.innerHTML = '';
-    // Disable sidebar controls
     document.getElementById('variantSearch').disabled = true;
     document.getElementById('variantTopicFilter').disabled = true;
     document.getElementById('addVariantBtn').disabled = true;
@@ -96,52 +97,109 @@ function filterVariants() {
     });
 }
 
-function populateVariantTopicFilter() {
-    const select = document.getElementById('variantTopicFilter');
-    select.innerHTML = '<option value="All">All Topics</option><option value="Global">Global</option>';
-    window.sections.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = s;
-        select.appendChild(opt);
+// ========== Variant Modal Functions ==========
+function openVariantModal(title, topic, words, onSave) {
+    document.getElementById('variantModalTitle').textContent = title;
+    document.getElementById('variantTopic').value = topic || '';
+    currentVariantWords = words ? [...words] : [];
+    renderVariantWordsList();
+
+    // Store onSave callback
+    window._variantModalOnSave = onSave;
+
+    // Attach event handlers (only once, but we reassign each time to be safe)
+    document.getElementById('variantAddWordBtn').onclick = addVariantWord;
+    document.getElementById('variantSaveBtn').onclick = saveVariantModal;
+    document.getElementById('variantCancelBtn').onclick = closeVariantModal;
+
+    window.pushModal('variantModal');
+}
+
+function closeVariantModal() {
+    window.popModal();
+    window._variantModalOnSave = null;
+}
+
+function renderVariantWordsList() {
+    const list = document.getElementById('variantWordsList');
+    list.innerHTML = '';
+    currentVariantWords.forEach((word, idx) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+            <span>${word}</span>
+            <span>
+                <button onclick="editVariantWord(${idx})">✎</button>
+                <button onclick="deleteVariantWord(${idx})">🗑</button>
+            </span>
+        `;
+        list.appendChild(li);
     });
+}
+
+function addVariantWord() {
+    window.showSimpleModal('Add Word', [{ name: 'word', label: 'Word', value: '' }], (vals) => {
+        const word = vals.word.trim();
+        if (!word) {
+            alert('Word cannot be empty.');
+            return;
+        }
+        currentVariantWords.push(word);
+        renderVariantWordsList();
+    }, 'Add');
+}
+
+window.editVariantWord = function(idx) {
+    const oldWord = currentVariantWords[idx];
+    window.showSimpleModal('Edit Word', [{ name: 'word', label: 'Word', value: oldWord }], (vals) => {
+        const newWord = vals.word.trim();
+        if (!newWord) {
+            alert('Word cannot be empty.');
+            return;
+        }
+        currentVariantWords[idx] = newWord;
+        renderVariantWordsList();
+    }, 'Save');
+};
+
+window.deleteVariantWord = function(idx) {
+    window.showConfirmModal('Delete this word?', () => {
+        currentVariantWords.splice(idx, 1);
+        renderVariantWordsList();
+    });
+};
+
+async function saveVariantModal() {
+    const topic = document.getElementById('variantTopic').value.trim() || null; // null for global
+    if (currentVariantWords.length === 0) {
+        alert('At least one word is required.');
+        return;
+    }
+
+    const data = { topic, words: currentVariantWords };
+    try {
+        if (window._variantModalOnSave) {
+            await window._variantModalOnSave(data);
+        }
+        closeVariantModal();
+        await window.loadVariants();
+    } catch (err) {
+        alert('Error saving variant: ' + err.message);
+    }
 }
 
 // ========== Variant CRUD ==========
 function addVariant() {
-    window.showSimpleModal('Add Word Variants', [
-        { name: 'topic', label: 'Topic (leave blank for global)', value: '' },
-        { name: 'words', label: 'Words (comma separated)', value: '' }
-    ], async (vals, errorDiv) => {
-        const words = vals.words.split(',').map(w => w.trim()).filter(w => w);
-        if (words.length === 0) {
-            errorDiv.textContent = 'At least one word required.';
-            errorDiv.style.display = 'block';
-            return;
-        }
-        const topic = vals.topic || null;
-        await window.apiPost(`/api/models/${window.currentModel}/variants`, { topic, words });
-        await window.loadVariants();
-    }, 'Add');
+    openVariantModal('Add Variant', '', [], async (data) => {
+        await window.apiPost(`/api/models/${window.currentModel}/variants`, data);
+    });
 }
 
 function editVariant(id) {
     const variant = window.variants.find(v => v.id == id);
     if (!variant) return;
-    window.showSimpleModal('Edit Word Variants', [
-        { name: 'topic', label: 'Topic (leave blank for global)', value: variant.topic || '' },
-        { name: 'words', label: 'Words (comma separated)', value: variant.words.join(', ') }
-    ], async (vals, errorDiv) => {
-        const words = vals.words.split(',').map(w => w.trim()).filter(w => w);
-        if (words.length === 0) {
-            errorDiv.textContent = 'At least one word required.';
-            errorDiv.style.display = 'block';
-            return;
-        }
-        const topic = vals.topic || null;
-        await window.apiPut(`/api/models/${window.currentModel}/variants/${id}`, { topic, words });
-        await window.loadVariants();
-    }, 'Save');
+    openVariantModal('Edit Variant', variant.topic, variant.words, async (data) => {
+        await window.apiPut(`/api/models/${window.currentModel}/variants/${id}`, data);
+    });
 }
 
 function deleteVariant(id) {

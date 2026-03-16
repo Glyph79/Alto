@@ -208,6 +208,26 @@
         <div class="modal-content" id="simpleModalContent"></div>
     </div>
 
+    <!-- Variant Modal (with updated label) -->
+    <div id="variantModal" class="modal">
+        <div class="modal-content" style="width: 500px;">
+            <h2 id="variantModalTitle">Add Variant</h2>
+            <div class="form-row">
+                <label>Name (optional)</label>   <!-- Changed from "Topic (optional)" -->
+                <input type="text" id="variantTopic" placeholder="e.g., weather synonyms">
+            </div>
+            <div class="qa-section">
+                <h3>Words</h3>
+                <ul class="qa-list" id="variantWordsList"></ul>
+                <button class="add-btn" id="variantAddWordBtn">+ Add Word</button>
+            </div>
+            <div class="modal-actions">
+                <button class="cancel" id="variantCancelBtn">Cancel</button>
+                <button class="save" id="variantSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript files in dependency order -->
     <script src="/static/global/javascript/core.js"></script>
     <script src="/static/global/javascript/display.js"></script>
