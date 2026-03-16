@@ -158,9 +158,8 @@ function attachGroupModalHandlers() {
 
         modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
         modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
-        modalGroupCopy.section = document.getElementById('modalGroupSection').value;
         modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
-        modalGroupCopy.priority = document.getElementById('modalGroupPriority').value;
+        modalGroupCopy.section = document.getElementById('modalGroupSection').value;   // now in right column
 
         await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
         await window.loadGroupsAndSections();
@@ -216,10 +215,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
         document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
         document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
 
-        const sectionSelect = document.getElementById('modalGroupSection');
-        sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
-        sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
-
         // Topic dropdown: include empty option
         const topicSelect = document.getElementById('modalGroupTopic');
         let topicOptions = '<option value="">(No topic)</option>';
@@ -231,7 +226,10 @@ window.openGroupModal = async function(index, onSaveCallback) {
         topicSelect.innerHTML = topicOptions;
         topicSelect.value = modalGroupCopy.topic || '';  // empty string if no topic
 
-        document.getElementById('modalGroupPriority').value = modalGroupCopy.priority || 'medium';
+        // Section dropdown (now in the right column)
+        const sectionSelect = document.getElementById('modalGroupSection');
+        sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+        sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
 
         refreshModalLists();
 
@@ -315,7 +313,7 @@ window.deleteAnswer = (aIdx) => {
     });
 };
 
-// Create new group – now with empty topic
+// Create new group – now with empty topic and no priority
 async function createNewGroup() {
     if (!window.currentModel) {
         alert('Please select or create a model first.');
@@ -327,7 +325,6 @@ async function createNewGroup() {
         questions: [],
         answers: [],
         topic: '',                     // empty means no topic
-        priority: 'medium',
         section: window.sections[0] || ''
     };
     await window.apiPost(`/api/models/${window.currentModel}/groups`, newGroup);

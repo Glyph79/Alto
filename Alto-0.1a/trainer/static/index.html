@@ -88,7 +88,7 @@
                 <button id="groupsTab" class="tab active">Groups</button>
                 <button id="topicsTab" class="tab" disabled>Topics</button>
                 <button id="variantsTab" class="tab" disabled>Variants</button>
-                <button id="routerTab" class="tab">Router</button>
+                <button id="routerTab" class="tab" disabled>Router</button> <!-- now disabled when no model -->
             </div>
 
             <!-- Groups content -->
@@ -133,10 +133,7 @@
                 <label>Description</label>
                 <input type="text" id="modalGroupDesc">
             </div>
-            <div class="form-row">
-                <label>Section</label>
-                <select id="modalGroupSection"></select>
-            </div>
+            <!-- New layout: topic (left), section (right) in one row -->
             <div class="form-row" style="display: flex; gap: 16px;">
                 <div style="flex:1;">
                     <label>Topic</label>
@@ -145,12 +142,8 @@
                     </select>
                 </div>
                 <div style="flex:1;">
-                    <label>Priority</label>
-                    <select id="modalGroupPriority">
-                        <option value="high">high</option>
-                        <option value="medium">medium</option>
-                        <option value="low">low</option>
-                    </select>
+                    <label>Section</label>
+                    <select id="modalGroupSection"></select>
                 </div>
             </div>
 
@@ -282,9 +275,9 @@
         function setTabsEnabled(enabled) {
             topicsTab.disabled = !enabled;
             variantsTab.disabled = !enabled;
-            // routerTab is always enabled
+            routerTab.disabled = !enabled;   // now disabled when no model
             if (!enabled) {
-                if (topicsTab.classList.contains('active') || variantsTab.classList.contains('active')) {
+                if (topicsTab.classList.contains('active') || variantsTab.classList.contains('active') || routerTab.classList.contains('active')) {
                     groupsTab.click();
                 }
             }
@@ -366,6 +359,7 @@
         });
 
         routerTab.addEventListener('click', () => {
+            if (routerTab.disabled) return;   // now check disabled
             routerTab.classList.add('active');
             groupsTab.classList.remove('active');
             topicsTab.classList.remove('active');
@@ -378,7 +372,11 @@
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'block';
-            window.loadRouteSummaries(); // load route summaries when tab is activated
+            if (window.currentModel) {
+                window.loadRouteSummaries(); // load route summaries when tab is activated
+                document.getElementById('routeSearch').disabled = false;
+                document.getElementById('addRouteBtn').disabled = false;
+            }
         });
     </script>
 </body>

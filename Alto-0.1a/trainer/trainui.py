@@ -5,7 +5,6 @@ import json
 import os
 import sys
 import tempfile
-import sqlite3
 
 app = Quart(__name__, static_folder="static")  # static folder only, no templates
 
@@ -132,6 +131,7 @@ async def rename_model(name):
         return jsonify(result), 400
     return jsonify({"status": "ok", "new_name": new_name})
 
+# ========== Group endpoints ==========
 @app.route('/api/models/<name>/groups', methods=['POST'])
 async def add_group(name):
     data = await request.get_json()
@@ -195,6 +195,7 @@ async def get_group_full(name, index):
         return jsonify(result), 404
     return jsonify(result)
 
+# ========== Section endpoints ==========
 @app.route('/api/models/<name>/sections', methods=['POST'])
 async def add_section(name):
     data = await request.get_json()
@@ -229,6 +230,7 @@ async def delete_section(name, section):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
+# ========== Topic endpoints ==========
 @app.route('/api/models/<name>/topics', methods=['GET'])
 async def get_topics(name):
     result = await send_command("get-topics", name=name)
@@ -278,7 +280,7 @@ async def delete_topic(name, topic):
         return jsonify(result), 400
     return jsonify(result)
 
-# ========== Variant routes ==========
+# ========== Variant endpoints ==========
 @app.route('/api/models/<name>/variants', methods=['GET'])
 async def get_variants(name):
     result = await send_command("get-variants", name=name)
@@ -311,132 +313,45 @@ async def delete_variant(name, variant_id):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# ========== Router routes ==========
-ROUTER_DB_PATH = os.path.join(os.path.dirname(__file__), 'routing', 'router.db')
+# ========== Route endpoints (model‑specific) ==========
+@app.route('/api/models/<name>/routes/summaries', methods=['GET'])
+async def get_route_summaries(name):
+    result = await send_command("get-route-summaries", name=name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
 
-def get_router_connection():
-    os.makedirs(os.path.dirname(ROUTER_DB_PATH), exist_ok=True)
-    if not os.path.exists(ROUTER_DB_PATH):
-        conn = sqlite3.connect(ROUTER_DB_PATH)
-        conn.execute('''
-            CREATE TABLE routes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                module_name TEXT NOT NULL,
-                variants TEXT NOT NULL
-            )
-        ''')
-        default_variants = json.dumps([
-            "what's the weather",
-            "what is the weather",
-            "forecast",
-            "temperature",
-            "rain",
-            "weather today",
-            "weather tomorrow"
-        ])
-        conn.execute('INSERT INTO routes (module_name, variants) VALUES (?, ?)',
-                     ('weather', default_variants))
-        conn.commit()
-        conn.close()
-    return sqlite3.connect(ROUTER_DB_PATH)
+@app.route('/api/models/<name>/routes/<int:index>/full', methods=['GET'])
+async def get_route_full(name, index):
+    result = await send_command("get-route-full", name=name, index=index)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
 
-@app.route('/api/router/routes/summaries', methods=['GET'])
-async def get_router_routes_summaries():
-    try:
-        conn = get_router_connection()
-        cur = conn.execute('''
-            SELECT id, module_name, json_array_length(variants) as variant_count
-            FROM routes ORDER BY id
-        ''')
-        summaries = []
-        for row in cur:
-            summaries.append({
-                'id': row[0],
-                'module_name': row[1],
-                'variant_count': row[2]
-            })
-        conn.close()
-        return jsonify(summaries)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/api/models/<name>/routes', methods=['POST'])
+async def add_route(name):
+    data = await request.get_json()
+    result = await send_command("add-route", name=name,
+                                data=json.dumps(data, separators=(',', ':')))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
 
-@app.route('/api/router/routes/<int:index>/full', methods=['GET'])
-async def get_router_route_full(index):
-    try:
-        conn = get_router_connection()
-        # Get the id at that index (routes are ordered by id)
-        cur = conn.execute('SELECT id, module_name, variants FROM routes ORDER BY id')
-        rows = cur.fetchall()
-        if index < 0 or index >= len(rows):
-            conn.close()
-            return jsonify({'error': 'Index out of range'}), 404
-        row = rows[index]
-        route = {
-            'id': row[0],
-            'module_name': row[1],
-            'variants': json.loads(row[2])
-        }
-        conn.close()
-        return jsonify(route)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/api/models/<name>/routes/<int:index>', methods=['PUT'])
+async def update_route(name, index):
+    data = await request.get_json()
+    result = await send_command("update-route", name=name, index=index,
+                                data=json.dumps(data, separators=(',', ':')))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok"})
 
-@app.route('/api/router/routes', methods=['POST'])
-async def add_router_route():
-    try:
-        data = await request.get_json()
-        module_name = data.get('module_name')
-        variants = data.get('variants')
-        if not module_name or not variants:
-            return jsonify({'error': 'Module name and variants required'}), 400
-        conn = get_router_connection()
-        conn.execute('INSERT INTO routes (module_name, variants) VALUES (?, ?)',
-                     (module_name, json.dumps(variants)))
-        conn.commit()
-        conn.close()
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/router/routes/<int:index>', methods=['PUT'])
-async def update_router_route(index):
-    try:
-        data = await request.get_json()
-        module_name = data.get('module_name')
-        variants = data.get('variants')
-        if not module_name or not variants:
-            return jsonify({'error': 'Module name and variants required'}), 400
-        conn = get_router_connection()
-        cur = conn.execute('SELECT id FROM routes ORDER BY id')
-        rows = cur.fetchall()
-        if index < 0 or index >= len(rows):
-            conn.close()
-            return jsonify({'error': 'Index out of range'}), 404
-        route_id = rows[index][0]
-        conn.execute('UPDATE routes SET module_name = ?, variants = ? WHERE id = ?',
-                     (module_name, json.dumps(variants), route_id))
-        conn.commit()
-        conn.close()
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/router/routes/<int:index>', methods=['DELETE'])
-async def delete_router_route(index):
-    try:
-        conn = get_router_connection()
-        cur = conn.execute('SELECT id FROM routes ORDER BY id')
-        rows = cur.fetchall()
-        if index < 0 or index >= len(rows):
-            conn.close()
-            return jsonify({'error': 'Index out of range'}), 404
-        route_id = rows[index][0]
-        conn.execute('DELETE FROM routes WHERE id = ?', (route_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/api/models/<name>/routes/<int:index>', methods=['DELETE'])
+async def delete_route(name, index):
+    result = await send_command("delete-route", name=name, index=index)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok"})
 
 # ========== Import/Export ==========
 @app.route('/api/models/import-db', methods=['POST'])
@@ -451,9 +366,6 @@ async def import_db():
     form = await request.form
     custom_name = form.get('name', '').strip()
     overwrite = form.get('overwrite', '').lower() == 'true'
-
-    print(f"[import_db] Received name='{custom_name}', overwrite={overwrite}")
-    print(f"[import_db] form keys: {list(form.keys())}")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
         content = file.read()

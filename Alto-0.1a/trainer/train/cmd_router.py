@@ -14,10 +14,14 @@ from .commands.section_cmds import (
 from .commands.import_export import cmd_import_db
 from .commands.topic_cmds import (
     cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic,
-    cmd_get_topic_groups   # <-- new
+    cmd_get_topic_groups
 )
 from .commands.variant_cmds import (
     cmd_get_variants, cmd_add_variant, cmd_update_variant, cmd_delete_variant
+)
+from .commands.route_cmds import (   # <-- new
+    cmd_get_route_summaries, cmd_get_route_full,
+    cmd_add_route, cmd_update_route, cmd_delete_route
 )
 
 COMMANDS = {
@@ -42,11 +46,17 @@ COMMANDS = {
     "add-topic":        cmd_add_topic,
     "rename-topic":     cmd_rename_topic,
     "delete-topic":     cmd_delete_topic,
-    "get-topic-groups": cmd_get_topic_groups,   # <-- new
+    "get-topic-groups": cmd_get_topic_groups,
     "get-group-summaries": cmd_get_group_summaries,
     "get-group-full":      cmd_get_group_full,
     "get-variants":     cmd_get_variants,
     "add-variant":      cmd_add_variant,
     "update-variant":   cmd_update_variant,
     "delete-variant":   cmd_delete_variant,
+    # New route commands
+    "get-route-summaries": cmd_get_route_summaries,
+    "get-route-full":      cmd_get_route_full,
+    "add-route":           cmd_add_route,
+    "update-route":        cmd_update_route,
+    "delete-route":        cmd_delete_route,
 }

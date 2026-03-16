@@ -27,9 +27,10 @@ async function loadModels() {
             window.groups = [];
             window.sections = [];
             if (typeof renderGroups === 'function') renderGroups();
-            // Clear topics and variants
+            // Clear topics, variants, and routes
             if (window.clearTopics) window.clearTopics();
             if (window.clearVariants) window.clearVariants();
+            if (window.clearRoutes) window.clearRoutes();   // <-- new
             // Switch to Groups tab
             document.getElementById('groupsTab').click();
             document.getElementById('noModelsEmptyState').style.display = 'block';
@@ -53,7 +54,10 @@ async function switchModel(modelName) {
     } else if (activeTab === 'variantsTab') {
         await window.loadVariants();
     } else if (activeTab === 'routerTab') {
-        // Router is global, not per-model; nothing to load here
+        // Router is now model-specific, so load its summaries
+        if (window.loadRouteSummaries) {
+            await window.loadRouteSummaries();
+        }
     }
 }
 
