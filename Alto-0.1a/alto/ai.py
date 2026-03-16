@@ -361,3 +361,4 @@ def handle(text: str, state: dict = None) -> tuple[str, dict]:
         _bot = RuleBot()
         response, new_state = _bot.get_response(text, state)
     return response, new_state
+    

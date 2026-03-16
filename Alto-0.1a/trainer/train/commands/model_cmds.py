@@ -1,6 +1,5 @@
 """Commands for model CRUD, rename, list, and path retrieval."""
 import os
-import json
 import datetime
 import sqlite3
 import shutil
@@ -68,10 +67,8 @@ def cmd_get_model(name: str, **kwargs) -> Dict:
     try:
         model = get_model(name)
         info = get_model_info(model.conn)
-        groups = model.get_all_groups_full()
-        for g in groups:
-            del g["id"]
-        return {**info, "qa_groups": groups}
+        # Return only metadata, not groups (frontend uses summaries endpoints)
+        return info
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:

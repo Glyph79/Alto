@@ -41,7 +41,7 @@ def main():
     parser = argparse.ArgumentParser(description="Alto Trainer CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Create subparsers for each command (same as before)
+    # Model commands
     p = subparsers.add_parser("list-models")
     p.set_defaults(func=COMMANDS["list-models"])
 
@@ -72,6 +72,7 @@ def main():
     p.add_argument("new_name")
     p.set_defaults(func=COMMANDS["rename-model"])
 
+    # Group commands
     p = subparsers.add_parser("add-group")
     p.add_argument("name")
     p.add_argument("--data", required=True)
@@ -88,44 +89,7 @@ def main():
     p.add_argument("index", type=int)
     p.set_defaults(func=COMMANDS["delete-group"])
 
-    p = subparsers.add_parser("add-question")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("--text", required=True)
-    p.set_defaults(func=COMMANDS["add-question"])
-
-    p = subparsers.add_parser("update-question")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("qidx", type=int)
-    p.add_argument("--text", required=True)
-    p.set_defaults(func=COMMANDS["update-question"])
-
-    p = subparsers.add_parser("delete-question")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("qidx", type=int)
-    p.set_defaults(func=COMMANDS["delete-question"])
-
-    p = subparsers.add_parser("add-answer")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("--text", required=True)
-    p.set_defaults(func=COMMANDS["add-answer"])
-
-    p = subparsers.add_parser("update-answer")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("aidx", type=int)
-    p.add_argument("--text", required=True)
-    p.set_defaults(func=COMMANDS["update-answer"])
-
-    p = subparsers.add_parser("delete-answer")
-    p.add_argument("name")
-    p.add_argument("index", type=int)
-    p.add_argument("aidx", type=int)
-    p.set_defaults(func=COMMANDS["delete-answer"])
-
+    # Follow‑up tree commands
     p = subparsers.add_parser("get-followups")
     p.add_argument("name")
     p.add_argument("index", type=int)
@@ -137,6 +101,13 @@ def main():
     p.add_argument("--data", required=True)
     p.set_defaults(func=COMMANDS["save-followups"])
 
+    p = subparsers.add_parser("get-node-details")
+    p.add_argument("name")
+    p.add_argument("index", type=int)
+    p.add_argument("node_id", type=int)
+    p.set_defaults(func=COMMANDS["get-node-details"])
+
+    # Section commands
     p = subparsers.add_parser("add-section")
     p.add_argument("name")
     p.add_argument("--section", required=True)
@@ -155,6 +126,30 @@ def main():
     p.add_argument("--target")
     p.set_defaults(func=COMMANDS["delete-section"])
 
+    # Topic commands
+    p = subparsers.add_parser("get-topics")
+    p.add_argument("name")
+    p.set_defaults(func=COMMANDS["get-topics"])
+
+    p = subparsers.add_parser("add-topic")
+    p.add_argument("name")
+    p.add_argument("--topic", required=True)
+    p.set_defaults(func=COMMANDS["add-topic"])
+
+    p = subparsers.add_parser("rename-topic")
+    p.add_argument("name")
+    p.add_argument("--old", required=True)
+    p.add_argument("--new", required=True)
+    p.set_defaults(func=COMMANDS["rename-topic"])
+
+    p = subparsers.add_parser("delete-topic")
+    p.add_argument("name")
+    p.add_argument("--topic", required=True)
+    p.add_argument("--action", choices=["reassign", "delete_groups"], default="reassign")
+    p.add_argument("--target")
+    p.set_defaults(func=COMMANDS["delete-topic"])
+
+    # Utility commands
     p = subparsers.add_parser("get-model-db-path")
     p.add_argument("name")
     p.set_defaults(func=COMMANDS["get-model-db-path"])
@@ -164,6 +159,16 @@ def main():
     p.add_argument("--file", required=True)
     p.add_argument("--overwrite", action="store_true")
     p.set_defaults(func=COMMANDS["import-db"])
+
+    # Lightweight group commands
+    p = subparsers.add_parser("get-group-summaries")
+    p.add_argument("name")
+    p.set_defaults(func=COMMANDS["get-group-summaries"])
+
+    p = subparsers.add_parser("get-group-full")
+    p.add_argument("name")
+    p.add_argument("index", type=int)
+    p.set_defaults(func=COMMANDS["get-group-full"])
 
     args = parser.parse_args()
     kwargs = {k: v for k, v in vars(args).items() if k not in ('func', 'command') and v is not None}

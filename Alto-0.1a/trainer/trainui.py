@@ -131,16 +131,6 @@ async def rename_model(name):
         return jsonify(result), 400
     return jsonify({"status": "ok", "new_name": new_name})
 
-@app.route('/api/models/<name>/groups', methods=['GET'])
-async def get_groups(name):
-    result = await send_command("get-model", name=name)
-    if "error" in result:
-        return jsonify(result), 404
-    return jsonify({
-        "groups": result.get("qa_groups", []),
-        "sections": result.get("sections", [])
-    })
-
 @app.route('/api/models/<name>/groups', methods=['POST'])
 async def add_group(name):
     data = await request.get_json()
@@ -162,66 +152,6 @@ async def update_group(name, index):
 @app.route('/api/models/<name>/groups/<int:index>', methods=['DELETE'])
 async def delete_group(name, index):
     result = await send_command("delete-group", name=name, index=index)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/questions', methods=['POST'])
-async def add_question(name, group_index):
-    data = await request.get_json()
-    question = data.get('question')
-    if not question:
-        return jsonify({"error": "Question text required"}), 400
-    result = await send_command("add-question", name=name, index=group_index, text=question)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/questions/<int:q_index>', methods=['PUT'])
-async def update_question(name, group_index, q_index):
-    data = await request.get_json()
-    question = data.get('question')
-    if not question:
-        return jsonify({"error": "Question text required"}), 400
-    result = await send_command("update-question", name=name, index=group_index,
-                                qidx=q_index, text=question)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/questions/<int:q_index>', methods=['DELETE'])
-async def delete_question(name, group_index, q_index):
-    result = await send_command("delete-question", name=name, index=group_index, qidx=q_index)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/answers', methods=['POST'])
-async def add_answer(name, group_index):
-    data = await request.get_json()
-    answer = data.get('answer')
-    if not answer:
-        return jsonify({"error": "Answer text required"}), 400
-    result = await send_command("add-answer", name=name, index=group_index, text=answer)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/answers/<int:a_index>', methods=['PUT'])
-async def update_answer(name, group_index, a_index):
-    data = await request.get_json()
-    answer = data.get('answer')
-    if not answer:
-        return jsonify({"error": "Answer text required"}), 400
-    result = await send_command("update-answer", name=name, index=group_index,
-                                aidx=a_index, text=answer)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/groups/<int:group_index>/answers/<int:a_index>', methods=['DELETE'])
-async def delete_answer(name, group_index, a_index):
-    result = await send_command("delete-answer", name=name, index=group_index, aidx=a_index)
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
@@ -249,7 +179,7 @@ async def get_node_details(name, group_index, node_id):
         return jsonify(result), 400
     return jsonify(result)
 
-# ========== New lightweight group routes ==========
+# ========== Lightweight group routes ==========
 @app.route('/api/models/<name>/groups/summaries', methods=['GET'])
 async def get_group_summaries(name):
     result = await send_command("get-group-summaries", name=name)
