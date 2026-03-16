@@ -1,16 +1,18 @@
 // ========== Router State ==========
-window.routes = [];
+window.routes = [];          // now stores {id, module_name, variant_count}
 let routeCards = [];
+let currentRouteIndex = -1;
+let currentRouteVariants = [];
 
-// ========== Load Routes ==========
-window.loadRoutes = async function() {
+// ========== Load Route Summaries ==========
+window.loadRouteSummaries = async function() {
     try {
-        window.routes = await window.apiGet('/api/router/routes');
+        window.routes = await window.apiGet('/api/router/routes/summaries');
         renderRoutesGrid();
         document.getElementById('routeSearch').disabled = false;
         document.getElementById('addRouteBtn').disabled = false;
     } catch (err) {
-        console.error('Error loading routes:', err);
+        console.error('Error loading route summaries:', err);
     }
 };
 
@@ -26,7 +28,7 @@ function renderRoutesGrid() {
 
     let html = '<div class="routes-grid">';
     window.routes.forEach((route, idx) => {
-        const variants = route.variants.join(', ');
+        const variantText = `${route.variant_count} variant${route.variant_count !== 1 ? 's' : ''}`;
         html += `
             <div class="route-card" data-index="${idx}">
                 <div class="header">
@@ -36,7 +38,7 @@ function renderRoutesGrid() {
                         <button class="delete-route" title="Delete">🗑</button>
                     </div>
                 </div>
-                <div class="variants">${variants}</div>
+                <div class="variants">${variantText}</div>
             </div>
         `;
     });
@@ -72,8 +74,7 @@ function filterRoutes() {
     const searchTerm = document.getElementById('routeSearch').value.toLowerCase();
     let visibleCards = routeCards.filter(card => {
         const moduleName = card.route.module_name.toLowerCase();
-        const variants = card.route.variants.join(' ').toLowerCase();
-        return moduleName.includes(searchTerm) || variants.includes(searchTerm);
+        return moduleName.includes(searchTerm);
     });
     const grid = document.querySelector('.routes-grid');
     visibleCards.forEach(card => grid.appendChild(card.element));
@@ -83,9 +84,6 @@ function filterRoutes() {
 }
 
 // ========== Route Modal Functions ==========
-let currentRouteIndex = -1;
-let currentRouteVariants = [];
-
 function openRouteModal(index) {
     currentRouteIndex = index;
     const modal = document.getElementById('routeModal');
@@ -93,22 +91,35 @@ function openRouteModal(index) {
     const moduleInput = document.getElementById('routeModuleName');
 
     if (index === -1) {
+        // Adding new route – no need to fetch
         title.textContent = 'Add Route';
         moduleInput.value = '';
         currentRouteVariants = [];
+        renderRouteVariantsList();
+        attachRouteModalHandlers();
+        window.pushModal('routeModal');
     } else {
+        // Editing existing – fetch full details
         title.textContent = 'Edit Route';
-        const route = window.routes[index];
-        moduleInput.value = route.module_name;
-        currentRouteVariants = [...route.variants];
+        (async () => {
+            try {
+                const fullRoute = await window.apiGet(`/api/router/routes/${index}/full`);
+                moduleInput.value = fullRoute.module_name;
+                currentRouteVariants = fullRoute.variants;
+                renderRouteVariantsList();
+                attachRouteModalHandlers();
+                window.pushModal('routeModal');
+            } catch (err) {
+                alert('Error loading route details: ' + err.message);
+            }
+        })();
     }
-    renderRouteVariantsList();
+}
 
+function attachRouteModalHandlers() {
     document.getElementById('routeAddVariantBtn').onclick = addRouteVariant;
     document.getElementById('routeSaveBtn').onclick = saveRouteModal;
     document.getElementById('routeCancelBtn').onclick = closeRouteModal;
-
-    window.pushModal('routeModal');
 }
 
 function closeRouteModal() {
@@ -185,7 +196,7 @@ async function saveRouteModal() {
             await window.apiPut(`/api/router/routes/${currentRouteIndex}`, data);
         }
         closeRouteModal();
-        await window.loadRoutes();
+        await window.loadRouteSummaries();  // refresh list
     } catch (err) {
         alert('Error saving route: ' + err.message);
     }
@@ -194,7 +205,7 @@ async function saveRouteModal() {
 async function deleteRoute(index) {
     window.showConfirmModal('Delete this route?', async () => {
         await window.apiDelete(`/api/router/routes/${index}`);
-        await window.loadRoutes();
+        await window.loadRouteSummaries();
     });
 }
 

@@ -93,3 +93,17 @@ def cmd_delete_topic(name: str, topic: str, action: str = "reassign",
         return {"error": f"Model '{name}' not found"}
     except Exception as e:
         return {"error": str(e)}
+
+def cmd_get_topic_groups(name: str, topic: str, **kwargs) -> Dict:
+    """Return lightweight summaries of groups that have the given topic."""
+    try:
+        model = get_model(name)
+        # Get all group summaries with counts
+        all_summaries = model.get_group_summaries_with_counts()
+        # Filter by topic
+        topic_groups = [g for g in all_summaries if g.get("topic") == topic]
+        return {"groups": topic_groups}
+    except FileNotFoundError:
+        return {"error": f"Model '{name}' not found"}
+    except Exception as e:
+        return {"error": str(e)}

@@ -44,8 +44,17 @@ async function loadModels() {
 
 async function switchModel(modelName) {
     window.currentModel = modelName;
-    await window.loadGroupsAndSections();
-    await window.loadTopics();   // load topics as well
+    // Determine which tab is active
+    const activeTab = document.querySelector('.tab.active')?.id;
+    if (activeTab === 'groupsTab') {
+        await window.loadGroupsAndSections();
+    } else if (activeTab === 'topicsTab') {
+        await window.loadTopics();
+    } else if (activeTab === 'variantsTab') {
+        await window.loadVariants();
+    } else if (activeTab === 'routerTab') {
+        // Router is global, not per-model; nothing to load here
+    }
 }
 
 // ========== Model CRUD ==========

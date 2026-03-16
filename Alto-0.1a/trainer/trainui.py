@@ -258,6 +258,14 @@ async def rename_topic(name, old_name):
         return jsonify(result), 400
     return jsonify(result)
 
+@app.route('/api/models/<name>/topics/<topic>/groups', methods=['GET'])
+async def get_topic_groups(name, topic):
+    """Return all groups that have the given topic (lightweight summaries)."""
+    result = await send_command("get-topic-groups", name=name, topic=topic)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
 @app.route('/api/models/<name>/topics/<topic>', methods=['DELETE'])
 async def delete_topic(name, topic):
     action = request.args.get('action', 'reassign')
@@ -332,20 +340,44 @@ def get_router_connection():
         conn.close()
     return sqlite3.connect(ROUTER_DB_PATH)
 
-@app.route('/api/router/routes', methods=['GET'])
-async def get_router_routes():
+@app.route('/api/router/routes/summaries', methods=['GET'])
+async def get_router_routes_summaries():
     try:
         conn = get_router_connection()
-        cur = conn.execute('SELECT id, module_name, variants FROM routes ORDER BY id')
-        routes = []
+        cur = conn.execute('''
+            SELECT id, module_name, json_array_length(variants) as variant_count
+            FROM routes ORDER BY id
+        ''')
+        summaries = []
         for row in cur:
-            routes.append({
+            summaries.append({
                 'id': row[0],
                 'module_name': row[1],
-                'variants': json.loads(row[2])
+                'variant_count': row[2]
             })
         conn.close()
-        return jsonify(routes)
+        return jsonify(summaries)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/router/routes/<int:index>/full', methods=['GET'])
+async def get_router_route_full(index):
+    try:
+        conn = get_router_connection()
+        # Get the id at that index (routes are ordered by id)
+        cur = conn.execute('SELECT id, module_name, variants FROM routes ORDER BY id')
+        rows = cur.fetchall()
+        if index < 0 or index >= len(rows):
+            conn.close()
+            return jsonify({'error': 'Index out of range'}), 404
+        row = rows[index]
+        route = {
+            'id': row[0],
+            'module_name': row[1],
+            'variants': json.loads(row[2])
+        }
+        conn.close()
+        return jsonify(route)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
