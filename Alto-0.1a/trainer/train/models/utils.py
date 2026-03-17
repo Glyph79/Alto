@@ -1,14 +1,14 @@
-"""Commands for importing databases."""
+"""Commands for importing databases (part of models feature)."""
 import os
 import sys
 import sqlite3
 import shutil
 from typing import Dict
-from ..core import (
-    MODELS_BASE_DIR, find_model_dir, ensure_model_dir, delete_with_retry,
-    safe_filename
+from train.utils.file_helpers import (
+    MODELS_BASE_DIR, find_model_dir, ensure_model_dir, safe_filename
 )
-from ..model import _model_cache, get_model_info
+from train.utils.delete_helpers import delete_with_retry
+from train.model import _model_cache, get_model_info
 
 def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) -> Dict:
     print(f"[DEBUG] import-db called with file={file}, name='{name}', overwrite={overwrite}", file=sys.stderr)

@@ -4,8 +4,10 @@ import datetime
 import time
 from collections import OrderedDict
 from typing import List, Dict, Optional, Any
-from .core import (
-    get_model_db_path, pack_array, unpack_array, update_fts_index,
+from train.utils.file_helpers import get_model_db_path
+from train.utils.msgpack_helpers import pack_array, unpack_array
+from train.utils.fts_helpers import update_fts_index
+from train.groups.utils import (
     insert_followup_tree, delete_followup_tree, load_followup_tree_full
 )
 

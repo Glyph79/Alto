@@ -4,11 +4,11 @@ import datetime
 import sqlite3
 import shutil
 from typing import Optional, Dict, List
-from ..core import (
+from train.utils.file_helpers import (
     MODELS_BASE_DIR, find_model_dir, ensure_model_dir, get_model_db_path,
     safe_filename
 )
-from ..model import (
+from train.model import (
     Model, get_model, _model_cache, init_model_db,
     get_model_info, update_model_info
 )

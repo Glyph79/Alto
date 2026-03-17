@@ -1,7 +1,7 @@
 """Commands for route management."""
 import json
 from typing import Dict, List
-from ..model import get_model
+from train.model import get_model
 
 def cmd_get_route_summaries(name: str, **kwargs) -> List[Dict]:
     """Return list of {id, module_name, variant_count}."""

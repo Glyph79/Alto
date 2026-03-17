@@ -2,7 +2,7 @@
 import json
 import datetime
 from typing import Optional, Dict
-from ..model import get_model, get_model_info, delete_group
+from train.model import get_model, get_model_info, delete_group
 
 def cmd_add_section(name: str, section: str, **kwargs) -> Dict:
     try:

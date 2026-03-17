@@ -1,7 +1,7 @@
 """Commands for topic management."""
 import json
 from typing import Optional, Dict, List
-from ..model import get_model
+from train.model import get_model
 
 def cmd_get_topics(name: str, **kwargs) -> List[str]:
     try:

@@ -2,7 +2,7 @@
 import json
 import datetime
 from typing import Dict, List
-from ..model import get_model
+from train.model import get_model
 
 def cmd_get_variants(name: str, **kwargs) -> List[Dict]:
     """Return all variant groups (id, topic, words)."""
