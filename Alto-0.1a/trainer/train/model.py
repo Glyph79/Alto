@@ -72,14 +72,7 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             PRIMARY KEY (word, group_id)
         ) WITHOUT ROWID
     """)
-    # Routes table (model-specific)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS routes (
-            id INTEGER PRIMARY KEY,
-            module_name TEXT NOT NULL,
-            variants TEXT NOT NULL   -- JSON array of phrases
-        )
-    """)
+    # Routes table removed
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_variant_words_word ON variant_words(word)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
@@ -226,51 +219,6 @@ def delete_group(conn: sqlite3.Connection, group_id: int):
         raise
 
 # ----------------------------------------------------------------------
-# Route operations
-# ----------------------------------------------------------------------
-def get_route_summaries(conn: sqlite3.Connection) -> List[Dict]:
-    """Return list of {id, module_name, variant_count}."""
-    cur = conn.execute("""
-        SELECT id, module_name, json_array_length(variants) as variant_count
-        FROM routes
-        ORDER BY id
-    """)
-    return [{"id": row[0], "module_name": row[1], "variant_count": row[2]} for row in cur]
-
-def get_route_full(conn: sqlite3.Connection, route_id: int) -> Dict:
-    cur = conn.execute("SELECT id, module_name, variants FROM routes WHERE id = ?", (route_id,))
-    row = cur.fetchone()
-    if not row:
-        raise ValueError("Route not found")
-    return {
-        "id": row[0],
-        "module_name": row[1],
-        "variants": json.loads(row[2])
-    }
-
-def insert_route(conn: sqlite3.Connection, module_name: str, variants: List[str]) -> int:
-    cur = conn.execute(
-        "INSERT INTO routes (module_name, variants) VALUES (?, ?) RETURNING id",
-        (module_name, json.dumps(variants))
-    )
-    row = cur.fetchone()
-    if row is None:
-        raise RuntimeError("Failed to retrieve inserted route ID")
-    conn.commit()
-    return row[0]
-
-def update_route(conn: sqlite3.Connection, route_id: int, module_name: str, variants: List[str]):
-    conn.execute(
-        "UPDATE routes SET module_name = ?, variants = ? WHERE id = ?",
-        (module_name, json.dumps(variants), route_id)
-    )
-    conn.commit()
-
-def delete_route(conn: sqlite3.Connection, route_id: int):
-    conn.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-    conn.commit()
-
-# ----------------------------------------------------------------------
 # Model class (caches summaries only)
 # ----------------------------------------------------------------------
 class Model:
@@ -410,39 +358,7 @@ class Model:
             variants.append({"id": row[0], "topic": row[1], "words": words})
         return variants
 
-    # ----- Routes -----
-    def get_route_summaries(self) -> List[Dict]:
-        self.last_used = time.time()
-        return get_route_summaries(self.conn)
-
-    def get_route_full(self, index: int) -> Dict:
-        """Get full route by index (order by id)."""
-        self.last_used = time.time()
-        summaries = self.get_route_summaries()
-        if index < 0 or index >= len(summaries):
-            raise IndexError("Route index out of range")
-        route_id = summaries[index]["id"]
-        return get_route_full(self.conn, route_id)
-
-    def add_route(self, module_name: str, variants: List[str]) -> int:
-        self.last_used = time.time()
-        return insert_route(self.conn, module_name, variants)
-
-    def update_route(self, index: int, module_name: str, variants: List[str]):
-        self.last_used = time.time()
-        summaries = self.get_route_summaries()
-        if index < 0 or index >= len(summaries):
-            raise IndexError("Route index out of range")
-        route_id = summaries[index]["id"]
-        update_route(self.conn, route_id, module_name, variants)
-
-    def delete_route(self, index: int):
-        self.last_used = time.time()
-        summaries = self.get_route_summaries()
-        if index < 0 or index >= len(summaries):
-            raise IndexError("Route index out of range")
-        route_id = summaries[index]["id"]
-        delete_route(self.conn, route_id)
+    # ----- Routes (removed) -----
 
 # ----------------------------------------------------------------------
 # Global model cache with LRU eviction
