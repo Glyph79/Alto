@@ -80,6 +80,11 @@ function renderTopicsGrid() {
     html += '</div>';
     container.innerHTML = html;
 
+    // Update manager's grid reference
+    if (window.topicsManager) {
+        window.topicsManager.grid = container.querySelector('.grid') || container;
+    }
+
     // Attach click handlers to cards (excluding actions)
     document.querySelectorAll('.topic-card').forEach(card => {
         card.addEventListener('click', (e) => {

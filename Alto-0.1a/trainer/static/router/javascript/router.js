@@ -66,6 +66,11 @@ function renderRoutesGrid() {
     html += '</div>';
     container.innerHTML = html;
 
+    // Update manager's grid reference
+    if (window.routesManager) {
+        window.routesManager.grid = container.querySelector('.grid') || container;
+    }
+
     routeCards = Array.from(document.querySelectorAll('.route-card')).map(card => ({
         element: card,
         item: window.routes[parseInt(card.dataset.index)],

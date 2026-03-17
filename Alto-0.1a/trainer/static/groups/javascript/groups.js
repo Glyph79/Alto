@@ -69,6 +69,11 @@ function renderGroups() {
     html += '</div>';
     container.innerHTML = html;
 
+    // Update manager's grid reference
+    if (window.groupsManager) {
+        window.groupsManager.grid = container.querySelector('.grid') || container;
+    }
+
     groupCards = Array.from(document.querySelectorAll('.group-card')).map(card => ({
         element: card,
         item: window.groups[parseInt(card.dataset.index)],

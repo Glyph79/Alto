@@ -82,6 +82,11 @@ function renderVariantsGrid() {
     html += '</div>';
     container.innerHTML = html;
 
+    // Update manager's grid reference
+    if (window.variantsManager) {
+        window.variantsManager.grid = container.querySelector('.grid') || container;
+    }
+
     document.querySelectorAll('.variant-card').forEach(card => {
         const idx = parseInt(card.dataset.index);
         card.addEventListener('click', (e) => {
