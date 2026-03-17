@@ -111,6 +111,11 @@ window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
     };
 };
 
+/**
+ * Show a confirmation modal with Cancel (left) and Delete (right).
+ * @param {string} message - The confirmation message.
+ * @param {function} onConfirm - Callback when Delete is clicked.
+ */
 window.showConfirmModal = function(message, onConfirm) {
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
@@ -118,17 +123,17 @@ window.showConfirmModal = function(message, onConfirm) {
         <h2>Confirm</h2>
         <p style="margin: 20px 0; color: #ccc;">${message}</p>
         <div class="modal-actions">
-            <button class="save" id="confirmYesBtn">Yes</button>
-            <button class="cancel" id="confirmNoBtn">No</button>
+            <button class="cancel" id="confirmCancelBtn">Cancel</button>
+            <button class="save" id="confirmDeleteBtn">Delete</button>
         </div>
     `;
     window.pushModal('simpleModal');
 
-    document.getElementById('confirmYesBtn').onclick = () => {
+    document.getElementById('confirmCancelBtn').onclick = () => {
+        window.popModal();
+    };
+    document.getElementById('confirmDeleteBtn').onclick = () => {
         window.popModal();
         onConfirm();
-    };
-    document.getElementById('confirmNoBtn').onclick = () => {
-        window.popModal();
     };
 };

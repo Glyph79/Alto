@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="/static/topics/style/topics.css">
     <link rel="stylesheet" href="/static/variants/style/variants.css">
     <link rel="stylesheet" href="/static/router/style/router.css">
+    <link rel="stylesheet" href="/static/sections/style/sections.css">
 </head>
 <body>
     <header>
@@ -44,7 +45,6 @@
                 <select id="sectionFilter" disabled>
                     <option value="All Sections">All Sections</option>
                 </select>
-                <!-- NEW: Sort dropdown for groups -->
                 <h3>Sort By</h3>
                 <select id="groupSort" disabled>
                     <option value="name-asc">Name (A-Z)</option>
@@ -55,6 +55,20 @@
                     <option value="answers-asc">Least answers</option>
                 </select>
                 <button id="addGroupBtn" class="primary" disabled>+ Add Group</button>
+            </div>
+
+            <!-- Sections controls (visible when Sections tab active) -->
+            <div id="sectionsSidebar" class="sidebar-section" style="display: none;">
+                <h3>Search</h3>
+                <input type="text" id="sectionSearch" placeholder="Search sections..." disabled>
+                <h3>Sort By</h3>
+                <select id="sectionSort" disabled>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="groups-desc">Most groups</option>
+                    <option value="groups-asc">Least groups</option>
+                </select>
+                <button id="addSectionBtn" class="primary" disabled>+ Add Section</button>
             </div>
 
             <!-- Topics controls (visible when Topics tab active) -->
@@ -89,7 +103,6 @@
                 <select id="variantTopicFilter" disabled>
                     <option value="All">All Topics</option>
                 </select>
-                <!-- NEW: Sort dropdown for variants -->
                 <h3>Sort By</h3>
                 <select id="variantSort" disabled>
                     <option value="topic-asc">Topic (A-Z)</option>
@@ -104,7 +117,6 @@
             <div id="routerSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="routeSearch" placeholder="Search routes...">
-                <!-- NEW: Sort dropdown for routes -->
                 <h3>Sort By</h3>
                 <select id="routeSort">
                     <option value="name-asc">Module name (A-Z)</option>
@@ -120,6 +132,7 @@
             <!-- Tab bar -->
             <div class="tab-bar">
                 <button id="groupsTab" class="tab active">Groups</button>
+                <button id="sectionsTab" class="tab" disabled>Sections</button>
                 <button id="topicsTab" class="tab" disabled>Topics</button>
                 <button id="variantsTab" class="tab" disabled>Variants</button>
                 <button id="routerTab" class="tab" disabled>Router</button>
@@ -136,6 +149,11 @@
                     <p>This model has no groups yet.</p>
                     <button id="createFirstGroupBtn">Add First Group</button>
                 </div>
+            </div>
+
+            <!-- Sections content -->
+            <div id="sectionsContent" style="display: none;">
+                <div id="sectionsGridContainer"></div>
             </div>
 
             <!-- Topics content -->
@@ -292,46 +310,116 @@
     <script src="/static/global/javascript/core.js"></script>
     <script src="/static/global/javascript/display.js"></script>
     <script src="/static/global/javascript/ui.js"></script>
-    <script src="/static/global/javascript/search.js"></script>  <!-- NEW -->
+    <script src="/static/global/javascript/search.js"></script>
     <script src="/static/global/javascript/models.js"></script>
     <script src="/static/groups/javascript/groups.js"></script>
     <script src="/static/groups/javascript/tree.js"></script>
+    <script src="/static/sections/javascript/sections.js"></script>
     <script src="/static/topics/javascript/topics.js"></script>
     <script src="/static/variants/javascript/variants.js"></script>
     <script src="/static/router/javascript/router.js"></script>
 
-    <!-- Tab switching logic with sidebar toggling -->
+    <!-- Tab switching logic with sidebar toggling and filter resets -->
     <script>
         const groupsTab = document.getElementById('groupsTab');
+        const sectionsTab = document.getElementById('sectionsTab');
         const topicsTab = document.getElementById('topicsTab');
         const variantsTab = document.getElementById('variantsTab');
         const routerTab = document.getElementById('routerTab');
 
         function setTabsEnabled(enabled) {
+            sectionsTab.disabled = !enabled;
             topicsTab.disabled = !enabled;
             variantsTab.disabled = !enabled;
             routerTab.disabled = !enabled;
             if (!enabled) {
-                if (topicsTab.classList.contains('active') || variantsTab.classList.contains('active') || routerTab.classList.contains('active')) {
+                if (sectionsTab.classList.contains('active') ||
+                    topicsTab.classList.contains('active') ||
+                    variantsTab.classList.contains('active') ||
+                    routerTab.classList.contains('active')) {
                     groupsTab.click();
                 }
             }
         }
 
+        // Helper to reset filter controls to defaults
+        function resetGroupsFilters() {
+            const search = document.getElementById('groupSearch');
+            if (search) search.value = '';
+            const sectionFilter = document.getElementById('sectionFilter');
+            if (sectionFilter) sectionFilter.value = 'All Sections';
+            const groupSort = document.getElementById('groupSort');
+            if (groupSort) groupSort.value = 'name-asc';
+            // Trigger change events for managers to pick up
+            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+            if (groupSort) groupSort.dispatchEvent(new Event('change', { bubbles: true }));
+            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function resetSectionsFilters() {
+            const search = document.getElementById('sectionSearch');
+            if (search) search.value = '';
+            const sectionSort = document.getElementById('sectionSort');
+            if (sectionSort) sectionSort.value = 'name-asc';
+            if (sectionSort) sectionSort.dispatchEvent(new Event('change', { bubbles: true }));
+            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function resetTopicsFilters() {
+            const search = document.getElementById('topicSearch');
+            if (search) search.value = '';
+            const sectionFilter = document.getElementById('topicSectionFilter');
+            if (sectionFilter) sectionFilter.value = 'All Sections';
+            const usageFilter = document.getElementById('topicFilter');
+            if (usageFilter) usageFilter.value = 'all';
+            const sort = document.getElementById('topicSort');
+            if (sort) sort.value = 'name-asc';
+            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+            if (usageFilter) usageFilter.dispatchEvent(new Event('change', { bubbles: true }));
+            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
+            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function resetVariantsFilters() {
+            const search = document.getElementById('variantSearch');
+            if (search) search.value = '';
+            const topicFilter = document.getElementById('variantTopicFilter');
+            if (topicFilter) topicFilter.value = 'All';
+            const sort = document.getElementById('variantSort');
+            if (sort) sort.value = 'topic-asc';
+            if (topicFilter) topicFilter.dispatchEvent(new Event('change', { bubbles: true }));
+            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
+            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function resetRouterFilters() {
+            const search = document.getElementById('routeSearch');
+            if (search) search.value = '';
+            const sort = document.getElementById('routeSort');
+            if (sort) sort.value = 'name-asc';
+            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
+            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
         groupsTab.addEventListener('click', () => {
             groupsTab.classList.add('active');
+            sectionsTab.classList.remove('active');
             topicsTab.classList.remove('active');
             variantsTab.classList.remove('active');
             routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'block';
+            document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'none';
             document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'block';
+            document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
+                // Reset filters to defaults
+                resetGroupsFilters();
                 window.loadGroupsAndSections();
                 document.getElementById('groupSearch').disabled = false;
                 document.getElementById('sectionFilter').disabled = false;
@@ -340,21 +428,53 @@
             }
         });
 
+        sectionsTab.addEventListener('click', () => {
+            if (sectionsTab.disabled) return;
+            sectionsTab.classList.add('active');
+            groupsTab.classList.remove('active');
+            topicsTab.classList.remove('active');
+            variantsTab.classList.remove('active');
+            routerTab.classList.remove('active');
+            document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('sectionsContent').style.display = 'block';
+            document.getElementById('topicsContent').style.display = 'none';
+            document.getElementById('variantsContent').style.display = 'none';
+            document.getElementById('routerContent').style.display = 'none';
+            document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('sectionsSidebar').style.display = 'block';
+            document.getElementById('topicsSidebar').style.display = 'none';
+            document.getElementById('variantsSidebar').style.display = 'none';
+            document.getElementById('routerSidebar').style.display = 'none';
+            if (window.currentModel) {
+                // Reset filters to defaults
+                resetSectionsFilters();
+                window.loadSections();
+                document.getElementById('sectionSearch').disabled = false;
+                document.getElementById('sectionSort').disabled = false;
+                document.getElementById('addSectionBtn').disabled = false;
+            }
+        });
+
         topicsTab.addEventListener('click', () => {
             if (topicsTab.disabled) return;
             topicsTab.classList.add('active');
             groupsTab.classList.remove('active');
+            sectionsTab.classList.remove('active');
             variantsTab.classList.remove('active');
             routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'block';
             document.getElementById('variantsContent').style.display = 'none';
             document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'block';
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
+                // Reset filters to defaults
+                resetTopicsFilters();
                 window.loadTopics();
                 document.getElementById('topicSearch').disabled = false;
                 document.getElementById('topicSectionFilter').disabled = false;
@@ -368,17 +488,22 @@
             if (variantsTab.disabled) return;
             variantsTab.classList.add('active');
             groupsTab.classList.remove('active');
+            sectionsTab.classList.remove('active');
             topicsTab.classList.remove('active');
             routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'block';
             document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'block';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
+                // Reset filters to defaults
+                resetVariantsFilters();
                 window.loadVariants();
                 document.getElementById('variantSearch').disabled = false;
                 document.getElementById('variantTopicFilter').disabled = false;
@@ -391,17 +516,22 @@
             if (routerTab.disabled) return;
             routerTab.classList.add('active');
             groupsTab.classList.remove('active');
+            sectionsTab.classList.remove('active');
             topicsTab.classList.remove('active');
             variantsTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
+            document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'none';
             document.getElementById('routerContent').style.display = 'block';
             document.getElementById('groupsSidebar').style.display = 'none';
+            document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'block';
             if (window.currentModel) {
+                // Reset filters to defaults
+                resetRouterFilters();
                 window.loadRouteSummaries();
                 document.getElementById('routeSearch').disabled = false;
                 document.getElementById('routeSort').disabled = false;

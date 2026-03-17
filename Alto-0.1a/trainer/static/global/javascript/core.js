@@ -1,3 +1,4 @@
+// static/global/javascript/core.js
 // ========== Global State ==========
 window.currentModel = null;
 window.groups = [];
@@ -57,7 +58,26 @@ window.setControlsEnabled = function(enabled) {
         document.getElementById('exportBtn'),
         document.getElementById('addGroupBtn'),
         document.getElementById('createFirstGroupBtn'),
-        document.getElementById('sectionFilter')
+        document.getElementById('sectionFilter'),
+        // Sections sidebar controls
+        document.getElementById('sectionSearch'),
+        document.getElementById('sectionSort'),
+        document.getElementById('addSectionBtn'),
+        // Topics sidebar controls
+        document.getElementById('topicSearch'),
+        document.getElementById('topicSectionFilter'),
+        document.getElementById('topicFilter'),
+        document.getElementById('topicSort'),
+        document.getElementById('addTopicBtn'),
+        // Variants sidebar controls
+        document.getElementById('variantSearch'),
+        document.getElementById('variantTopicFilter'),
+        document.getElementById('variantSort'),
+        document.getElementById('addVariantBtn'),
+        // Router sidebar controls
+        document.getElementById('routeSearch'),
+        document.getElementById('routeSort'),
+        document.getElementById('addRouteBtn')
     ];
     modelDependentControls.forEach(ctrl => { if (ctrl) ctrl.disabled = !enabled; });
 

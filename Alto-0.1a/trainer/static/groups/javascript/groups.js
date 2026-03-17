@@ -231,9 +231,12 @@ window.openGroupModal = async function(index, onSaveCallback) {
         topicSelect.innerHTML = topicOptions;
         topicSelect.value = modalGroupCopy.topic || '';
 
+        // Section dropdown: include Uncategorized option
         const sectionSelect = document.getElementById('modalGroupSection');
-        sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
-        sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
+        let sectionOptions = '<option value="">(Uncategorized)</option>';
+        sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+        sectionSelect.innerHTML = sectionOptions;
+        sectionSelect.value = modalGroupCopy.section || '';
 
         refreshModalLists();
         attachGroupModalHandlers();
@@ -325,7 +328,7 @@ async function createNewGroup() {
         questions: [],
         answers: [],
         topic: '',
-        section: window.sections[0] || ''
+        section: ''  // Default to uncategorized
     };
     await window.apiPost(`/api/models/${window.currentModel}/groups`, newGroup);
     await window.loadGroupsAndSections();

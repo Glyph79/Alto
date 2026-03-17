@@ -1,3 +1,4 @@
+// static/global/javascript/models.js
 // ========== Load Models ==========
 async function loadModels() {
     try {
@@ -45,6 +46,8 @@ async function switchModel(modelName) {
     const activeTab = document.querySelector('.tab.active')?.id;
     if (activeTab === 'groupsTab') {
         await window.loadGroupsAndSections();
+    } else if (activeTab === 'sectionsTab') {
+        await window.loadSections();
     } else if (activeTab === 'topicsTab') {
         await window.loadTopics();
     } else if (activeTab === 'variantsTab') {
