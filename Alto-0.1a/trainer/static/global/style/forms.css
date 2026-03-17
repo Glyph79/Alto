@@ -1,0 +1,61 @@
+/* Basic form elements */
+input,
+select,
+textarea {
+    background: #2d2d5a;
+    color: white;
+    border: 1px solid #4a4a7a;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+input:hover,
+select:hover {
+    background: #3d3d7a;
+    border-color: #6c63ff;
+}
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: #6c63ff;
+    box-shadow: 0 0 0 2px rgba(108,99,255,0.3);
+}
+input::placeholder {
+    color: #888;
+}
+
+/* Sidebar form elements */
+.sidebar input,
+.sidebar select,
+.sidebar button {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+/* Disabled states */
+input:disabled,
+select:disabled,
+textarea:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: #4a4a7a;
+}
+
+/* Modal form rows */
+.modal-content .form-row {
+    margin-bottom: 20px;
+}
+.modal-content label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #b0b0d0;
+    font-size: 0.9rem;
+}
+.modal-content input,
+.modal-content select,
+.modal-content textarea {
+    width: 100%;
+}

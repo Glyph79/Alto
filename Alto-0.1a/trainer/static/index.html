@@ -5,12 +5,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alto Trainer · Full Editor</title>
+    <!-- Global styles (split by responsibility) -->
+    <link rel="stylesheet" href="/static/global/style/base.css">
+    <link rel="stylesheet" href="/static/global/style/layout.css">
+    <link rel="stylesheet" href="/static/global/style/components.css">
+    <link rel="stylesheet" href="/static/global/style/forms.css">
+    <link rel="stylesheet" href="/static/global/style/buttons.css">
+    <link rel="stylesheet" href="/static/global/style/modals.css">
+
+    <!-- Feature‑specific styles -->
     <link rel="stylesheet" href="/static/groups/style/groups.css">
     <link rel="stylesheet" href="/static/groups/style/tree.css">
     <link rel="stylesheet" href="/static/topics/style/topics.css">
     <link rel="stylesheet" href="/static/variants/style/variants.css">
     <link rel="stylesheet" href="/static/router/style/router.css">
-    <link rel="stylesheet" href="/static/global/style/global.css">
 </head>
 <body>
     <header>
@@ -88,7 +96,7 @@
                 <button id="groupsTab" class="tab active">Groups</button>
                 <button id="topicsTab" class="tab" disabled>Topics</button>
                 <button id="variantsTab" class="tab" disabled>Variants</button>
-                <button id="routerTab" class="tab" disabled>Router</button> <!-- now disabled when no model -->
+                <button id="routerTab" class="tab" disabled>Router</button>
             </div>
 
             <!-- Groups content -->
@@ -258,8 +266,9 @@
     <!-- JavaScript files in dependency order -->
     <script src="/static/global/javascript/core.js"></script>
     <script src="/static/global/javascript/display.js"></script>
+    <script src="/static/global/javascript/ui.js"></script>
+    <script src="/static/global/javascript/models.js"></script>
     <script src="/static/groups/javascript/groups.js"></script>
-    <script src="/static/groups/javascript/models.js"></script>
     <script src="/static/groups/javascript/tree.js"></script>
     <script src="/static/topics/javascript/topics.js"></script>
     <script src="/static/variants/javascript/variants.js"></script>
@@ -275,7 +284,7 @@
         function setTabsEnabled(enabled) {
             topicsTab.disabled = !enabled;
             variantsTab.disabled = !enabled;
-            routerTab.disabled = !enabled;   // now disabled when no model
+            routerTab.disabled = !enabled;
             if (!enabled) {
                 if (topicsTab.classList.contains('active') || variantsTab.classList.contains('active') || routerTab.classList.contains('active')) {
                     groupsTab.click();
@@ -359,7 +368,7 @@
         });
 
         routerTab.addEventListener('click', () => {
-            if (routerTab.disabled) return;   // now check disabled
+            if (routerTab.disabled) return;
             routerTab.classList.add('active');
             groupsTab.classList.remove('active');
             topicsTab.classList.remove('active');
@@ -373,7 +382,7 @@
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'block';
             if (window.currentModel) {
-                window.loadRouteSummaries(); // load route summaries when tab is activated
+                window.loadRouteSummaries();
                 document.getElementById('routeSearch').disabled = false;
                 document.getElementById('addRouteBtn').disabled = false;
             }

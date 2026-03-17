@@ -251,8 +251,11 @@ def insert_route(conn: sqlite3.Connection, module_name: str, variants: List[str]
         "INSERT INTO routes (module_name, variants) VALUES (?, ?) RETURNING id",
         (module_name, json.dumps(variants))
     )
+    row = cur.fetchone()
+    if row is None:
+        raise RuntimeError("Failed to retrieve inserted route ID")
     conn.commit()
-    return cur.fetchone()[0]
+    return row[0]
 
 def update_route(conn: sqlite3.Connection, route_id: int, module_name: str, variants: List[str]):
     conn.execute(

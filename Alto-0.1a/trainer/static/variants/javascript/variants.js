@@ -33,11 +33,12 @@ function renderVariantsGrid() {
     if (!container) return;
 
     let html = '<div class="variants-grid">';
-    window.variants.forEach(v => {
+    window.variants.forEach((v, idx) => {
         const topic = v.topic || 'Global';
         const words = v.words.join(', ');
+        const wordCount = v.words.length;
         html += `
-            <div class="variant-card" data-id="${v.id}">
+            <div class="variant-card" data-index="${idx}">
                 <div class="header">
                     <span class="topic-badge">${topic}</span>
                     <div class="card-actions">
@@ -46,6 +47,9 @@ function renderVariantsGrid() {
                     </div>
                 </div>
                 <div class="words">${words}</div>
+                <div class="stats">
+                    <span>📝 ${wordCount} word${wordCount !== 1 ? 's' : ''}</span>
+                </div>
             </div>
         `;
     });
@@ -54,26 +58,24 @@ function renderVariantsGrid() {
 
     // Attach handlers
     document.querySelectorAll('.variant-card').forEach(card => {
-        const id = card.dataset.id;
+        const idx = parseInt(card.dataset.index);
         card.addEventListener('click', (e) => {
             if (e.target.closest('.card-actions')) return;
-            editVariant(id);
+            editVariant(window.variants[idx].id);
         });
         card.querySelector('.edit-variant').addEventListener('click', (e) => {
             e.stopPropagation();
-            editVariant(id);
+            editVariant(window.variants[idx].id);
         });
         card.querySelector('.delete-variant').addEventListener('click', (e) => {
             e.stopPropagation();
-            deleteVariant(id);
+            deleteVariant(window.variants[idx].id);
         });
     });
 
     variantCards = Array.from(document.querySelectorAll('.variant-card')).map(card => ({
         element: card,
-        id: parseInt(card.dataset.id),
-        topic: card.querySelector('.topic-badge').textContent,
-        words: card.querySelector('.words').textContent
+        item: window.variants[parseInt(card.dataset.index)]
     }));
 
     filterVariants();
@@ -82,19 +84,16 @@ function renderVariantsGrid() {
 function filterVariants() {
     const searchTerm = document.getElementById('variantSearch').value.toLowerCase();
     const topicFilter = document.getElementById('variantTopicFilter').value;
+    const grid = document.querySelector('.variants-grid');
+    if (!grid) return;
 
-    let visibleCards = variantCards.filter(card => {
-        const matchesSearch = card.words.toLowerCase().includes(searchTerm);
+    window.filterCards(variantCards, (item) => {
+        const wordsString = item.words.join(', ').toLowerCase();
+        const matchesSearch = wordsString.includes(searchTerm);
         if (!matchesSearch) return false;
         if (topicFilter === 'All') return true;
-        return card.topic === topicFilter;
-    });
-
-    const grid = document.querySelector('.variants-grid');
-    visibleCards.forEach(card => grid.appendChild(card.element));
-    variantCards.forEach(card => {
-        card.element.style.display = visibleCards.includes(card) ? 'flex' : 'none';
-    });
+        return (item.topic || 'Global') === topicFilter;
+    }, null, grid);
 }
 
 // ========== Variant Modal Functions ==========
@@ -104,10 +103,8 @@ function openVariantModal(title, topic, words, onSave) {
     currentVariantWords = words ? [...words] : [];
     renderVariantWordsList();
 
-    // Store onSave callback
     window._variantModalOnSave = onSave;
 
-    // Attach event handlers (only once, but we reassign each time to be safe)
     document.getElementById('variantAddWordBtn').onclick = addVariantWord;
     document.getElementById('variantSaveBtn').onclick = saveVariantModal;
     document.getElementById('variantCancelBtn').onclick = closeVariantModal;
@@ -169,7 +166,7 @@ window.deleteVariantWord = function(idx) {
 };
 
 async function saveVariantModal() {
-    const topic = document.getElementById('variantTopic').value.trim() || null; // null for global
+    const topic = document.getElementById('variantTopic').value.trim() || null;
     if (currentVariantWords.length === 0) {
         alert('At least one word is required.');
         return;

@@ -1,74 +1,5 @@
-/* ========== Topics Sidebar ========== */
-#topicsSidebar input[type="text"],
-#topicsSidebar select {
-    width: 100%;
-    background: #2d2d5a;
-    border: 1px solid #4a4a7a;
-    color: white;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    margin-bottom: 12px;
-}
-#topicsSidebar input:focus,
-#topicsSidebar select:focus {
-    outline: none;
-    border-color: #6c63ff;
-    box-shadow: 0 0 0 2px rgba(108,99,255,0.3);
-}
-#topicsSidebar button.primary {
-    width: 100%;
-    background: #00ff88;
-    color: black;
-    font-weight: bold;
-    border: none;
-    padding: 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-top: 8px;
-    transition: all 0.2s;
-}
-#topicsSidebar button.primary:hover {
-    background: #00cc6a;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,255,136,0.2);
-}
-#topicsSidebar button.primary:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-}
-
-/* ========== Topics Grid ========== */
-.topics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 16px;
-}
-.topic-card {
-    background: #252547;
-    border-radius: 8px;
-    padding: 12px 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid #2d2d5a;
-    display: flex;
-    flex-direction: column;
-}
-.topic-card:hover {
-    background: #2d2d5a;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    border-color: #6c63ff;
-}
-.topic-card .header {
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    margin-bottom: 4px;
-}
-.topic-card .topic-color-dot {
+/* Topics specific styles */
+.topic-color-dot {
     width: 12px;
     height: 12px;
     border-radius: 50%;
@@ -76,25 +7,16 @@
     margin-right: 6px;
     flex-shrink: 0;
 }
-.topic-card .topic-name {
+.topic-name {
     font-size: 1rem;
-    font-weight: 600; 
+    font-weight: 600;
     margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.topic-card .stats {
-    display: flex; 
-    gap: 12px; 
-    font-size: 0.75rem;
-    color: #aaa; 
-    margin-top: 4px;
-    border-top: 1px solid #2d2d5a;
-    padding-top: 6px;
-}
 
-/* ========== Group Usage List (in topic modal) ========== */
+/* Group usage list inside topic modal */
 .group-usage-list {
     list-style: none;
     background: #2d2d5a;

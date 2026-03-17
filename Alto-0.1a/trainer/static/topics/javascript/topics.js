@@ -1,6 +1,6 @@
 // ========== Topics State ==========
 window.topicsList = [];
-let topicCards = []; // Array of { element, topic, count }
+let topicCards = []; // Array of { element, item: { topic, count } }
 let topicsSectionFilter = 'All Sections';
 
 // ========== Load Topics ==========
@@ -23,7 +23,6 @@ window.clearTopics = function() {
     window.topicsList = [];
     const container = document.getElementById('topicsGridContainer');
     if (container) container.innerHTML = '';
-    // Disable sidebar controls
     document.getElementById('topicSearch').disabled = true;
     document.getElementById('topicSectionFilter').disabled = true;
     document.getElementById('topicFilter').disabled = true;
@@ -46,22 +45,6 @@ function populateTopicSectionFilter() {
 function renderTopicsGrid() {
     const container = document.getElementById('topicsGridContainer');
     if (!container) return;
-
-    // We no longer rely on window.groups for counts – we'll fetch on edit
-    // But for the grid we need counts, so we fetch from the backend
-    // We'll keep using window.groups if available, but if not, we can show 0.
-    // Alternatively, modify the backend to return counts with topics.
-    // For simplicity, we'll assume window.groups is still loaded when topics tab is activated.
-    // But with lazy loading, groups might not be loaded. So we need to fetch counts from backend.
-    // Let's create a new endpoint: /api/models/<name>/topics-with-counts
-    // However, that's extra work. We'll keep using window.groups for now; if not loaded, counts show 0.
-    // In a full implementation, we'd add a command to get topics with usage counts.
-    // For the purpose of this exercise, we'll assume groups are loaded when topics tab is activated,
-    // which they are because loadTopics is called from tab click, and groups are loaded separately.
-    // Actually, in switchModel we only load the active tab. So if the user switches directly to Topics
-    // after model selection, groups are NOT loaded. So we need to fetch counts separately.
-    // Let's add a command to get topics with usage counts, but that's more code. I'll simulate by
-    // using window.groups if available, else 0. In practice you'd implement a backend endpoint.
 
     const groupCounts = {};
     if (window.groups && window.groups.length) {
@@ -123,8 +106,10 @@ function renderTopicsGrid() {
 
     topicCards = Array.from(document.querySelectorAll('.topic-card')).map(card => ({
         element: card,
-        topic: card.dataset.topic,
-        count: parseInt(card.dataset.count, 10)
+        item: {
+            topic: card.dataset.topic,
+            count: parseInt(card.dataset.count, 10)
+        }
     }));
 
     document.getElementById('topicSearch').disabled = false;
@@ -141,24 +126,21 @@ function filterAndSortTopics() {
     const sectionFilter = document.getElementById('topicSectionFilter').value;
     const usageFilter = document.getElementById('topicFilter').value;
     const sortValue = document.getElementById('topicSort').value;
+    const grid = document.querySelector('.topics-grid');
+    if (!grid) return;
 
-    let visibleCards = topicCards.filter(card => {
-        const matchesSearch = card.topic.toLowerCase().includes(searchTerm);
+    window.filterCards(topicCards, (item) => {
+        const matchesSearch = item.topic.toLowerCase().includes(searchTerm);
         if (!matchesSearch) return false;
-
-        // Section filter requires groups; if groups not loaded, skip section filtering.
         if (sectionFilter !== 'All Sections' && window.groups && window.groups.length) {
-            const groupsForTopic = window.groups.filter(g => g.topic === card.topic);
+            const groupsForTopic = window.groups.filter(g => g.topic === item.topic);
             const sectionsForTopic = new Set(groupsForTopic.map(g => g.section).filter(s => s));
             if (!sectionsForTopic.has(sectionFilter)) return false;
         }
-
-        if (usageFilter === 'used') return card.count > 0;
-        if (usageFilter === 'unused') return card.count === 0;
+        if (usageFilter === 'used') return item.count > 0;
+        if (usageFilter === 'unused') return item.count === 0;
         return true;
-    });
-
-    visibleCards.sort((a, b) => {
+    }, (a, b) => {
         switch (sortValue) {
             case 'name-asc': return a.topic.localeCompare(b.topic);
             case 'name-desc': return b.topic.localeCompare(a.topic);
@@ -166,13 +148,7 @@ function filterAndSortTopics() {
             case 'usage-asc': return a.count - b.count;
             default: return 0;
         }
-    });
-
-    const grid = document.querySelector('.topics-grid');
-    visibleCards.forEach(card => grid.appendChild(card.element));
-    topicCards.forEach(card => {
-        card.element.style.display = visibleCards.includes(card) ? 'flex' : 'none';
-    });
+    }, grid);
 }
 
 function addTopic() {
@@ -199,7 +175,6 @@ function addTopic() {
 
 // ========== Edit Topic with lazy loaded groups ==========
 async function editTopic(oldName) {
-    // Show modal with loading indicator first
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
@@ -209,11 +184,9 @@ async function editTopic(oldName) {
     window.pushModal('simpleModal');
 
     try {
-        // Fetch groups for this topic from the backend
         const result = await window.apiGet(`/api/models/${window.currentModel}/topics/${oldName}/groups`);
         const groupsUsing = result.groups || [];
 
-        // Build groups list HTML
         let groupsHtml = '';
         if (groupsUsing.length === 0) {
             groupsHtml = '<li class="group-usage-item" style="justify-content:center; color:#888;">No groups use this topic</li>';
@@ -247,34 +220,18 @@ async function editTopic(oldName) {
             </div>
         `;
 
-        // Attach edit/delete handlers for groups
         document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const li = e.target.closest('.group-usage-item');
                 const groupId = li.dataset.groupId;
                 if (groupId) {
-                    // Need to open group modal using group id. Group modal expects index.
-                    // Convert id to index via a lookup. We can fetch group summaries or use groups list if available.
-                    // For simplicity, we'll assume we have group summaries in window.groups (they might not be loaded).
-                    // So we need a way to open group modal by id. We could add a new endpoint for group by id.
-                    // But that's more work. Instead, we can open group modal with index after fetching summaries.
-                    // Let's temporarily load group summaries if not already loaded.
                     if (!window.groups || window.groups.length === 0) {
-                        // Load summaries just this once
                         await window.loadGroupsAndSections();
                     }
-                    // Find index of group with this id
                     const index = window.groups.findIndex(g => g.id == groupId);
                     if (index !== -1) {
-                        // We need to pass the group index to openGroupModal.
-                        // But openGroupModal is defined in groups.js and expects index.
-                        // That's fine; we'll call it. However, groups.js may not be loaded if we are in topics tab.
-                        // But groups.js is globally loaded, so it's okay.
-                        window.openGroupModal(index, () => {
-                            // After group modal closes, we don't need to do anything
-                            // The topic modal is still there (with hidden backdrop) and will reappear
-                        });
+                        window.openGroupModal(index, () => {});
                     } else {
                         alert('Group not found');
                     }
@@ -289,20 +246,14 @@ async function editTopic(oldName) {
                 const groupId = li.dataset.groupId;
                 if (groupId) {
                     window.showConfirmModal('Delete this group?', async () => {
-                        // Delete group by id – we need an endpoint that accepts id
-                        // Currently delete-group uses index. We'll use the index approach.
-                        // Find index of group with this id
                         if (!window.groups || window.groups.length === 0) {
                             await window.loadGroupsAndSections();
                         }
                         const index = window.groups.findIndex(g => g.id == groupId);
                         if (index !== -1) {
                             await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
-                            // Remove the list item
                             li.remove();
-                            // Refresh the topic modal to show updated list
                             const currentTopicName = document.getElementById('editTopicName').value;
-                            // Close current modal and reopen
                             window.popModal();
                             editTopic(currentTopicName);
                         } else {
@@ -346,14 +297,10 @@ async function editTopic(oldName) {
 
 // ========== Delete Topic ==========
 function deleteTopic(topic) {
-    // For delete, we need the count of groups using this topic.
-    // We can fetch it from the backend, but for simplicity we'll use window.groups if available.
     let groupsUsing = 0;
     if (window.groups && window.groups.length) {
         groupsUsing = window.groups.filter(g => g.topic === topic).length;
     } else {
-        // If groups not loaded, we can't show accurate count. We'll assume 0? Better to fetch.
-        // We'll add an async fetch inside deleteTopic. For now, keep as 0 but warn.
         console.warn('Groups not loaded, assuming 0 groups using topic');
     }
     let message = `Delete topic "${topic}"?`;
@@ -361,7 +308,6 @@ function deleteTopic(topic) {
         message = `Topic "${topic}" is used by ${groupsUsing} group(s).`;
     }
 
-    // Build reassign dropdown options
     const otherTopics = window.topicsList.filter(t => t !== topic);
     let reassignOptions = '';
     if (otherTopics.length === 0) {
@@ -415,7 +361,6 @@ function deleteTopic(topic) {
                 alert('Failed to delete topic: ' + err.message);
             }
         } else {
-            // No groups using this topic – just delete it
             try {
                 await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=`);
                 await window.loadTopics();

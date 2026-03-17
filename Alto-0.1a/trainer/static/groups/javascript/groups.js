@@ -2,7 +2,6 @@
 window.loadGroupsAndSections = async function() {
     if (!window.currentModel) return;
     try {
-        // Fetch only summaries (lightweight)
         const data = await window.apiGet(`/api/models/${window.currentModel}/groups/summaries`);
         window.groups = data.groups || [];
         window.sections = data.sections || ["General", "Technical", "Creative"];
@@ -45,6 +44,8 @@ function renderGroups() {
     let html = '<div class="groups-grid">';
     window.groups.forEach((g, idx) => {
         const section = g.section || 'Uncategorized';
+        const qCount = g.question_count || 0;
+        const aCount = g.answer_count || 0;
         html += `
             <div class="group-card" data-index="${idx}" data-name="${g.group_name || ''}" data-desc="${g.group_description || ''}">
                 <div class="header">
@@ -57,8 +58,8 @@ function renderGroups() {
                 <h4>${g.group_name || 'Unnamed'}</h4>
                 <div class="description">${g.group_description || ''}</div>
                 <div class="stats">
-                    <span>❓ ${g.question_count || 0}</span>
-                    <span>💬 ${g.answer_count || 0}</span>
+                    <span>❓ ${qCount} question${qCount !== 1 ? 's' : ''}</span>
+                    <span>💬 ${aCount} answer${aCount !== 1 ? 's' : ''}</span>
                 </div>
             </div>
         `;
@@ -68,7 +69,7 @@ function renderGroups() {
 
     groupCards = Array.from(document.querySelectorAll('.group-card')).map(card => ({
         element: card,
-        group: window.groups[parseInt(card.dataset.index)],
+        item: window.groups[parseInt(card.dataset.index)],
         index: parseInt(card.dataset.index)
     }));
 
@@ -94,23 +95,18 @@ function renderGroups() {
 function filterAndSortGroups() {
     const searchTerm = document.getElementById('groupSearch').value.toLowerCase();
     const sectionFilter = document.getElementById('sectionFilter').value;
+    const grid = document.querySelector('.groups-grid');
+    if (!grid) return;
 
-    let visibleCards = groupCards.filter(card => {
-        const name = card.group.group_name || '';
-        const desc = card.group.group_description || '';
+    window.filterCards(groupCards, (group) => {
+        const name = group.group_name || '';
+        const desc = group.group_description || '';
         const matchesSearch = name.toLowerCase().includes(searchTerm) || desc.toLowerCase().includes(searchTerm);
         if (!matchesSearch) return false;
-
         if (sectionFilter === 'All Sections') return true;
-        if (sectionFilter === 'Uncategorized') return !card.group.section;
-        return card.group.section === sectionFilter;
-    });
-
-    const grid = document.querySelector('.groups-grid');
-    visibleCards.forEach(card => grid.appendChild(card.element));
-    groupCards.forEach(card => {
-        card.element.style.display = visibleCards.includes(card) ? 'flex' : 'none';
-    });
+        if (sectionFilter === 'Uncategorized') return !group.section;
+        return group.section === sectionFilter;
+    }, null, grid);
 }
 
 async function deleteGroup(index, callback) {
@@ -125,7 +121,6 @@ async function deleteGroup(index, callback) {
 window.selectedGroupIndex = -1;
 let modalGroupCopy = null;
 
-// Function to attach event listeners to modal buttons (called after content restore)
 function attachGroupModalHandlers() {
     document.getElementById('modalAddQuestionBtn').onclick = () => {
         window.showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
@@ -159,7 +154,7 @@ function attachGroupModalHandlers() {
         modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
         modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
         modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
-        modalGroupCopy.section = document.getElementById('modalGroupSection').value;   // now in right column
+        modalGroupCopy.section = document.getElementById('modalGroupSection').value;
 
         await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
         await window.loadGroupsAndSections();
@@ -180,7 +175,6 @@ function attachGroupModalHandlers() {
 
     document.getElementById('modalEditFollowupsBtn').onclick = async () => {
         if (typeof window.selectedGroupIndex === 'undefined' || window.selectedGroupIndex === -1) return;
-        // Fetch the skeleton tree and open the tree modal
         try {
             const treeData = await window.apiGet(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`);
             if (window.openTreeModal) {
@@ -197,25 +191,20 @@ function attachGroupModalHandlers() {
 window.openGroupModal = async function(index, onSaveCallback) {
     window.selectedGroupIndex = index;
 
-    // Show modal with loading state first
     const modal = document.getElementById('groupModal');
     const content = modal.querySelector('.modal-content');
-    // Temporarily replace content with a loading indicator
     const originalContent = content.innerHTML;
     content.innerHTML = '<div style="text-align:center; padding:40px;">Loading group details...</div>';
     window.pushModal('groupModal');
 
     try {
-        // Fetch full group details
         const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
         modalGroupCopy = fullGroup;
 
-        // Restore original content and populate
         content.innerHTML = originalContent;
         document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
         document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
 
-        // Topic dropdown: include empty option
         const topicSelect = document.getElementById('modalGroupTopic');
         let topicOptions = '<option value="">(No topic)</option>';
         if (window.topicsList && window.topicsList.length) {
@@ -224,22 +213,18 @@ window.openGroupModal = async function(index, onSaveCallback) {
             topicOptions += '<option value="general">general</option>';
         }
         topicSelect.innerHTML = topicOptions;
-        topicSelect.value = modalGroupCopy.topic || '';  // empty string if no topic
+        topicSelect.value = modalGroupCopy.topic || '';
 
-        // Section dropdown (now in the right column)
         const sectionSelect = document.getElementById('modalGroupSection');
         sectionSelect.innerHTML = window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
         sectionSelect.value = modalGroupCopy.section || window.sections[0] || '';
 
         refreshModalLists();
-
-        // Re-attach event handlers for modal buttons
         attachGroupModalHandlers();
 
         window._groupModalOnSave = onSaveCallback;
     } catch (err) {
         alert('Error loading group details: ' + err.message);
-        // Close modal on error
         window.popModal();
     }
 };
@@ -313,7 +298,6 @@ window.deleteAnswer = (aIdx) => {
     });
 };
 
-// Create new group – now with empty topic and no priority
 async function createNewGroup() {
     if (!window.currentModel) {
         alert('Please select or create a model first.');
@@ -324,7 +308,7 @@ async function createNewGroup() {
         group_description: '',
         questions: [],
         answers: [],
-        topic: '',                     // empty means no topic
+        topic: '',
         section: window.sections[0] || ''
     };
     await window.apiPost(`/api/models/${window.currentModel}/groups`, newGroup);
@@ -337,5 +321,4 @@ document.getElementById('createFirstGroupBtn').onclick = createNewGroup;
 document.getElementById('groupSearch').addEventListener('input', filterAndSortGroups);
 document.getElementById('sectionFilter').onchange = filterAndSortGroups;
 
-// Initial attachment of modal handlers (when page loads)
 attachGroupModalHandlers();

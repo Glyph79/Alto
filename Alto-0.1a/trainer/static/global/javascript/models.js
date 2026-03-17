@@ -22,16 +22,13 @@ async function loadModels() {
             window.setControlsEnabled(true);
             setTabsEnabled(true);
         } else {
-            // No models – clear everything and switch to Groups tab
             window.currentModel = null;
             window.groups = [];
             window.sections = [];
             if (typeof renderGroups === 'function') renderGroups();
-            // Clear topics, variants, and routes
             if (window.clearTopics) window.clearTopics();
             if (window.clearVariants) window.clearVariants();
-            if (window.clearRoutes) window.clearRoutes();   // <-- new
-            // Switch to Groups tab
+            if (window.clearRoutes) window.clearRoutes();
             document.getElementById('groupsTab').click();
             document.getElementById('noModelsEmptyState').style.display = 'block';
             document.getElementById('noGroupsEmptyState').style.display = 'none';
@@ -45,7 +42,6 @@ async function loadModels() {
 
 async function switchModel(modelName) {
     window.currentModel = modelName;
-    // Determine which tab is active
     const activeTab = document.querySelector('.tab.active')?.id;
     if (activeTab === 'groupsTab') {
         await window.loadGroupsAndSections();
@@ -54,14 +50,13 @@ async function switchModel(modelName) {
     } else if (activeTab === 'variantsTab') {
         await window.loadVariants();
     } else if (activeTab === 'routerTab') {
-        // Router is now model-specific, so load its summaries
         if (window.loadRouteSummaries) {
             await window.loadRouteSummaries();
         }
     }
 }
 
-// ========== Model CRUD ==========
+// Model CRUD
 document.getElementById('createModelBtn').onclick = () => {
     window.showSimpleModal('Create New Model', [
         { name: 'name', label: 'Model Name', value: '' },
@@ -102,9 +97,7 @@ document.getElementById('editModelBtn').onclick = async () => {
         { name: 'author', label: 'Author', value: data.author || '' },
         { name: 'version', label: 'Version', value: data.version || '1.0.0' }
     ], async (vals, errorDiv) => {
-        // Check if name changed
         if (vals.name !== window.currentModel) {
-            // Call rename API
             const renameRes = await fetch(`/api/models/${window.currentModel}/rename`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -116,7 +109,6 @@ document.getElementById('editModelBtn').onclick = async () => {
                 errorDiv.style.display = 'block';
                 return;
             }
-            // After rename, update metadata using new name
             const updateRes = await fetch(`/api/models/${vals.name}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -133,7 +125,6 @@ document.getElementById('editModelBtn').onclick = async () => {
                 return;
             }
         } else {
-            // Name unchanged – just update metadata
             const updateRes = await fetch(`/api/models/${window.currentModel}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -150,7 +141,6 @@ document.getElementById('editModelBtn').onclick = async () => {
                 return;
             }
         }
-        // Reload models and switch to the (possibly new) model
         await loadModels();
         const select = document.getElementById('modelSelect');
         if (select.querySelector(`option[value="${vals.name}"]`)) {
@@ -168,7 +158,7 @@ document.getElementById('deleteModelBtn').onclick = async () => {
     });
 };
 
-// ========== Import/Export ==========
+// Import/Export
 document.getElementById('importBtn').onclick = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -178,7 +168,6 @@ document.getElementById('importBtn').onclick = () => {
         const formData = new FormData();
         formData.append('file', file);
 
-        // First attempt: let backend read name from db
         let response = await fetch('/api/models/import-db', {
             method: 'POST',
             body: formData
@@ -187,7 +176,6 @@ document.getElementById('importBtn').onclick = () => {
         let result = await response.json();
 
         if (response.ok) {
-            // Success – model created, reload and switch
             await loadModels();
             const select = document.getElementById('modelSelect');
             if (select.querySelector(`option[value="${result.model.name}"]`)) {
@@ -198,9 +186,8 @@ document.getElementById('importBtn').onclick = () => {
         }
 
         if (response.status === 409 && result.code === 'CONFLICT') {
-            // Name conflict – ask user what to do
             const action = await showImportConflictDialog(result.existing_name, result.db_name);
-            if (!action) return; // cancelled
+            if (!action) return;
 
             const newFormData = new FormData();
             newFormData.append('file', file);
@@ -234,7 +221,6 @@ document.getElementById('importBtn').onclick = () => {
     input.click();
 };
 
-// Helper to show conflict dialog (returns a promise)
 function showImportConflictDialog(existingName, dbName) {
     return new Promise((resolve) => {
         const modal = document.getElementById('simpleModal');

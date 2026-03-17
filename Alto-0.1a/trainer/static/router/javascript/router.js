@@ -9,7 +9,6 @@ window.clearRoutes = function() {
     window.routes = [];
     const container = document.getElementById('routesGridContainer');
     if (container) container.innerHTML = '';
-    // Disable sidebar controls
     document.getElementById('routeSearch').disabled = true;
     document.getElementById('addRouteBtn').disabled = true;
 };
@@ -54,6 +53,9 @@ function renderRoutesGrid() {
                     </div>
                 </div>
                 <div class="variants">${variantText}</div>
+                <div class="stats">
+                    <span>🔤 ${route.variant_count} variant${route.variant_count !== 1 ? 's' : ''}</span>
+                </div>
             </div>
         `;
     });
@@ -62,7 +64,7 @@ function renderRoutesGrid() {
 
     routeCards = Array.from(document.querySelectorAll('.route-card')).map(card => ({
         element: card,
-        route: window.routes[parseInt(card.dataset.index)],
+        item: window.routes[parseInt(card.dataset.index)],
         index: parseInt(card.dataset.index)
     }));
 
@@ -87,15 +89,12 @@ function renderRoutesGrid() {
 
 function filterRoutes() {
     const searchTerm = document.getElementById('routeSearch').value.toLowerCase();
-    let visibleCards = routeCards.filter(card => {
-        const moduleName = card.route.module_name.toLowerCase();
-        return moduleName.includes(searchTerm);
-    });
     const grid = document.querySelector('.routes-grid');
-    visibleCards.forEach(card => grid.appendChild(card.element));
-    routeCards.forEach(card => {
-        card.element.style.display = visibleCards.includes(card) ? 'flex' : 'none';
-    });
+    if (!grid) return;
+
+    window.filterCards(routeCards, (item) => {
+        return item.module_name.toLowerCase().includes(searchTerm);
+    }, null, grid);
 }
 
 // ========== Route Modal Functions ==========
@@ -107,7 +106,6 @@ function openRouteModal(index) {
     const moduleInput = document.getElementById('routeModuleName');
 
     if (index === -1) {
-        // Adding new route – no need to fetch
         title.textContent = 'Add Route';
         moduleInput.value = '';
         currentRouteVariants = [];
@@ -115,7 +113,6 @@ function openRouteModal(index) {
         attachRouteModalHandlers();
         window.pushModal('routeModal');
     } else {
-        // Editing existing – fetch full details
         title.textContent = 'Edit Route';
         (async () => {
             try {
@@ -213,7 +210,7 @@ async function saveRouteModal() {
             await window.apiPut(`/api/models/${window.currentModel}/routes/${currentRouteIndex}`, data);
         }
         closeRouteModal();
-        await window.loadRouteSummaries();  // refresh list
+        await window.loadRouteSummaries();
     } catch (err) {
         alert('Error saving route: ' + err.message);
     }
