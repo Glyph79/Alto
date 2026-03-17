@@ -11,6 +11,7 @@ window.loadGroupsAndSections = async function() {
         document.getElementById('treeModal').classList.remove('visible');
         document.getElementById('groupSearch').disabled = false;
         document.getElementById('sectionFilter').disabled = false;
+        document.getElementById('groupSort').disabled = false;
         document.getElementById('addGroupBtn').disabled = false;
     } catch (err) {
         alert('Error loading groups: ' + err.message);
@@ -37,11 +38,12 @@ function renderGroups() {
         container.innerHTML = '';
         document.getElementById('noGroupsEmptyState').style.display = 'flex';
         groupCards = [];
+        if (window.groupsManager) window.groupsManager.setCardArray([]);
         return;
     }
     document.getElementById('noGroupsEmptyState').style.display = 'none';
 
-    let html = '<div class="groups-grid">';
+    let html = '<div class="groups-grid grid">';
     window.groups.forEach((g, idx) => {
         const section = g.section || 'Uncategorized';
         const qCount = g.question_count || 0;
@@ -89,24 +91,33 @@ function renderGroups() {
         });
     });
 
-    filterAndSortGroups();
-}
-
-function filterAndSortGroups() {
-    const searchTerm = document.getElementById('groupSearch').value.toLowerCase();
-    const sectionFilter = document.getElementById('sectionFilter').value;
-    const grid = document.querySelector('.groups-grid');
-    if (!grid) return;
-
-    window.filterCards(groupCards, (group) => {
-        const name = group.group_name || '';
-        const desc = group.group_description || '';
-        const matchesSearch = name.toLowerCase().includes(searchTerm) || desc.toLowerCase().includes(searchTerm);
-        if (!matchesSearch) return false;
-        if (sectionFilter === 'All Sections') return true;
-        if (sectionFilter === 'Uncategorized') return !group.section;
-        return group.section === sectionFilter;
-    }, null, grid);
+    // Initialize or update manager
+    if (!window.groupsManager) {
+        window.groupsManager = new window.SearchManager({
+            containerId: 'groupsGridContainer',
+            cardArray: groupCards,
+            searchInputId: 'groupSearch',
+            searchFields: ['group_name', 'group_description'],
+            filterSelectors: {
+                'sectionFilter': (item, value) => {
+                    if (value === 'All Sections') return true;
+                    if (value === 'Uncategorized') return !item.section;
+                    return item.section === value;
+                }
+            },
+            sortSelectors: {
+                'name-asc': (a, b) => (a.group_name || '').localeCompare(b.group_name || ''),
+                'name-desc': (a, b) => (b.group_name || '').localeCompare(a.group_name || ''),
+                'questions-desc': (a, b) => (b.question_count || 0) - (a.question_count || 0),
+                'questions-asc': (a, b) => (a.question_count || 0) - (b.question_count || 0),
+                'answers-desc': (a, b) => (b.answer_count || 0) - (a.answer_count || 0),
+                'answers-asc': (a, b) => (a.answer_count || 0) - (b.answer_count || 0)
+            },
+            defaultSort: 'name-asc'
+        });
+    } else {
+        window.groupsManager.setCardArray(groupCards);
+    }
 }
 
 async function deleteGroup(index, callback) {
@@ -317,8 +328,5 @@ async function createNewGroup() {
 
 document.getElementById('addGroupBtn').onclick = createNewGroup;
 document.getElementById('createFirstGroupBtn').onclick = createNewGroup;
-
-document.getElementById('groupSearch').addEventListener('input', filterAndSortGroups);
-document.getElementById('sectionFilter').onchange = filterAndSortGroups;
 
 attachGroupModalHandlers();

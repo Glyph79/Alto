@@ -28,6 +28,7 @@ window.clearTopics = function() {
     document.getElementById('topicFilter').disabled = true;
     document.getElementById('topicSort').disabled = true;
     document.getElementById('addTopicBtn').disabled = true;
+    if (window.topicsManager) window.topicsManager.setCardArray([]);
 };
 
 function populateTopicSectionFilter() {
@@ -54,7 +55,7 @@ function renderTopicsGrid() {
         });
     }
 
-    let html = '<div class="topics-grid">';
+    let html = '<div class="topics-grid grid">';
     window.topicsList.forEach(topic => {
         const count = groupCounts[topic] || 0;
         const hue = (topic.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
@@ -118,37 +119,40 @@ function renderTopicsGrid() {
     document.getElementById('topicSort').disabled = false;
     document.getElementById('addTopicBtn').disabled = false;
 
-    filterAndSortTopics();
-}
-
-function filterAndSortTopics() {
-    const searchTerm = document.getElementById('topicSearch').value.toLowerCase();
-    const sectionFilter = document.getElementById('topicSectionFilter').value;
-    const usageFilter = document.getElementById('topicFilter').value;
-    const sortValue = document.getElementById('topicSort').value;
-    const grid = document.querySelector('.topics-grid');
-    if (!grid) return;
-
-    window.filterCards(topicCards, (item) => {
-        const matchesSearch = item.topic.toLowerCase().includes(searchTerm);
-        if (!matchesSearch) return false;
-        if (sectionFilter !== 'All Sections' && window.groups && window.groups.length) {
-            const groupsForTopic = window.groups.filter(g => g.topic === item.topic);
-            const sectionsForTopic = new Set(groupsForTopic.map(g => g.section).filter(s => s));
-            if (!sectionsForTopic.has(sectionFilter)) return false;
-        }
-        if (usageFilter === 'used') return item.count > 0;
-        if (usageFilter === 'unused') return item.count === 0;
-        return true;
-    }, (a, b) => {
-        switch (sortValue) {
-            case 'name-asc': return a.topic.localeCompare(b.topic);
-            case 'name-desc': return b.topic.localeCompare(a.topic);
-            case 'usage-desc': return b.count - a.count;
-            case 'usage-asc': return a.count - b.count;
-            default: return 0;
-        }
-    }, grid);
+    // Initialize or update manager
+    if (!window.topicsManager) {
+        window.topicsManager = new window.SearchManager({
+            containerId: 'topicsGridContainer',
+            cardArray: topicCards,
+            searchInputId: 'topicSearch',
+            searchFields: ['topic'],
+            filterSelectors: {
+                'topicSectionFilter': (item, value) => {
+                    if (value === 'All Sections') return true;
+                    if (!window.groups) return true;
+                    const groupsForTopic = window.groups.filter(g => g.topic === item.topic);
+                    if (groupsForTopic.length === 0) return false;
+                    const sections = new Set(groupsForTopic.map(g => g.section).filter(s => s));
+                    return sections.has(value);
+                },
+                'topicFilter': (item, value) => {
+                    if (value === 'all') return true;
+                    if (value === 'used') return item.count > 0;
+                    if (value === 'unused') return item.count === 0;
+                    return true;
+                }
+            },
+            sortSelectors: {
+                'name-asc': (a, b) => a.topic.localeCompare(b.topic),
+                'name-desc': (a, b) => b.topic.localeCompare(a.topic),
+                'usage-desc': (a, b) => b.count - a.count,
+                'usage-asc': (a, b) => a.count - b.count
+            },
+            defaultSort: 'name-asc'
+        });
+    } else {
+        window.topicsManager.setCardArray(topicCards);
+    }
 }
 
 function addTopic() {
@@ -372,12 +376,4 @@ function deleteTopic(topic) {
     };
 }
 
-// Event listeners
-document.getElementById('topicSearch').addEventListener('input', filterAndSortTopics);
-document.getElementById('topicSectionFilter').addEventListener('change', (e) => {
-    topicsSectionFilter = e.target.value;
-    filterAndSortTopics();
-});
-document.getElementById('topicFilter').addEventListener('change', filterAndSortTopics);
-document.getElementById('topicSort').addEventListener('change', filterAndSortTopics);
 document.getElementById('addTopicBtn').addEventListener('click', addTopic);

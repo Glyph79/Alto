@@ -44,6 +44,16 @@
                 <select id="sectionFilter" disabled>
                     <option value="All Sections">All Sections</option>
                 </select>
+                <!-- NEW: Sort dropdown for groups -->
+                <h3>Sort By</h3>
+                <select id="groupSort" disabled>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="questions-desc">Most questions</option>
+                    <option value="questions-asc">Least questions</option>
+                    <option value="answers-desc">Most answers</option>
+                    <option value="answers-asc">Least answers</option>
+                </select>
                 <button id="addGroupBtn" class="primary" disabled>+ Add Group</button>
             </div>
 
@@ -79,6 +89,14 @@
                 <select id="variantTopicFilter" disabled>
                     <option value="All">All Topics</option>
                 </select>
+                <!-- NEW: Sort dropdown for variants -->
+                <h3>Sort By</h3>
+                <select id="variantSort" disabled>
+                    <option value="topic-asc">Topic (A-Z)</option>
+                    <option value="topic-desc">Topic (Z-A)</option>
+                    <option value="words-desc">Most words</option>
+                    <option value="words-asc">Least words</option>
+                </select>
                 <button id="addVariantBtn" class="primary" disabled>+ Add Variant</button>
             </div>
 
@@ -86,6 +104,14 @@
             <div id="routerSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="routeSearch" placeholder="Search routes...">
+                <!-- NEW: Sort dropdown for routes -->
+                <h3>Sort By</h3>
+                <select id="routeSort">
+                    <option value="name-asc">Module name (A-Z)</option>
+                    <option value="name-desc">Module name (Z-A)</option>
+                    <option value="variants-desc">Most variants</option>
+                    <option value="variants-asc">Least variants</option>
+                </select>
                 <button id="addRouteBtn" class="primary">+ Add Route</button>
             </div>
         </div>
@@ -141,7 +167,6 @@
                 <label>Description</label>
                 <input type="text" id="modalGroupDesc">
             </div>
-            <!-- New layout: topic (left), section (right) in one row -->
             <div class="form-row" style="display: flex; gap: 16px;">
                 <div style="flex:1;">
                     <label>Topic</label>
@@ -267,6 +292,7 @@
     <script src="/static/global/javascript/core.js"></script>
     <script src="/static/global/javascript/display.js"></script>
     <script src="/static/global/javascript/ui.js"></script>
+    <script src="/static/global/javascript/search.js"></script>  <!-- NEW -->
     <script src="/static/global/javascript/models.js"></script>
     <script src="/static/groups/javascript/groups.js"></script>
     <script src="/static/groups/javascript/tree.js"></script>
@@ -309,6 +335,7 @@
                 window.loadGroupsAndSections();
                 document.getElementById('groupSearch').disabled = false;
                 document.getElementById('sectionFilter').disabled = false;
+                document.getElementById('groupSort').disabled = false;
                 document.getElementById('addGroupBtn').disabled = false;
             }
         });
@@ -355,15 +382,8 @@
                 window.loadVariants();
                 document.getElementById('variantSearch').disabled = false;
                 document.getElementById('variantTopicFilter').disabled = false;
+                document.getElementById('variantSort').disabled = false;
                 document.getElementById('addVariantBtn').disabled = false;
-                const select = document.getElementById('variantTopicFilter');
-                select.innerHTML = '<option value="All">All Topics</option><option value="Global">Global</option>';
-                window.sections.forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s;
-                    opt.textContent = s;
-                    select.appendChild(opt);
-                });
             }
         });
 
@@ -384,6 +404,7 @@
             if (window.currentModel) {
                 window.loadRouteSummaries();
                 document.getElementById('routeSearch').disabled = false;
+                document.getElementById('routeSort').disabled = false;
                 document.getElementById('addRouteBtn').disabled = false;
             }
         });

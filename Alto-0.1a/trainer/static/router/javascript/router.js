@@ -10,7 +10,9 @@ window.clearRoutes = function() {
     const container = document.getElementById('routesGridContainer');
     if (container) container.innerHTML = '';
     document.getElementById('routeSearch').disabled = true;
+    document.getElementById('routeSort').disabled = true;
     document.getElementById('addRouteBtn').disabled = true;
+    if (window.routesManager) window.routesManager.setCardArray([]);
 };
 
 // ========== Load Route Summaries ==========
@@ -23,6 +25,7 @@ window.loadRouteSummaries = async function() {
         window.routes = await window.apiGet(`/api/models/${window.currentModel}/routes/summaries`);
         renderRoutesGrid();
         document.getElementById('routeSearch').disabled = false;
+        document.getElementById('routeSort').disabled = false;
         document.getElementById('addRouteBtn').disabled = false;
     } catch (err) {
         console.error('Error loading route summaries:', err);
@@ -37,10 +40,11 @@ function renderRoutesGrid() {
     if (window.routes.length === 0) {
         container.innerHTML = '<div class="empty-state" style="padding: 40px;"><p>No routes defined.</p></div>';
         routeCards = [];
+        if (window.routesManager) window.routesManager.setCardArray([]);
         return;
     }
 
-    let html = '<div class="routes-grid">';
+    let html = '<div class="routes-grid grid">';
     window.routes.forEach((route, idx) => {
         const variantText = `${route.variant_count} variant${route.variant_count !== 1 ? 's' : ''}`;
         html += `
@@ -84,17 +88,24 @@ function renderRoutesGrid() {
         });
     });
 
-    filterRoutes();
-}
-
-function filterRoutes() {
-    const searchTerm = document.getElementById('routeSearch').value.toLowerCase();
-    const grid = document.querySelector('.routes-grid');
-    if (!grid) return;
-
-    window.filterCards(routeCards, (item) => {
-        return item.module_name.toLowerCase().includes(searchTerm);
-    }, null, grid);
+    if (!window.routesManager) {
+        window.routesManager = new window.SearchManager({
+            containerId: 'routesGridContainer',
+            cardArray: routeCards,
+            searchInputId: 'routeSearch',
+            searchFields: ['module_name'],
+            filterSelectors: {},
+            sortSelectors: {
+                'name-asc': (a, b) => a.module_name.localeCompare(b.module_name),
+                'name-desc': (a, b) => b.module_name.localeCompare(a.module_name),
+                'variants-desc': (a, b) => (b.variant_count || 0) - (a.variant_count || 0),
+                'variants-asc': (a, b) => (a.variant_count || 0) - (b.variant_count || 0)
+            },
+            defaultSort: 'name-asc'
+        });
+    } else {
+        window.routesManager.setCardArray(routeCards);
+    }
 }
 
 // ========== Route Modal Functions ==========
@@ -224,6 +235,4 @@ async function deleteRoute(index) {
     });
 }
 
-// Event listeners
-document.getElementById('routeSearch').addEventListener('input', filterRoutes);
 document.getElementById('addRouteBtn').addEventListener('click', () => openRouteModal(-1));

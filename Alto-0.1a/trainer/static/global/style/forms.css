@@ -59,3 +59,9 @@ textarea:disabled {
 .modal-content textarea {
     width: 100%;
 }
+
+/* Spacing for simple modal fields (no form-row wrapper) */
+#simpleModalContent input,
+#simpleModalContent textarea {
+    margin-bottom: 16px;
+}

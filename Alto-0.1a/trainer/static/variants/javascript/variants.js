@@ -12,6 +12,7 @@ window.loadVariants = async function() {
         renderVariantsGrid();
         document.getElementById('variantSearch').disabled = false;
         document.getElementById('variantTopicFilter').disabled = false;
+        document.getElementById('variantSort').disabled = false;
         document.getElementById('addVariantBtn').disabled = false;
     } catch (err) {
         console.error('Error loading variants:', err);
@@ -25,14 +26,39 @@ window.clearVariants = function() {
     if (container) container.innerHTML = '';
     document.getElementById('variantSearch').disabled = true;
     document.getElementById('variantTopicFilter').disabled = true;
+    document.getElementById('variantSort').disabled = true;
     document.getElementById('addVariantBtn').disabled = true;
+    if (window.variantsManager) window.variantsManager.setCardArray([]);
 };
+
+function populateVariantTopicFilter() {
+    const select = document.getElementById('variantTopicFilter');
+    const topics = new Set();
+    window.variants.forEach(v => {
+        topics.add(v.topic || 'Global');
+    });
+    const sortedTopics = Array.from(topics).sort((a, b) => a.localeCompare(b));
+
+    const currentValue = select.value;
+    select.innerHTML = '<option value="All">All Topics</option>';
+    sortedTopics.forEach(topic => {
+        const opt = document.createElement('option');
+        opt.value = topic;
+        opt.textContent = topic;
+        select.appendChild(opt);
+    });
+    if (sortedTopics.includes(currentValue)) {
+        select.value = currentValue;
+    } else {
+        select.value = 'All';
+    }
+}
 
 function renderVariantsGrid() {
     const container = document.getElementById('variantsGridContainer');
     if (!container) return;
 
-    let html = '<div class="variants-grid">';
+    let html = '<div class="variants-grid grid">';
     window.variants.forEach((v, idx) => {
         const topic = v.topic || 'Global';
         const words = v.words.join(', ');
@@ -56,7 +82,6 @@ function renderVariantsGrid() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Attach handlers
     document.querySelectorAll('.variant-card').forEach(card => {
         const idx = parseInt(card.dataset.index);
         card.addEventListener('click', (e) => {
@@ -78,22 +103,35 @@ function renderVariantsGrid() {
         item: window.variants[parseInt(card.dataset.index)]
     }));
 
-    filterVariants();
-}
+    populateVariantTopicFilter();
 
-function filterVariants() {
-    const searchTerm = document.getElementById('variantSearch').value.toLowerCase();
-    const topicFilter = document.getElementById('variantTopicFilter').value;
-    const grid = document.querySelector('.variants-grid');
-    if (!grid) return;
-
-    window.filterCards(variantCards, (item) => {
-        const wordsString = item.words.join(', ').toLowerCase();
-        const matchesSearch = wordsString.includes(searchTerm);
-        if (!matchesSearch) return false;
-        if (topicFilter === 'All') return true;
-        return (item.topic || 'Global') === topicFilter;
-    }, null, grid);
+    if (!window.variantsManager) {
+        window.variantsManager = new window.SearchManager({
+            containerId: 'variantsGridContainer',
+            cardArray: variantCards,
+            searchInputId: 'variantSearch',
+            customSearchFn: (item, term) => {
+                const wordsString = item.words.join(', ').toLowerCase();
+                return wordsString.includes(term);
+            },
+            filterSelectors: {
+                'variantTopicFilter': (item, value) => {
+                    if (value === 'All') return true;
+                    const itemTopic = item.topic || 'Global';
+                    return itemTopic === value;
+                }
+            },
+            sortSelectors: {
+                'topic-asc': (a, b) => (a.topic || 'Global').localeCompare(b.topic || 'Global'),
+                'topic-desc': (a, b) => (b.topic || 'Global').localeCompare(a.topic || 'Global'),
+                'words-desc': (a, b) => b.words.length - a.words.length,
+                'words-asc': (a, b) => a.words.length - b.words.length
+            },
+            defaultSort: 'topic-asc'
+        });
+    } else {
+        window.variantsManager.setCardArray(variantCards);
+    }
 }
 
 // ========== Variant Modal Functions ==========
@@ -206,7 +244,4 @@ function deleteVariant(id) {
     });
 }
 
-// Event listeners
-document.getElementById('variantSearch').addEventListener('input', filterVariants);
-document.getElementById('variantTopicFilter').addEventListener('change', filterVariants);
 document.getElementById('addVariantBtn').addEventListener('click', addVariant);
