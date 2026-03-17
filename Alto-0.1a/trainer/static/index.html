@@ -98,15 +98,17 @@
             <!-- Variants controls (visible when Variants tab active) -->
             <div id="variantsSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
-                <input type="text" id="variantSearch" placeholder="Search words..." disabled>
-                <h3>Topic Filter</h3>
-                <select id="variantTopicFilter" disabled>
-                    <option value="All">All Topics</option>
+                <input type="text" id="variantSearch" placeholder="Search variants..." disabled>
+                <h3>Section Filter</h3>
+                <select id="variantSectionFilter" disabled>
+                    <option value="All Sections">All Sections</option>
                 </select>
                 <h3>Sort By</h3>
                 <select id="variantSort" disabled>
-                    <option value="topic-asc">Topic (A-Z)</option>
-                    <option value="topic-desc">Topic (Z-A)</option>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="section-asc">Section (A-Z)</option>
+                    <option value="section-desc">Section (Z-A)</option>
                     <option value="words-desc">Most words</option>
                     <option value="words-asc">Least words</option>
                 </select>
@@ -266,13 +268,19 @@
         <div class="modal-content" id="simpleModalContent"></div>
     </div>
 
-    <!-- Variant Modal -->
+    <!-- Variant Modal (with name field) -->
     <div id="variantModal" class="modal">
-        <div class="modal-content" style="width: 500px;">
+        <div class="modal-content" style="width: 600px;">
             <h2 id="variantModalTitle">Add Variant</h2>
             <div class="form-row">
-                <label>Name (optional)</label>
-                <input type="text" id="variantTopic" placeholder="e.g., weather synonyms">
+                <label>Name</label>
+                <input type="text" id="variantName" placeholder="e.g., Weather synonyms">
+            </div>
+            <div class="form-row">
+                <label>Section</label>
+                <select id="variantSection">
+                    <option value="">(Uncategorized)</option>
+                </select>
             </div>
             <div class="qa-section">
                 <h3>Words</h3>
@@ -285,6 +293,8 @@
             </div>
         </div>
     </div>
+
+    <!-- Topic Edit Modal (embedded in simple modal) is built dynamically in topics.js -->
 
     <!-- Route Modal -->
     <div id="routeModal" class="modal">
@@ -350,7 +360,6 @@
             if (sectionFilter) sectionFilter.value = 'All Sections';
             const groupSort = document.getElementById('groupSort');
             if (groupSort) groupSort.value = 'name-asc';
-            // Trigger change events for managers to pick up
             if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
             if (groupSort) groupSort.dispatchEvent(new Event('change', { bubbles: true }));
             if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
@@ -383,11 +392,11 @@
         function resetVariantsFilters() {
             const search = document.getElementById('variantSearch');
             if (search) search.value = '';
-            const topicFilter = document.getElementById('variantTopicFilter');
-            if (topicFilter) topicFilter.value = 'All';
+            const sectionFilter = document.getElementById('variantSectionFilter');
+            if (sectionFilter) sectionFilter.value = 'All Sections';
             const sort = document.getElementById('variantSort');
-            if (sort) sort.value = 'topic-asc';
-            if (topicFilter) topicFilter.dispatchEvent(new Event('change', { bubbles: true }));
+            if (sort) sort.value = 'name-asc';
+            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
             if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
             if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
         }
@@ -418,7 +427,6 @@
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
-                // Reset filters to defaults
                 resetGroupsFilters();
                 window.loadGroupsAndSections();
                 document.getElementById('groupSearch').disabled = false;
@@ -446,7 +454,6 @@
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
-                // Reset filters to defaults
                 resetSectionsFilters();
                 window.loadSections();
                 document.getElementById('sectionSearch').disabled = false;
@@ -473,7 +480,6 @@
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
-                // Reset filters to defaults
                 resetTopicsFilters();
                 window.loadTopics();
                 document.getElementById('topicSearch').disabled = false;
@@ -502,11 +508,10 @@
             document.getElementById('variantsSidebar').style.display = 'block';
             document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
-                // Reset filters to defaults
                 resetVariantsFilters();
                 window.loadVariants();
                 document.getElementById('variantSearch').disabled = false;
-                document.getElementById('variantTopicFilter').disabled = false;
+                document.getElementById('variantSectionFilter').disabled = false;
                 document.getElementById('variantSort').disabled = false;
                 document.getElementById('addVariantBtn').disabled = false;
             }
@@ -530,7 +535,6 @@
             document.getElementById('variantsSidebar').style.display = 'none';
             document.getElementById('routerSidebar').style.display = 'block';
             if (window.currentModel) {
-                // Reset filters to defaults
                 resetRouterFilters();
                 window.loadRouteSummaries();
                 document.getElementById('routeSearch').disabled = false;

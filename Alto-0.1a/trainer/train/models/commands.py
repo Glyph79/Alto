@@ -21,11 +21,10 @@ def cmd_list_models(**kwargs) -> List[Dict]:
         folder_path = os.path.join(MODELS_BASE_DIR, entry)
         if not os.path.isdir(folder_path):
             continue
-        # Look for any .db file in the folder
         db_files = [f for f in os.listdir(folder_path) if f.endswith('.db')]
         if not db_files:
             continue
-        db_path = os.path.join(folder_path, db_files[0])  # use first .db found
+        db_path = os.path.join(folder_path, db_files[0])
         try:
             conn = sqlite3.connect(db_path)
             cur = conn.execute("SELECT name, version FROM model_info")
@@ -59,7 +58,8 @@ def cmd_create_model(name: str, description: str = "", author: str = "", version
             "version": version,
             "created_at": datetime.datetime.now().isoformat(),
             "updated_at": datetime.datetime.now().isoformat(),
-            "sections": ["General", "Technical", "Creative"]
+            "sections": ["General", "Technical", "Creative"],
+            "topics": ["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"]
         }
     }
 
@@ -67,7 +67,6 @@ def cmd_get_model(name: str, **kwargs) -> Dict:
     try:
         model = get_model(name)
         info = get_model_info(model.conn)
-        # Return only metadata, not groups (frontend uses summaries endpoints)
         return info
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
@@ -134,7 +133,6 @@ def cmd_rename_model(name: str, new_name: str, **kwargs) -> Dict:
 
     try:
         os.rename(old_path, new_path)
-        # Rename the database file inside to match the new model name
         old_safe = safe_filename(name)
         new_safe = safe_filename(new_name)
         old_db_path = os.path.join(new_path, f"{old_safe}.db")
@@ -142,19 +140,16 @@ def cmd_rename_model(name: str, new_name: str, **kwargs) -> Dict:
         if os.path.exists(old_db_path):
             os.rename(old_db_path, new_db_path)
         else:
-            # Fallback for old models that used model.db – rename that instead
             old_model_db = os.path.join(new_path, "model.db")
             if os.path.exists(old_model_db):
                 os.rename(old_model_db, new_db_path)
 
-        # Update the model name inside the database
         conn = sqlite3.connect(new_db_path)
         conn.execute("UPDATE model_info SET name = ? WHERE name = ?", (new_name, name))
         conn.commit()
         conn.close()
         return {"status": "ok", "old_name": name, "new_name": new_name}
     except Exception as e:
-        # Attempt to rollback rename if something went wrong
         if os.path.exists(new_path) and not os.path.exists(old_path):
             os.rename(new_path, old_path)
         return {"error": f"Rename failed: {str(e)}"}

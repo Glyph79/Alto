@@ -133,6 +133,19 @@ async function deleteGroup(index, callback) {
     });
 }
 
+// ========== Helper to ensure topics are loaded ==========
+async function ensureTopicsLoaded() {
+    if (!window.currentModel) return;
+    if (!window.topicsList || window.topicsList.length === 0) {
+        try {
+            window.topicsList = await window.apiGet(`/api/models/${window.currentModel}/topics`);
+        } catch (err) {
+            console.warn('Could not load topics:', err);
+            window.topicsList = []; // fallback
+        }
+    }
+}
+
 // ========== Group Modal ==========
 window.selectedGroupIndex = -1;
 let modalGroupCopy = null;
@@ -214,6 +227,9 @@ window.openGroupModal = async function(index, onSaveCallback) {
     window.pushModal('groupModal');
 
     try {
+        // Ensure topics are loaded for the dropdown
+        await ensureTopicsLoaded();
+
         const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
         modalGroupCopy = fullGroup;
 

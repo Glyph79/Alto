@@ -12,6 +12,7 @@ TRAINER_CLI = os.path.join(os.path.dirname(__file__), "RuleTrainer.py")
 trainer_process = None
 trainer_stdin = None
 trainer_stdout = None
+_trainer_lock = asyncio.Lock()  # 🔒 ensures only one coroutine talks to the trainer at a time
 
 async def log_trainer_stderr():
     global trainer_process
@@ -43,25 +44,28 @@ async def stop_trainer():
 
 async def send_command(command, **kwargs):
     global trainer_process, trainer_stdin, trainer_stdout
-    if not trainer_process or trainer_process.returncode is not None:
-        await start_trainer()
-    request_data = {"command": command, "args": kwargs}
-    line = json.dumps(request_data, separators=(',', ':')) + "\n"
-    trainer_stdin.write(line.encode())
-    await trainer_stdin.drain()
-    response_line = await trainer_stdout.readline()
-    if not response_line:
-        await stop_trainer()
-        await start_trainer()
+    async with _trainer_lock:  # 🚦 only one coroutine at a time
+        if not trainer_process or trainer_process.returncode is not None:
+            await start_trainer()
+        request_data = {"command": command, "args": kwargs}
+        line = json.dumps(request_data, separators=(',', ':')) + "\n"
         trainer_stdin.write(line.encode())
         await trainer_stdin.drain()
         response_line = await trainer_stdout.readline()
         if not response_line:
-            return {"error": "Trainer process unavailable"}
-    try:
-        return json.loads(response_line.decode())
-    except json.JSONDecodeError:
-        return {"error": "Invalid JSON from trainer"}
+            await stop_trainer()
+            await start_trainer()
+            trainer_stdin.write(line.encode())
+            await trainer_stdin.drain()
+            response_line = await trainer_stdout.readline()
+            if not response_line:
+                return {"error": "Trainer process unavailable"}
+        try:
+            return json.loads(response_line.decode())
+        except json.JSONDecodeError:
+            return {"error": "Invalid JSON from trainer"}
+
+# ========== Routes (unchanged) ==========
 
 @app.route('/')
 async def index():

@@ -5,7 +5,7 @@
     background: #2d2d5a;
     border: 1px solid #4a4a7a;
     color: white;
-    padding: 10px;            /* changed from 8px 12px to match global */
+    padding: 10px;
     border-radius: 6px;
     font-size: 0.9rem;
     margin-bottom: 12px;
@@ -66,9 +66,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
 }
-.variant-card .topic-badge {
+.variant-card .section-badge {
     background: #6c63ff;
     color: white;
     font-size: 0.65rem;
@@ -80,8 +80,11 @@
     text-overflow: ellipsis;
     max-width: 100px;
 }
-.variant-card .words {
-    font-size: 0.9rem;
-    color: #b0b0d0;
-    word-break: break-word;
+.variant-name {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 4px 0 2px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

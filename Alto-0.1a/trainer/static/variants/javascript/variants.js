@@ -3,6 +3,7 @@ window.variants = [];
 let variantCards = [];
 let currentVariantId = null;          // null for new variant, else existing id
 let currentVariantWords = [];          // array of words for the variant being edited
+let currentVariantName = '';           // name for the variant being edited
 
 // ========== Load Variants ==========
 window.loadVariants = async function() {
@@ -11,7 +12,7 @@ window.loadVariants = async function() {
         window.variants = await window.apiGet(`/api/models/${window.currentModel}/variants`);
         renderVariantsGrid();
         document.getElementById('variantSearch').disabled = false;
-        document.getElementById('variantTopicFilter').disabled = false;
+        document.getElementById('variantSectionFilter').disabled = false;
         document.getElementById('variantSort').disabled = false;
         document.getElementById('addVariantBtn').disabled = false;
     } catch (err) {
@@ -25,32 +26,28 @@ window.clearVariants = function() {
     const container = document.getElementById('variantsGridContainer');
     if (container) container.innerHTML = '';
     document.getElementById('variantSearch').disabled = true;
-    document.getElementById('variantTopicFilter').disabled = true;
+    document.getElementById('variantSectionFilter').disabled = true;
     document.getElementById('variantSort').disabled = true;
     document.getElementById('addVariantBtn').disabled = true;
     if (window.variantsManager) window.variantsManager.setCardArray([]);
 };
 
-function populateVariantTopicFilter() {
-    const select = document.getElementById('variantTopicFilter');
-    const topics = new Set();
-    window.variants.forEach(v => {
-        topics.add(v.topic || 'Global');
-    });
-    const sortedTopics = Array.from(topics).sort((a, b) => a.localeCompare(b));
-
-    const currentValue = select.value;
-    select.innerHTML = '<option value="All">All Topics</option>';
-    sortedTopics.forEach(topic => {
+function populateVariantFilters() {
+    // Populate section filter
+    const sectionSelect = document.getElementById('variantSectionFilter');
+    const sections = window.sections || [];
+    const currentSection = sectionSelect.value;
+    sectionSelect.innerHTML = '<option value="All Sections">All Sections</option>';
+    sections.forEach(s => {
         const opt = document.createElement('option');
-        opt.value = topic;
-        opt.textContent = topic;
-        select.appendChild(opt);
+        opt.value = s;
+        opt.textContent = s;
+        sectionSelect.appendChild(opt);
     });
-    if (sortedTopics.includes(currentValue)) {
-        select.value = currentValue;
+    if (sections.includes(currentSection)) {
+        sectionSelect.value = currentSection;
     } else {
-        select.value = 'All';
+        sectionSelect.value = 'All Sections';
     }
 }
 
@@ -60,19 +57,18 @@ function renderVariantsGrid() {
 
     let html = '<div class="variants-grid grid">';
     window.variants.forEach((v, idx) => {
-        const topic = v.topic || 'Global';
-        const words = v.words.join(', ');
+        const section = v.section || 'Uncategorized';
         const wordCount = v.words.length;
         html += `
             <div class="variant-card" data-index="${idx}">
                 <div class="header">
-                    <span class="topic-badge">${topic}</span>
+                    <span class="section-badge">${section}</span>
                     <div class="card-actions">
                         <button class="edit-variant" title="Edit">✎</button>
                         <button class="delete-variant" title="Delete">🗑</button>
                     </div>
                 </div>
-                <div class="words">${words}</div>
+                <h4 class="variant-name">${v.name || 'Unnamed'}</h4>
                 <div class="stats">
                     <span>📝 ${wordCount} word${wordCount !== 1 ? 's' : ''}</span>
                 </div>
@@ -108,31 +104,30 @@ function renderVariantsGrid() {
         item: window.variants[parseInt(card.dataset.index)]
     }));
 
-    populateVariantTopicFilter();
+    populateVariantFilters();
 
     if (!window.variantsManager) {
         window.variantsManager = new window.SearchManager({
             containerId: 'variantsGridContainer',
             cardArray: variantCards,
             searchInputId: 'variantSearch',
-            customSearchFn: (item, term) => {
-                const wordsString = item.words.join(', ').toLowerCase();
-                return wordsString.includes(term);
-            },
+            searchFields: ['name', 'words'], // searches full words array (item.words)
             filterSelectors: {
-                'variantTopicFilter': (item, value) => {
-                    if (value === 'All') return true;
-                    const itemTopic = item.topic || 'Global';
-                    return itemTopic === value;
+                'variantSectionFilter': (item, value) => {
+                    if (value === 'All Sections') return true;
+                    const itemSection = item.section || 'Uncategorized';
+                    return itemSection === value;
                 }
             },
             sortSelectors: {
-                'topic-asc': (a, b) => (a.topic || 'Global').localeCompare(b.topic || 'Global'),
-                'topic-desc': (a, b) => (b.topic || 'Global').localeCompare(a.topic || 'Global'),
+                'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
+                'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
+                'section-asc': (a, b) => (a.section || '').localeCompare(b.section || ''),
+                'section-desc': (a, b) => (b.section || '').localeCompare(a.section || ''),
                 'words-desc': (a, b) => b.words.length - a.words.length,
                 'words-asc': (a, b) => a.words.length - b.words.length
             },
-            defaultSort: 'topic-asc'
+            defaultSort: 'name-asc'
         });
     } else {
         window.variantsManager.setCardArray(variantCards);
@@ -140,9 +135,21 @@ function renderVariantsGrid() {
 }
 
 // ========== Variant Modal Functions ==========
-function openVariantModal(title, topic, words, onSave) {
+function openVariantModal(title, name, section, words, onSave) {
     document.getElementById('variantModalTitle').textContent = title;
-    document.getElementById('variantTopic').value = topic || '';
+    document.getElementById('variantName').value = name || '';
+
+    // Populate section dropdown
+    const sectionSelect = document.getElementById('variantSection');
+    sectionSelect.innerHTML = '<option value="">(Uncategorized)</option>';
+    (window.sections || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sectionSelect.appendChild(opt);
+    });
+    sectionSelect.value = section || '';
+
     currentVariantWords = words ? [...words] : [];
     renderVariantWordsList();
 
@@ -209,13 +216,19 @@ window.deleteVariantWord = function(idx) {
 };
 
 async function saveVariantModal() {
-    const topic = document.getElementById('variantTopic').value.trim() || null;
+    const name = document.getElementById('variantName').value.trim();
+    if (!name) {
+        alert('Variant name is required.');
+        return;
+    }
+    const section = document.getElementById('variantSection').value || null;
     if (currentVariantWords.length === 0) {
         alert('At least one word is required.');
         return;
     }
 
-    const data = { topic, words: currentVariantWords };
+    const data = { name, words: currentVariantWords, section };
+
     try {
         if (window._variantModalOnSave) {
             await window._variantModalOnSave(data);
@@ -229,7 +242,7 @@ async function saveVariantModal() {
 
 // ========== Variant CRUD ==========
 function addVariant() {
-    openVariantModal('Add Variant', '', [], async (data) => {
+    openVariantModal('Add Variant', '', '', [], async (data) => {
         await window.apiPost(`/api/models/${window.currentModel}/variants`, data);
     });
 }
@@ -237,7 +250,7 @@ function addVariant() {
 function editVariant(id) {
     const variant = window.variants.find(v => v.id == id);
     if (!variant) return;
-    openVariantModal('Edit Variant', variant.topic, variant.words, async (data) => {
+    openVariantModal('Edit Variant', variant.name, variant.section, variant.words, async (data) => {
         await window.apiPut(`/api/models/${window.currentModel}/variants/${id}`, data);
     });
 }

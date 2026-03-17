@@ -220,6 +220,13 @@ async function editTopic(oldName) {
                 <input type="text" id="editTopicName" value="${oldName}">
             </div>
             <div class="form-row">
+                <label>Section</label>
+                <select id="editTopicSection">
+                    <option value="">(Uncategorized)</option>
+                    ${window.sections.map(s => `<option value="${s}">${s}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-row">
                 <label>Used by groups</label>
                 <ul class="group-usage-list">${groupsHtml}</ul>
             </div>
@@ -228,6 +235,9 @@ async function editTopic(oldName) {
                 <button class="save" id="editTopicSaveBtn">Save</button>
             </div>
         `;
+
+        // Fetch current topic's section (backend doesn't provide it, so we set to empty for now)
+        // For now, we'll leave it blank; a future enhancement could fetch topic details.
 
         document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
             btn.addEventListener('click', async (e) => {
@@ -286,6 +296,7 @@ async function editTopic(oldName) {
                 alert('Topic name cannot be "null".');
                 return;
             }
+            // Rename topic (section assignment not yet supported in rename endpoint)
             if (newName === oldName) {
                 window.popModal();
                 return;
