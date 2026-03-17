@@ -69,7 +69,6 @@ function renderGroups() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Update manager's grid reference
     if (window.groupsManager) {
         window.groupsManager.grid = container.querySelector('.grid') || container;
     }
@@ -96,7 +95,6 @@ function renderGroups() {
         });
     });
 
-    // Initialize or update manager
     if (!window.groupsManager) {
         window.groupsManager = new window.SearchManager({
             containerId: 'groupsGridContainer',
@@ -133,7 +131,6 @@ async function deleteGroup(index, callback) {
     });
 }
 
-// ========== Helper to ensure topics are loaded ==========
 async function ensureTopicsLoaded() {
     if (!window.currentModel) return;
     if (!window.topicsList || window.topicsList.length === 0) {
@@ -141,7 +138,7 @@ async function ensureTopicsLoaded() {
             window.topicsList = await window.apiGet(`/api/models/${window.currentModel}/topics`);
         } catch (err) {
             console.warn('Could not load topics:', err);
-            window.topicsList = []; // fallback
+            window.topicsList = [];
         }
     }
 }
@@ -149,9 +146,11 @@ async function ensureTopicsLoaded() {
 // ========== Group Modal ==========
 window.selectedGroupIndex = -1;
 let modalGroupCopy = null;
+let currentGroupFetchAnimation = null;
 
 function attachGroupModalHandlers() {
     document.getElementById('modalAddQuestionBtn').onclick = () => {
+        if (!modalGroupCopy) return;
         window.showSimpleModal('Add Question', [{ name: 'text', label: 'Question', value: '' }], (vals, errorDiv) => {
             if (!vals.text) {
                 errorDiv.textContent = 'Question cannot be empty.';
@@ -165,6 +164,7 @@ function attachGroupModalHandlers() {
     };
 
     document.getElementById('modalAddAnswerBtn').onclick = () => {
+        if (!modalGroupCopy) return;
         window.showSimpleModal('Add Answer', [{ name: 'text', label: 'Answer', value: '' }], (vals, errorDiv) => {
             if (!vals.text) {
                 errorDiv.textContent = 'Answer cannot be empty.';
@@ -186,7 +186,18 @@ function attachGroupModalHandlers() {
         modalGroupCopy.section = document.getElementById('modalGroupSection').value;
 
         await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
+        
+        // Refresh global groups and sections
         await window.loadGroupsAndSections();
+        
+        // Also refresh topics and sections data so that the topics/sections grids update immediately
+        if (typeof window.loadTopics === 'function') {
+            await window.loadTopics();
+        }
+        if (typeof window.loadSections === 'function') {
+            await window.loadSections();
+        }
+        
         window.popModal();
         modalGroupCopy = null;
 
@@ -222,57 +233,144 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
     const modal = document.getElementById('groupModal');
     const content = modal.querySelector('.modal-content');
-    const originalContent = content.innerHTML;
-    content.innerHTML = '<div style="text-align:center; padding:40px;">Loading group details...</div>';
+    // Build basic structure with placeholders
+    content.innerHTML = `
+        <h2>Edit Group</h2>
+        <div class="form-row">
+            <label>Group Name</label>
+            <input type="text" id="modalGroupName" value="">
+        </div>
+        <div class="form-row">
+            <label>Description</label>
+            <input type="text" id="modalGroupDesc" value="">
+        </div>
+        <div class="form-row" style="display: flex; gap: 16px;">
+            <div style="flex:1;">
+                <label>Topic</label>
+                <select id="modalGroupTopic"><option value="">Loading...</option></select>
+            </div>
+            <div style="flex:1;">
+                <label>Section</label>
+                <select id="modalGroupSection"><option value="">Loading...</option></select>
+            </div>
+        </div>
+
+        <div class="qa-section">
+            <h3>Questions</h3>
+            <ul class="qa-list" id="modalQuestionsList"><li>Loading questions...</li></ul>
+            <button class="add-btn" id="modalAddQuestionBtn">+ Add Question</button>
+        </div>
+
+        <div class="qa-section">
+            <h3>Answers</h3>
+            <ul class="qa-list" id="modalAnswersList"><li>Loading answers...</li></ul>
+            <button class="add-btn" id="modalAddAnswerBtn">+ Add Answer</button>
+        </div>
+
+        <div style="margin-top:16px;">
+            <button id="modalEditFollowupsBtn" style="background:#a78bfa; color:white; border:none; padding:10px; border-radius:6px; width:100%;">🌳 Edit Follow-up Tree</button>
+        </div>
+
+        <div class="modal-actions">
+            <button class="cancel" id="modalCancelBtn">Cancel</button>
+            <button class="save" id="modalSaveBtn">Save Changes</button>
+        </div>
+    `;
+
     window.pushModal('groupModal');
+    attachGroupModalHandlers();
 
-    try {
-        // Ensure topics are loaded for the dropdown
-        await ensureTopicsLoaded();
-
-        const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
-        modalGroupCopy = fullGroup;
-
-        content.innerHTML = originalContent;
-        document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
-        document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
-
-        const topicSelect = document.getElementById('modalGroupTopic');
-        let topicOptions = '<option value="">(No topic)</option>';
-        if (window.topicsList && window.topicsList.length) {
-            topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
-        } else {
-            topicOptions += '<option value="general">general</option>';
-        }
-        topicSelect.innerHTML = topicOptions;
-        topicSelect.value = modalGroupCopy.topic || '';
-
-        // Section dropdown: include Uncategorized option
-        const sectionSelect = document.getElementById('modalGroupSection');
-        let sectionOptions = '<option value="">(Uncategorized)</option>';
-        sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
-        sectionSelect.innerHTML = sectionOptions;
-        sectionSelect.value = modalGroupCopy.section || '';
-
-        refreshModalLists();
-        attachGroupModalHandlers();
-
-        window._groupModalOnSave = onSaveCallback;
-    } catch (err) {
-        alert('Error loading group details: ' + err.message);
-        window.popModal();
+    if (currentGroupFetchAnimation) {
+        clearTimeout(currentGroupFetchAnimation.timeout);
+        clearInterval(currentGroupFetchAnimation.interval);
+        currentGroupFetchAnimation = null;
     }
+
+    let loadingTimeout = setTimeout(() => {
+        const qList = document.getElementById('modalQuestionsList');
+        const aList = document.getElementById('modalAnswersList');
+        if (qList) qList.innerHTML = '<li>Loading questions</li>';
+        if (aList) aList.innerHTML = '<li>Loading answers</li>';
+        let dots = 0;
+        const loadingInterval = setInterval(() => {
+            dots = (dots + 1) % 4;
+            const dotsStr = '.'.repeat(dots);
+            if (qList) qList.innerHTML = `<li>Loading questions${dotsStr}</li>`;
+            if (aList) aList.innerHTML = `<li>Loading answers${dotsStr}</li>`;
+        }, 300);
+        currentGroupFetchAnimation = { timeout: loadingTimeout, interval: loadingInterval };
+    }, 300);
+
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+        attempts++;
+        try {
+            await ensureTopicsLoaded();
+            const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
+            modalGroupCopy = fullGroup;
+
+            if (currentGroupFetchAnimation) {
+                clearTimeout(currentGroupFetchAnimation.timeout);
+                clearInterval(currentGroupFetchAnimation.interval);
+                currentGroupFetchAnimation = null;
+            } else {
+                clearTimeout(loadingTimeout);
+            }
+
+            document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
+            document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
+
+            const topicSelect = document.getElementById('modalGroupTopic');
+            let topicOptions = '<option value="">(No Topic)</option>';
+            if (window.topicsList && window.topicsList.length) {
+                topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+            } else {
+                topicOptions += '<option value="general">general</option>';
+            }
+            topicSelect.innerHTML = topicOptions;
+            topicSelect.value = modalGroupCopy.topic || '';
+
+            const sectionSelect = document.getElementById('modalGroupSection');
+            let sectionOptions = '<option value="">(Uncategorized)</option>';
+            sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+            sectionSelect.innerHTML = sectionOptions;
+            sectionSelect.value = modalGroupCopy.section || '';
+
+            refreshModalLists();
+            window._groupModalOnSave = onSaveCallback;
+            return;
+        } catch (err) {
+            if (attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
+            }
+        }
+    }
+
+    if (currentGroupFetchAnimation) {
+        clearTimeout(currentGroupFetchAnimation.timeout);
+        clearInterval(currentGroupFetchAnimation.interval);
+        currentGroupFetchAnimation = null;
+    } else {
+        clearTimeout(loadingTimeout);
+    }
+    document.getElementById('modalQuestionsList').innerHTML = '<li style="color: #ff6b9d;">Error loading questions</li>';
+    document.getElementById('modalAnswersList').innerHTML = '<li style="color: #ff6b9d;">Error loading answers</li>';
+    modalGroupCopy = { group_name: '', group_description: '', topic: '', section: '', questions: [], answers: [] };
 };
 
 window.refreshGroupModalTopicDropdown = function() {
     if (document.getElementById('groupModal').classList.contains('visible') && modalGroupCopy) {
         const topicSelect = document.getElementById('modalGroupTopic');
-        topicSelect.innerHTML = window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+        let options = '<option value="">(No Topic)</option>';
+        options += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+        topicSelect.innerHTML = options;
         if (window.topicsList.includes(modalGroupCopy.topic)) {
             topicSelect.value = modalGroupCopy.topic;
         } else {
-            topicSelect.value = window.topicsList[0] || '';
-            modalGroupCopy.topic = topicSelect.value;
+            topicSelect.value = '';
+            modalGroupCopy.topic = '';
         }
     }
 };
@@ -344,7 +442,7 @@ async function createNewGroup() {
         questions: [],
         answers: [],
         topic: '',
-        section: ''  // Default to uncategorized
+        section: ''
     };
     await window.apiPost(`/api/models/${window.currentModel}/groups`, newGroup);
     await window.loadGroupsAndSections();

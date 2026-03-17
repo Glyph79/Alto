@@ -1,10 +1,10 @@
 // ========== Router State ==========
-window.routes = [];          // stores {id, module_name, variant_count}
+window.routes = [];
 let routeCards = [];
 let currentRouteIndex = -1;
 let currentRouteVariants = [];
+let currentRouteFetchAnimation = null;
 
-// ========== Clear Routes (when no model) ==========
 window.clearRoutes = function() {
     window.routes = [];
     const container = document.getElementById('routesGridContainer');
@@ -15,7 +15,6 @@ window.clearRoutes = function() {
     if (window.routesManager) window.routesManager.setCardArray([]);
 };
 
-// ========== Load Route Summaries ==========
 window.loadRouteSummaries = async function() {
     if (!window.currentModel) {
         window.clearRoutes();
@@ -66,7 +65,6 @@ function renderRoutesGrid() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Update manager's grid reference
     if (window.routesManager) {
         window.routesManager.grid = container.querySelector('.grid') || container;
     }
@@ -113,36 +111,81 @@ function renderRoutesGrid() {
     }
 }
 
-// ========== Route Modal Functions ==========
 function openRouteModal(index) {
     if (!window.currentModel) return;
     currentRouteIndex = index;
     const modal = document.getElementById('routeModal');
     const title = document.getElementById('routeModalTitle');
     const moduleInput = document.getElementById('routeModuleName');
+    const variantsList = document.getElementById('routeVariantsList');
+    const addVariantBtn = document.getElementById('routeAddVariantBtn');
+
+    title.textContent = index === -1 ? 'Add Route' : 'Edit Route';
+    moduleInput.value = '';
+    variantsList.innerHTML = index === -1 ? '' : '<li>Loading variants...</li>';
+    currentRouteVariants = [];
+    addVariantBtn.disabled = index !== -1;
+
+    window.pushModal('routeModal');
+    attachRouteModalHandlers();
 
     if (index === -1) {
-        title.textContent = 'Add Route';
-        moduleInput.value = '';
-        currentRouteVariants = [];
-        renderRouteVariantsList();
-        attachRouteModalHandlers();
-        window.pushModal('routeModal');
-    } else {
-        title.textContent = 'Edit Route';
-        (async () => {
+        addVariantBtn.disabled = false;
+        return;
+    }
+
+    if (currentRouteFetchAnimation) {
+        clearTimeout(currentRouteFetchAnimation.timeout);
+        clearInterval(currentRouteFetchAnimation.interval);
+        currentRouteFetchAnimation = null;
+    }
+
+    let loadingTimeout = setTimeout(() => {
+        variantsList.innerHTML = '<li>Loading variants</li>';
+        let dots = 0;
+        const loadingInterval = setInterval(() => {
+            dots = (dots + 1) % 4;
+            const dotsStr = '.'.repeat(dots);
+            variantsList.innerHTML = `<li>Loading variants${dotsStr}</li>`;
+        }, 300);
+        currentRouteFetchAnimation = { timeout: loadingTimeout, interval: loadingInterval };
+    }, 300);
+
+    (async () => {
+        let attempts = 0;
+        const maxAttempts = 3;
+        while (attempts < maxAttempts) {
+            attempts++;
             try {
                 const fullRoute = await window.apiGet(`/api/models/${window.currentModel}/routes/${index}/full`);
+                if (currentRouteFetchAnimation) {
+                    clearTimeout(currentRouteFetchAnimation.timeout);
+                    clearInterval(currentRouteFetchAnimation.interval);
+                    currentRouteFetchAnimation = null;
+                } else {
+                    clearTimeout(loadingTimeout);
+                }
                 moduleInput.value = fullRoute.module_name;
                 currentRouteVariants = fullRoute.variants;
                 renderRouteVariantsList();
-                attachRouteModalHandlers();
-                window.pushModal('routeModal');
+                addVariantBtn.disabled = false;
+                return;
             } catch (err) {
-                alert('Error loading route details: ' + err.message);
+                if (attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
+                }
             }
-        })();
-    }
+        }
+        if (currentRouteFetchAnimation) {
+            clearTimeout(currentRouteFetchAnimation.timeout);
+            clearInterval(currentRouteFetchAnimation.interval);
+            currentRouteFetchAnimation = null;
+        } else {
+            clearTimeout(loadingTimeout);
+        }
+        variantsList.innerHTML = '<li style="color: #ff6b9d;">Error loading variants</li>';
+        addVariantBtn.disabled = false;
+    })();
 }
 
 function attachRouteModalHandlers() {

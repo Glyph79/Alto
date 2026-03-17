@@ -26,29 +26,40 @@ window.pushModal = function(modalId) {
 };
 
 window.popModal = function() {
-    const closingId = modalStack.pop();
-    updateModalBackdrops();
+    if (modalStack.length === 0) return;
 
-    if (closingId) {
-        const modal = document.getElementById(closingId);
-        if (!modal) return;
+    const closingId = modalStack[modalStack.length - 1];   // top before pop
+    modalStack.pop();                                       // remove from stack
 
-        const stillOpen = modalStack.length > 0;
-        if (stillOpen) {
-            // There are still modals open: disappear instantly
-            modal.classList.add('no-transition');
-            modal.classList.remove('visible');
-            void modal.offsetHeight;
-            modal.classList.remove('no-transition');
-        } else {
-            // Last modal: animate out
-            modal.classList.remove('visible');
-        }
-    }
+    const modal = document.getElementById(closingId);
+    if (!modal) return;
+
+    // Keep the closing modal on top during its fade-out
+    const oldStackLength = modalStack.length + 1;           // length before pop
+    const previousTopZ = 1000 + oldStackLength;             // the z-index it had as top
+    modal.style.zIndex = previousTopZ;
+    
+    // Only the bottom-most modal (index 0) should have its backdrop visible.
+    // The closing modal might be the bottom one; if so, keep its backdrop,
+    // otherwise hide it (though it's already hidden if it wasn't bottom).
+    // For safety, we just ensure its backdrop stays as it was (updateModalBackdrops
+    // will later fix it, but we don't want to change it mid‑fade).
+    
+    // Start fade-out
+    modal.classList.remove('visible');
+
+    // After animation finishes, update backdrops for the remaining stack
+    const onTransitionEnd = function(e) {
+        if (e.propertyName !== 'opacity' && e.propertyName !== 'visibility') return;
+        modal.removeEventListener('transitionend', onTransitionEnd);
+        updateModalBackdrops();          // now the new top modal gets its backdrop correctly
+    };
+    modal.addEventListener('transitionend', onTransitionEnd);
 };
 
 function updateModalBackdrops() {
     const modals = ['groupModal', 'treeModal', 'simpleModal'];
+    
     modals.forEach(id => {
         const modal = document.getElementById(id);
         if (!modal) return;
@@ -57,11 +68,18 @@ function updateModalBackdrops() {
         if (stackIndex !== -1) {
             const baseZ = 1000;
             const topZ = baseZ + modalStack.length;
+            
+            // Set z-index based on position in stack
             if (stackIndex === modalStack.length - 1) {
                 modal.style.zIndex = topZ;
-                modal.classList.remove('modal-backdrop-hidden');
             } else {
                 modal.style.zIndex = baseZ + stackIndex + 1;
+            }
+            
+            // Only the bottom-most modal (index 0) shows its backdrop
+            if (stackIndex === 0) {
+                modal.classList.remove('modal-backdrop-hidden');
+            } else {
                 modal.classList.add('modal-backdrop-hidden');
             }
         } else {

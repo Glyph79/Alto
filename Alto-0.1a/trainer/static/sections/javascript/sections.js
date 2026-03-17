@@ -2,27 +2,22 @@
 let sectionCards = [];
 let sectionsSort = 'name-asc';
 
-// ========== Load Sections ==========
 window.loadSections = async function() {
     if (!window.currentModel) return;
-    // We reuse groups data to get sections and group counts
-    await window.loadGroupsAndSections(); // this populates window.groups and window.sections
+    await window.loadGroupsAndSections();
     renderSectionsGrid();
 };
 
-// ========== Render Sections Grid ==========
 function renderSectionsGrid() {
     const container = document.getElementById('sectionsGridContainer');
     if (!container) return;
 
-    // Count groups per section (including uncategorized)
     const counts = {};
     window.groups.forEach(g => {
         const section = g.section || 'Uncategorized';
         counts[section] = (counts[section] || 0) + 1;
     });
 
-    // Build list of sections (including Uncategorized if any groups have it)
     let sectionsList = [...window.sections];
     if (counts['Uncategorized'] && !sectionsList.includes('Uncategorized')) {
         sectionsList.push('Uncategorized');
@@ -38,7 +33,6 @@ function renderSectionsGrid() {
     let html = '<div class="sections-grid grid">';
     sectionsList.forEach(section => {
         const count = counts[section] || 0;
-        // Simple deterministic color based on section name
         const hue = (section.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
         html += `
             <div class="section-card" data-section="${section}" data-count="${count}">
@@ -49,7 +43,7 @@ function renderSectionsGrid() {
                     </div>
                     <div class="card-actions">
                         <button class="edit-section" data-section="${section}" title="Edit">✎</button>
-                        <button class="delete-section" data-section="${section}" title="Delete">🗑</button>
+                        ${section !== 'Uncategorized' ? `<button class="delete-section" data-section="${section}" title="Delete">🗑</button>` : ''}
                     </div>
                 </div>
                 <div class="stats">
@@ -61,12 +55,10 @@ function renderSectionsGrid() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Update manager's grid reference
     if (window.sectionsManager) {
         window.sectionsManager.grid = container.querySelector('.grid') || container;
     }
 
-    // Attach click handlers to cards (excluding actions)
     document.querySelectorAll('.section-card').forEach(card => {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.card-actions')) return;
@@ -75,7 +67,6 @@ function renderSectionsGrid() {
         });
     });
 
-    // Attach button handlers
     document.querySelectorAll('.edit-section').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -99,7 +90,6 @@ function renderSectionsGrid() {
         }
     }));
 
-    // Initialize or update SearchManager
     if (!window.sectionsManager) {
         window.sectionsManager = new window.SearchManager({
             containerId: 'sectionsGridContainer',
@@ -120,7 +110,6 @@ function renderSectionsGrid() {
     }
 }
 
-// ========== Add Section ==========
 function addSection() {
     window.showSimpleModal('Add Section', [{ name: 'section', label: 'Section Name', value: '' }], async (vals, errorDiv) => {
         const name = vals.section.trim();
@@ -144,109 +133,93 @@ function addSection() {
     }, 'Add');
 }
 
-// ========== Edit Section (with group list) ==========
 async function editSection(sectionName) {
-    if (sectionName === 'Uncategorized') {
-        alert('The "Uncategorized" pseudo‑section cannot be edited.');
-        return;
-    }
-
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
+
+    const groupsInSection = window.groups.filter(g => (g.section || 'Uncategorized') === sectionName);
+
+    let groupsHtml = '';
+    if (groupsInSection.length === 0) {
+        groupsHtml = '<li class="section-group-item" style="justify-content:center; color:#888;">No groups in this section</li>';
+    } else {
+        groupsInSection.forEach((g) => {
+            groupsHtml += `
+                <li class="section-group-item" data-group-id="${g.id}">
+                    <span class="group-name">${g.group_name || 'Unnamed'}</span>
+                    <div class="section-group-actions">
+                        <button class="edit-group-from-section" title="Edit Group">✎</button>
+                        <button class="delete-group-from-section" title="Delete Group">🗑</button>
+                    </div>
+                </li>
+            `;
+        });
+    }
+
+    const isUncategorized = sectionName === 'Uncategorized';
     content.innerHTML = `
-        <h2>Edit Section</h2>
-        <div style="text-align:center; padding:20px;">Loading groups...</div>
+        <h2>${isUncategorized ? 'View Section' : 'Edit Section'}</h2>
+        <div class="form-row">
+            <label>Section Name</label>
+            <input type="text" id="editSectionName" value="${sectionName}" ${isUncategorized ? 'disabled' : ''}>
+        </div>
+        <div class="form-row">
+            <label>Groups in this section</label>
+            <ul class="section-group-list">${groupsHtml}</ul>
+        </div>
+        <div class="modal-actions">
+            <button class="cancel" id="editSectionCancelBtn">Close</button>
+            ${!isUncategorized ? '<button class="save" id="editSectionSaveBtn">Save</button>' : ''}
+        </div>
     `;
     window.pushModal('simpleModal');
 
-    try {
-        // Filter groups that belong to this section (including empty string as Uncategorized)
-        const groupsInSection = window.groups.filter(g => g.section === sectionName);
+    document.querySelectorAll('.edit-group-from-section').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const li = e.target.closest('.section-group-item');
+            const groupId = li.dataset.groupId;
+            if (groupId) {
+                const index = window.groups.findIndex(g => g.id == groupId);
+                if (index !== -1) {
+                    window.openGroupModal(index, () => {
+                        // After group save, refresh the section modal
+                        editSection(sectionName);
+                    });
+                } else {
+                    alert('Group not found');
+                }
+            }
+        });
+    });
 
-        let groupsHtml = '';
-        if (groupsInSection.length === 0) {
-            groupsHtml = '<li class="section-group-item" style="justify-content:center; color:#888;">No groups in this section</li>';
-        } else {
-            groupsInSection.forEach((g, idx) => {
-                groupsHtml += `
-                    <li class="section-group-item" data-group-id="${g.id}">
-                        <span class="group-name">${g.group_name || 'Unnamed'}</span>
-                        <div class="section-group-actions">
-                            <button class="edit-group-from-section" title="Edit Group">✎</button>
-                            <button class="delete-group-from-section" title="Delete Group">🗑</button>
-                        </div>
-                    </li>
-                `;
-            });
-        }
-
-        content.innerHTML = `
-            <h2>Edit Section</h2>
-            <div class="form-row">
-                <label>Section Name</label>
-                <input type="text" id="editSectionName" value="${sectionName}">
-            </div>
-            <div class="form-row">
-                <label>Groups in this section</label>
-                <ul class="section-group-list">${groupsHtml}</ul>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="editSectionCancelBtn">Cancel</button>
-                <button class="save" id="editSectionSaveBtn">Save</button>
-            </div>
-        `;
-
-        // Attach handlers for group edit buttons
-        document.querySelectorAll('.edit-group-from-section').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const li = e.target.closest('.section-group-item');
-                const groupId = li.dataset.groupId;
-                if (groupId) {
-                    // Find group index in window.groups
+    document.querySelectorAll('.delete-group-from-section').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const li = e.target.closest('.section-group-item');
+            const groupId = li.dataset.groupId;
+            if (groupId) {
+                window.showConfirmModal('Delete this group?', async () => {
                     const index = window.groups.findIndex(g => g.id == groupId);
                     if (index !== -1) {
-                        window.openGroupModal(index, () => {
-                            // After group edit, refresh the section edit modal
-                            window.popModal(); // close group modal
-                            editSection(sectionName); // reopen section edit with updated data
-                        });
+                        await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+                        await window.loadGroupsAndSections();
+                        window.popModal(); // close confirm
+                        window.popModal(); // close section edit
+                        editSection(sectionName);
                     } else {
                         alert('Group not found');
                     }
-                }
-            });
+                });
+            }
         });
+    });
 
-        // Attach handlers for group delete buttons
-        document.querySelectorAll('.delete-group-from-section').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const li = e.target.closest('.section-group-item');
-                const groupId = li.dataset.groupId;
-                if (groupId) {
-                    window.showConfirmModal('Delete this group?', async () => {
-                        const index = window.groups.findIndex(g => g.id == groupId);
-                        if (index !== -1) {
-                            await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
-                            // Refresh groups and sections
-                            await window.loadGroupsAndSections();
-                            // Reopen the edit modal with updated data
-                            window.popModal(); // close confirm
-                            window.popModal(); // close current edit modal
-                            editSection(sectionName); // reopen
-                        } else {
-                            alert('Group not found');
-                        }
-                    });
-                }
-            });
-        });
+    document.getElementById('editSectionCancelBtn').onclick = () => {
+        window.popModal();
+    };
 
-        document.getElementById('editSectionCancelBtn').onclick = () => {
-            window.popModal();
-        };
-
+    if (!isUncategorized) {
         document.getElementById('editSectionSaveBtn').onclick = async () => {
             const newName = document.getElementById('editSectionName').value.trim();
             if (!newName) {
@@ -269,13 +242,9 @@ async function editSection(sectionName) {
                 alert('Failed to rename section: ' + err.message);
             }
         };
-    } catch (err) {
-        alert('Error loading groups for section: ' + err.message);
-        window.popModal();
     }
 }
 
-// ========== Delete Section ==========
 async function deleteSection(section) {
     if (section === 'Uncategorized') {
         alert('The "Uncategorized" pseudo‑section cannot be deleted.');
@@ -345,5 +314,4 @@ async function deleteSection(section) {
     };
 }
 
-// Wire up Add button
 document.getElementById('addSectionBtn').addEventListener('click', addSection);
