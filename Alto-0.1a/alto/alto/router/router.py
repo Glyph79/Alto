@@ -5,13 +5,11 @@ import json
 import os
 from fuzzywuzzy import fuzz
 
-# ========== CONFIGURATION ==========
 ROUTER_THRESHOLD = 70
 WORD_SCORER = fuzz.ratio
 MIN_WORD_SCORE = 80
-# ====================================
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'routing', 'router.db')
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'routing', 'router.db')
 
 def normalize_word(word: str) -> str:
     return re.sub(r'[^\w\s]', '', word.lower())
@@ -36,7 +34,6 @@ def init_db():
             variants TEXT NOT NULL
         )
     ''')
-    # Insert default weather route if empty
     cur = conn.execute('SELECT COUNT(*) FROM routes')
     if cur.fetchone()[0] == 0:
         default_variants = json.dumps([
@@ -144,12 +141,11 @@ class Router:
                 return module.handle(text, state)
             except Exception as e:
                 print(f"--- Router: module '{module.__name__}' raised error: {e}")
-                from ai import handle as fallback_handle
+                from alto.core.bot import handle as fallback_handle
                 return fallback_handle(text, state)
         else:
-            print("--- Router: no module matched, falling back to ai.py")
-            from ai import handle as fallback_handle
+            print("--- Router: no module matched, falling back to bot")
+            from alto.core.bot import handle as fallback_handle
             return fallback_handle(text, state)
 
-# Singleton
 router = Router()

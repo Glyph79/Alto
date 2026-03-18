@@ -1,9 +1,7 @@
-// DOM cache
 const chat = document.getElementById('chat');
 const input = document.getElementById('message');
 const typingHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
-// Helpers
 const scrollToBottom = () => chat.scrollTop = chat.scrollHeight;
 
 function addMessage(type, content) {
@@ -15,7 +13,6 @@ function addMessage(type, content) {
     return div;
 }
 
-// Main send function
 async function sendMessage() {
     const msg = input.value.trim();
     if (!msg) return;
@@ -57,7 +54,6 @@ async function sendMessage() {
     }
 }
 
-// Event listener
 input.addEventListener('keypress', e => {
     if (e.key === 'Enter') {
         e.preventDefault();

@@ -1,6 +1,6 @@
 from quart import Quart, request, Response, render_template
 import uuid
-from layer import process_message
+from alto.layer.layer import process_message
 
 app = Quart(__name__, template_folder='templates', static_folder='static')
 
@@ -15,13 +15,11 @@ async def chat():
     if not user_message:
         return Response('', status=400)
 
-    # Get or create session ID from cookie
     session_id = request.cookies.get('session_id')
     if not session_id:
         session_id = str(uuid.uuid4())
 
     async def generate():
-        # process_message is now an async generator
         async for chunk in process_message(user_message, session_id):
             yield chunk
 
