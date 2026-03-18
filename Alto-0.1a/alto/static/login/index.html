@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alto · Login</title>
+    <link rel="stylesheet" href="/static/login/style/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>Alto</h1>
+            <p class="tagline">pipeline · streams</p>
+            <div class="tab-bar">
+                <button class="tab active" id="loginTab">Login</button>
+                <button class="tab" id="signupTab">Sign Up</button>
+            </div>
+            <form id="loginForm" class="auth-form" method="post">
+                <input type="text" id="loginUsername" name="username" placeholder="Username" autocomplete="username">
+                <input type="password" id="loginPassword" name="password" placeholder="Password" autocomplete="current-password">
+                <button type="submit" id="loginBtn">Login</button>
+                <div class="error-message" id="loginError"></div>
+            </form>
+            <form id="signupForm" class="auth-form" method="post" style="display: none;">
+                <input type="text" id="signupUsername" name="username" placeholder="Username" autocomplete="username">
+                <input type="password" id="signupPassword" name="password" placeholder="Password (min. 6 characters)" autocomplete="new-password">
+                <input type="password" id="signupConfirmPassword" name="confirm_password" placeholder="Confirm password" autocomplete="new-password">
+                <button type="submit" id="signupBtn">Sign Up</button>
+                <div class="error-message" id="signupError"></div>
+            </form>
+        </div>
+    </div>
+    <script src="/static/login/javascript/script.js"></script>
+</body>
+</html>

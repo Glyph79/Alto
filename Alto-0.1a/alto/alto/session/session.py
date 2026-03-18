@@ -3,7 +3,7 @@ import json
 import time
 import threading
 import heapq
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 HOT_TIMEOUT = 5
 COLD_TIMEOUT = 10
@@ -22,12 +22,11 @@ _stop = False
 def _cold_path(session_id: str) -> str:
     return os.path.join(SESSIONS_DIR, f"{session_id}.json")
 
-def get_session(session_id: str) -> dict:
+def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
     with _lock:
         now = time.time()
         if session_id in _hot:
             state, _ = _hot[session_id]
-            # Ensure topics dict exists
             if "topics" not in state:
                 state["topics"] = {}
             _hot[session_id] = (state, now)
@@ -55,6 +54,8 @@ def get_session(session_id: str) -> dict:
             pass
 
     new_state = {"topics": {}}
+    if user_id is not None:
+        new_state["user_id"] = user_id
     with _lock:
         _hot[session_id] = (new_state, time.time())
         heapq.heappush(_hot_heap, (time.time(), session_id))

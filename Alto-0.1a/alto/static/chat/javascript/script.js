@@ -1,82 +1,115 @@
+// DOM elements
 const chat = document.getElementById('chat');
 const input = document.getElementById('message');
 const sendBtn = document.querySelector('button[onclick="sendMessage(false)"]');
 const typingHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
+// State
 let lastUserMessage = '';
 let lastErrorBubbles = []; // [bubble1, bubble2]
 let isWaiting = false;
 
+// Constants
+const SCROLL_THRESHOLD = 5;
+const ERROR_TITLE = 'Network error';
+const ERROR_DETAIL = 'Unable to reach server. Please check your internet connection or server status.';
+
+// Logout
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/';
+});
+
+// Scroll helpers
+const isAtBottom = () => {
+    const scrollPos = chat.scrollTop + chat.clientHeight;
+    return chat.scrollHeight - scrollPos <= SCROLL_THRESHOLD;
+};
+
 const scrollToBottom = () => chat.scrollTop = chat.scrollHeight;
 
-function setWaiting(waiting) {
-    isWaiting = waiting;
-    sendBtn.disabled = waiting;
-    // Input remains enabled, but sending is prevented by isWaiting check
-}
+const maybeScroll = (wasAtBottom) => {
+    if (wasAtBottom) scrollToBottom();
+};
 
+// Message addition
 function addMessage(type, content) {
+    const wasAtBottom = isAtBottom();
     const div = document.createElement('div');
     div.className = `message ${type}`;
     div.innerHTML = content;
     chat.appendChild(div);
-    scrollToBottom();
+    maybeScroll(wasAtBottom);
     return div;
 }
 
+// Waiting state
+function setWaiting(waiting) {
+    isWaiting = waiting;
+    sendBtn.disabled = waiting;
+}
+
+// Error UI creation
 function createErrorBubbles(message) {
+    const wasAtBottom = isAtBottom();
     const bubbles = [];
 
-    // First bubble: simple network error (standard bot style)
-    const errorTitleBubble = document.createElement('div');
-    errorTitleBubble.className = 'message bot';
-    errorTitleBubble.textContent = 'Network error';
-    bubbles.push(errorTitleBubble);
+    // First bubble: simple network error
+    const titleBubble = document.createElement('div');
+    titleBubble.className = 'message bot';
+    titleBubble.textContent = ERROR_TITLE;
+    bubbles.push(titleBubble);
 
-    // Second bubble: detailed message + retry button (red)
+    // Second bubble: detailed error + retry button
     const detailBubble = document.createElement('div');
     detailBubble.className = 'message bot red';
 
     const detail = document.createElement('div');
     detail.className = 'error-detail';
-    detail.textContent = 'Unable to reach server. Please check your internet connection or server status.';
+    detail.textContent = ERROR_DETAIL;
 
     const btn = document.createElement('button');
     btn.className = 'retry-btn';
     btn.textContent = 'Try again';
     btn.setAttribute('data-message', message.replace(/"/g, '&quot;'));
-    btn.addEventListener('click', (e) => {
+
+    btn.addEventListener('click', function onClick(e) {
         e.preventDefault();
         if (btn.disabled) return;
         btn.disabled = true;
 
-        // Remove the red detail bubble (keeps first bubble)
+        // Remove detail bubble
         if (bubbles[1]) bubbles[1].remove();
-        // Clear first bubble and turn it into a typing indicator
-        const firstBubble = bubbles[0];
-        firstBubble.innerHTML = typingHTML;
-        firstBubble.className = 'message bot'; // ensure it's a bot bubble
 
-        // Retry sending
-        sendMessage(true, firstBubble);
+        // Convert title bubble to typing indicator
+        titleBubble.innerHTML = typingHTML;
+        titleBubble.className = 'message bot';
+
+        // Retry
+        sendMessage(true, titleBubble);
     });
 
     detailBubble.appendChild(detail);
     detailBubble.appendChild(btn);
     bubbles.push(detailBubble);
 
+    // Append both
+    bubbles.forEach(b => chat.appendChild(b));
+    maybeScroll(wasAtBottom);
+
     return bubbles;
 }
 
+// Core send function
 async function sendMessage(isRetry = false, reuseBubble = null) {
     if (isWaiting) return;
 
-    // If this is a new message (not a retry), remove only the detail bubble if it exists
+    // Remove existing detail bubble on manual send
     if (!isRetry && lastErrorBubbles.length === 2) {
-        // Remove the second bubble (red detail bubble)
+        const wasAtBottom = isAtBottom();
         lastErrorBubbles[1].remove();
-        // Clear the array – the first bubble stays as a static message
         lastErrorBubbles = [];
+        maybeScroll(wasAtBottom);
     }
 
     const message = isRetry ? lastUserMessage : input.value.trim();
@@ -90,13 +123,7 @@ async function sendMessage(isRetry = false, reuseBubble = null) {
 
     setWaiting(true);
 
-    // If we're retrying, we already have a bubble to reuse (passed as reuseBubble)
-    let botDiv;
-    if (isRetry && reuseBubble) {
-        botDiv = reuseBubble;
-    } else {
-        botDiv = addMessage('bot', typingHTML);
-    }
+    const botDiv = reuseBubble || addMessage('bot', typingHTML);
 
     try {
         const response = await fetch('/chat', {
@@ -106,20 +133,19 @@ async function sendMessage(isRetry = false, reuseBubble = null) {
         });
 
         if (!response.ok) {
-            // If this was a retry and we reused a bubble, we need to replace it with error UI
-            if (isRetry && reuseBubble) {
-                reuseBubble.remove(); // remove the typing bubble
-                // Create fresh error UI
-                const newBubbles = createErrorBubbles(message);
-                newBubbles.forEach(b => chat.appendChild(b));
-                lastErrorBubbles = newBubbles;
-            } else {
-                // First failure: replace typing indicator with error UI
-                botDiv.remove();
-                const newBubbles = createErrorBubbles(message);
-                newBubbles.forEach(b => chat.appendChild(b));
-                lastErrorBubbles = newBubbles;
+            // Check if it's JSON with invalid_user error
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                const errorData = await response.json();
+                if (errorData.error === 'invalid_user') {
+                    // Redirect to login
+                    window.location.href = '/';
+                    return;
+                }
             }
+            botDiv.remove();
+            const newBubbles = createErrorBubbles(message);
+            lastErrorBubbles = newBubbles;
             setWaiting(false);
             return;
         }
@@ -131,34 +157,29 @@ async function sendMessage(isRetry = false, reuseBubble = null) {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
+
             const chunk = decoder.decode(value);
+            const wasAtBottom = isAtBottom();
+
             if (firstChunk) {
                 botDiv.innerHTML = '';
                 firstChunk = false;
             }
             botDiv.innerHTML += chunk;
-            scrollToBottom();
+
+            maybeScroll(wasAtBottom);
         }
 
         setWaiting(false);
     } catch (err) {
-        // Network error – same handling as HTTP error
-        if (isRetry && reuseBubble) {
-            reuseBubble.remove();
-            const newBubbles = createErrorBubbles(message);
-            newBubbles.forEach(b => chat.appendChild(b));
-            lastErrorBubbles = newBubbles;
-        } else {
-            botDiv.remove();
-            const newBubbles = createErrorBubbles(message);
-            newBubbles.forEach(b => chat.appendChild(b));
-            lastErrorBubbles = newBubbles;
-        }
+        botDiv.remove();
+        const newBubbles = createErrorBubbles(message);
+        lastErrorBubbles = newBubbles;
         setWaiting(false);
     }
 }
 
+// Event listeners
 input.addEventListener('keypress', e => {
     if (e.key === 'Enter') {
         e.preventDefault();
@@ -166,7 +187,6 @@ input.addEventListener('keypress', e => {
     }
 });
 
-// Also update the send button's onclick handler
 sendBtn.onclick = () => {
     if (!isWaiting) sendMessage(false);
 };

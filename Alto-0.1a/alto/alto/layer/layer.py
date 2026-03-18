@@ -6,8 +6,8 @@ STREAM_BY_CHAR = True
 STREAM_DELAY = 0.00025
 
 class AltoLayer:
-    async def process_message(self, user_message: str, session_id: str = "default"):
-        state = get_session(session_id)
+    async def process_message(self, user_message: str, session_id: str = "default", user_id: int = None):
+        state = get_session(session_id, user_id)
         loop = asyncio.get_event_loop()
         final_response, new_state = await loop.run_in_executor(
             None, pipeline_process, user_message, state
