@@ -6,10 +6,15 @@ from alto.auth.auth import register_user, authenticate_user, user_exists
 
 app = Quart(__name__, static_folder='static')
 
-# Serve chat page
+# Serve chat page – only if authenticated
 @app.route('/chat')
 async def chat_page():
-    return await send_from_directory('static/chat', 'index.html')
+    user_id = request.cookies.get('user_id')
+    if user_id and user_id.isdigit():
+        if user_exists(int(user_id)):
+            return await send_from_directory('static/chat', 'index.html')
+    # Not authenticated → redirect to login
+    return redirect('/')
 
 # Serve login page (root)
 @app.route('/')
@@ -64,6 +69,15 @@ async def logout():
     resp.set_cookie('session_id', '', expires=0)
     resp.set_cookie('user_id', '', expires=0)
     return resp
+
+# Optional endpoint for client‑side session checks (e.g., during long‑lived sessions)
+@app.route('/api/check-session', methods=['GET'])
+async def check_session():
+    user_id = request.cookies.get('user_id')
+    if user_id and user_id.isdigit():
+        if user_exists(int(user_id)):
+            return {"valid": True}, 200
+    return {"valid": False}, 401
 
 # Chat endpoint (POST)
 @app.route('/chat', methods=['POST'])

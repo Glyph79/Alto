@@ -15,19 +15,27 @@
                 <button class="tab active" id="loginTab">Login</button>
                 <button class="tab" id="signupTab">Sign Up</button>
             </div>
-            <form id="loginForm" class="auth-form" method="post">
-                <input type="text" id="loginUsername" name="username" placeholder="Username" autocomplete="username">
-                <input type="password" id="loginPassword" name="password" placeholder="Password" autocomplete="current-password">
-                <button type="submit" id="loginBtn">Login</button>
-                <div class="error-message" id="loginError"></div>
-            </form>
-            <form id="signupForm" class="auth-form" method="post" style="display: none;">
-                <input type="text" id="signupUsername" name="username" placeholder="Username" autocomplete="username">
-                <input type="password" id="signupPassword" name="password" placeholder="Password (min. 6 characters)" autocomplete="new-password">
-                <input type="password" id="signupConfirmPassword" name="confirm_password" placeholder="Confirm password" autocomplete="new-password">
-                <button type="submit" id="signupBtn">Sign Up</button>
-                <div class="error-message" id="signupError"></div>
-            </form>
+            <div class="auth-forms-wrapper">
+                <!-- Login wrapper – animated container -->
+                <div id="loginWrapper" class="auth-form-wrapper">
+                    <form id="loginForm" class="auth-form" method="post">
+                        <input type="text" id="loginUsername" name="username" placeholder="Username" autocomplete="username">
+                        <input type="password" id="loginPassword" name="password" placeholder="Password" autocomplete="current-password">
+                        <button type="submit" id="loginBtn">Login</button>
+                        <div class="error-message" id="loginError"></div>
+                    </form>
+                </div>
+                <!-- Signup wrapper – animated container -->
+                <div id="signupWrapper" class="auth-form-wrapper" style="display: none;">
+                    <form id="signupForm" class="auth-form" method="post">
+                        <input type="text" id="signupUsername" name="username" placeholder="Username" autocomplete="username">
+                        <input type="password" id="signupPassword" name="password" placeholder="Password (min. 6 characters)" autocomplete="new-password">
+                        <input type="password" id="signupConfirmPassword" name="confirm_password" placeholder="Confirm password" autocomplete="new-password">
+                        <button type="submit" id="signupBtn">Sign Up</button>
+                        <div class="error-message" id="signupError"></div>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/static/login/javascript/script.js"></script>

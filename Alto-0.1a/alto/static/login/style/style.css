@@ -12,11 +12,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: fadeIn 0.4s ease;
-}
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    /* Removed initial fadeIn animation */
 }
 
 .auth-container {
@@ -31,11 +27,7 @@ body {
     padding: 32px;
     box-shadow: 0 20px 40px rgba(0,0,0,0.4);
     border: 1px solid #2d2d5a;
-    animation: scaleIn 0.3s ease;
-}
-@keyframes scaleIn {
-    from { transform: scale(0.95); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
+    /* Removed scaleIn animation */
 }
 
 .auth-card h1 {
@@ -44,11 +36,7 @@ body {
     letter-spacing: -0.02em;
     text-align: center;
     margin-bottom: 4px;
-    animation: slideDown 0.3s 0.1s both;
-}
-@keyframes slideDown {
-    from { transform: translateY(-20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    /* Removed slideDown animation */
 }
 
 .tagline {
@@ -58,7 +46,7 @@ body {
     margin-bottom: 24px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    animation: slideDown 0.3s 0.15s both;
+    /* Removed slideDown animation */
 }
 
 .tab-bar {
@@ -67,7 +55,7 @@ body {
     margin-bottom: 20px;
     border-bottom: 1px solid #2d2d5a;
     padding-bottom: 8px;
-    animation: slideDown 0.3s 0.2s both;
+    /* Removed slideDown animation */
 }
 
 .tab {
@@ -109,11 +97,38 @@ body {
     background: #6c63ff;
 }
 
+/* Outer wrapper – handles height transition (slower) */
+.auth-forms-wrapper {
+    transition: height 0.5s ease;  /* was 0.25s, now slower */
+    /* overflow: hidden removed to prevent button clipping on hover */
+}
+
+/* Inner wrapper – this is what we animate */
+.auth-form-wrapper {
+    /* No default animation */
+}
+
+/* Animation class on the wrapper – used only during tab switches */
+.auth-form-wrapper.animate-in {
+    animation: slideUp 0.6s cubic-bezier(0.2, 0.9, 0.3, 0.1) both;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(25px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Fade-out class for tab switching */
+.auth-form-wrapper.fade-out {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+/* The form itself – static, no transitions */
 .auth-form {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    /* Animation removed to prevent replay when password manager interacts */
 }
 
 .auth-form input {
@@ -162,13 +177,18 @@ body {
     box-shadow: none;
 }
 
+/* Error messages – no reserved space, appear instantly */
 .error-message {
     color: #ff6b9d;
     font-size: 0.9rem;
     text-align: center;
-    min-height: 20px;
+    display: none;
+}
+.error-message.visible {
+    display: block;
     animation: shake 0.3s ease;
 }
+
 @keyframes shake {
     0%, 100% { transform: translateX(0); }
     20% { transform: translateX(-5px); }
