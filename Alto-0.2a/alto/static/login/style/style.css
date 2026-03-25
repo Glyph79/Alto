@@ -1,0 +1,198 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #fff;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Removed initial fadeIn animation */
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+}
+
+.auth-card {
+    background: #252547;
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    border: 1px solid #2d2d5a;
+    /* Removed scaleIn animation */
+}
+
+.auth-card h1 {
+    font-size: 2rem;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    text-align: center;
+    margin-bottom: 4px;
+    /* Removed slideDown animation */
+}
+
+.tagline {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #b0b0d0;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    /* Removed slideDown animation */
+}
+
+.tab-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #2d2d5a;
+    padding-bottom: 8px;
+    /* Removed slideDown animation */
+}
+
+.tab {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #b0b0d0;
+    padding: 8px 0;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+    border-radius: 6px 6px 0 0;
+    position: relative;
+    overflow: hidden;
+}
+.tab::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: #6c63ff;
+    transition: width 0.2s, left 0.2s;
+}
+.tab:hover {
+    color: white;
+}
+.tab:hover::after {
+    width: 100%;
+    left: 0;
+}
+.tab.active {
+    color: white;
+}
+.tab.active::after {
+    width: 100%;
+    left: 0;
+    background: #6c63ff;
+}
+
+/* Outer wrapper – handles height transition (slower) */
+.auth-forms-wrapper {
+    transition: height 0.5s ease;  /* was 0.25s, now slower */
+    /* overflow: hidden removed to prevent button clipping on hover */
+}
+
+/* Inner wrapper – this is what we animate */
+.auth-form-wrapper {
+    /* No default animation */
+}
+
+/* Animation class on the wrapper – used only during tab switches */
+.auth-form-wrapper.animate-in {
+    animation: slideUp 0.6s cubic-bezier(0.2, 0.9, 0.3, 0.1) both;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(25px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Fade-out class for tab switching */
+.auth-form-wrapper.fade-out {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
+/* The form itself – static, no transitions */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-form input {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 30px;
+    font-size: 0.95rem;
+    background: #2d2d5a;
+    color: #fff;
+    outline: none;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.auth-form input:focus {
+    background: #3d3d7a;
+    box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.3);
+}
+.auth-form input::placeholder {
+    color: #b0b0d0;
+}
+
+.auth-form button {
+    padding: 12px;
+    border: none;
+    border-radius: 30px;
+    background: #6c63ff;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+.auth-form button:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(108, 99, 255, 0.4);
+}
+.auth-form button:active {
+    transform: scale(0.98);
+}
+.auth-form button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Error messages – no reserved space, appear instantly */
+.error-message {
+    color: #ff6b9d;
+    font-size: 0.9rem;
+    text-align: center;
+    display: none;
+}
+.error-message.visible {
+    display: block;
+    animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-5px); }
+    40% { transform: translateX(5px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(3px); }
+}

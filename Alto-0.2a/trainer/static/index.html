@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alto Trainer 0.1a · Full Editor</title>
+    <title>Alto Trainer 0.2a · Full Editor</title>
     <!-- Global styles (split by responsibility) -->
     <link rel="stylesheet" href="/static/global/style/base.css">
     <link rel="stylesheet" href="/static/global/style/layout.css">
@@ -18,12 +18,11 @@
     <link rel="stylesheet" href="/static/groups/style/tree.css">
     <link rel="stylesheet" href="/static/topics/style/topics.css">
     <link rel="stylesheet" href="/static/variants/style/variants.css">
-    <link rel="stylesheet" href="/static/router/style/router.css">
     <link rel="stylesheet" href="/static/sections/style/sections.css">
 </head>
 <body>
     <header>
-        <h1>Alto Trainer 0.1a</h1>
+        <h1>Alto Trainer 0.2a</h1>
         <div class="model-bar">
             <span>Model:</span>
             <select id="modelSelect" disabled></select>
@@ -114,20 +113,6 @@
                 </select>
                 <button id="addVariantBtn" class="primary" disabled>+ Add Variant</button>
             </div>
-
-            <!-- Router controls (visible when Router tab active) -->
-            <div id="routerSidebar" class="sidebar-section" style="display: none;">
-                <h3>Search</h3>
-                <input type="text" id="routeSearch" placeholder="Search routes...">
-                <h3>Sort By</h3>
-                <select id="routeSort">
-                    <option value="name-asc">Module name (A-Z)</option>
-                    <option value="name-desc">Module name (Z-A)</option>
-                    <option value="variants-desc">Most variants</option>
-                    <option value="variants-asc">Least variants</option>
-                </select>
-                <button id="addRouteBtn" class="primary">+ Add Route</button>
-            </div>
         </div>
 
         <div class="content">
@@ -137,7 +122,6 @@
                 <button id="sectionsTab" class="tab" disabled>Sections</button>
                 <button id="topicsTab" class="tab" disabled>Topics</button>
                 <button id="variantsTab" class="tab" disabled>Variants</button>
-                <button id="routerTab" class="tab" disabled>Router</button>
             </div>
 
             <!-- Groups content -->
@@ -166,11 +150,6 @@
             <!-- Variants content -->
             <div id="variantsContent" style="display: none;">
                 <div id="variantsGridContainer"></div>
-            </div>
-
-            <!-- Router content -->
-            <div id="routerContent" style="display: none;">
-                <div id="routesGridContainer"></div>
             </div>
         </div>
     </div>
@@ -296,26 +275,6 @@
 
     <!-- Topic Edit Modal (embedded in simple modal) is built dynamically in topics.js -->
 
-    <!-- Route Modal -->
-    <div id="routeModal" class="modal">
-        <div class="modal-content" style="width: 600px;">
-            <h2 id="routeModalTitle">Add Route</h2>
-            <div class="form-row">
-                <label>Module Name</label>
-                <input type="text" id="routeModuleName" placeholder="e.g., weather">
-            </div>
-            <div class="qa-section">
-                <h3>Variant Phrases</h3>
-                <ul class="qa-list" id="routeVariantsList"></ul>
-                <button class="add-btn" id="routeAddVariantBtn">+ Add Phrase</button>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="routeCancelBtn">Cancel</button>
-                <button class="save" id="routeSaveBtn">Save</button>
-            </div>
-        </div>
-    </div>
-
     <!-- JavaScript files in dependency order -->
     <script src="/static/global/javascript/core.js"></script>
     <script src="/static/global/javascript/display.js"></script>
@@ -327,7 +286,6 @@
     <script src="/static/sections/javascript/sections.js"></script>
     <script src="/static/topics/javascript/topics.js"></script>
     <script src="/static/variants/javascript/variants.js"></script>
-    <script src="/static/router/javascript/router.js"></script>
 
     <!-- Tab switching logic with sidebar toggling and filter resets -->
     <script>
@@ -335,18 +293,15 @@
         const sectionsTab = document.getElementById('sectionsTab');
         const topicsTab = document.getElementById('topicsTab');
         const variantsTab = document.getElementById('variantsTab');
-        const routerTab = document.getElementById('routerTab');
 
         function setTabsEnabled(enabled) {
             sectionsTab.disabled = !enabled;
             topicsTab.disabled = !enabled;
             variantsTab.disabled = !enabled;
-            routerTab.disabled = !enabled;
             if (!enabled) {
                 if (sectionsTab.classList.contains('active') ||
                     topicsTab.classList.contains('active') ||
-                    variantsTab.classList.contains('active') ||
-                    routerTab.classList.contains('active')) {
+                    variantsTab.classList.contains('active')) {
                     groupsTab.click();
                 }
             }
@@ -401,31 +356,19 @@
             if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
-        function resetRouterFilters() {
-            const search = document.getElementById('routeSearch');
-            if (search) search.value = '';
-            const sort = document.getElementById('routeSort');
-            if (sort) sort.value = 'name-asc';
-            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
         groupsTab.addEventListener('click', () => {
             groupsTab.classList.add('active');
             sectionsTab.classList.remove('active');
             topicsTab.classList.remove('active');
             variantsTab.classList.remove('active');
-            routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'block';
             document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'block';
             document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
                 resetGroupsFilters();
                 window.loadGroupsAndSections();
@@ -442,17 +385,14 @@
             groupsTab.classList.remove('active');
             topicsTab.classList.remove('active');
             variantsTab.classList.remove('active');
-            routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
             document.getElementById('sectionsContent').style.display = 'block';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
             document.getElementById('sectionsSidebar').style.display = 'block';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
                 resetSectionsFilters();
                 window.loadSections();
@@ -468,17 +408,14 @@
             groupsTab.classList.remove('active');
             sectionsTab.classList.remove('active');
             variantsTab.classList.remove('active');
-            routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
             document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'block';
             document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
             document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'block';
             document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
                 resetTopicsFilters();
                 window.loadTopics();
@@ -496,17 +433,14 @@
             groupsTab.classList.remove('active');
             sectionsTab.classList.remove('active');
             topicsTab.classList.remove('active');
-            routerTab.classList.remove('active');
             document.getElementById('groupsContent').style.display = 'none';
             document.getElementById('sectionsContent').style.display = 'none';
             document.getElementById('topicsContent').style.display = 'none';
             document.getElementById('variantsContent').style.display = 'block';
-            document.getElementById('routerContent').style.display = 'none';
             document.getElementById('groupsSidebar').style.display = 'none';
             document.getElementById('sectionsSidebar').style.display = 'none';
             document.getElementById('topicsSidebar').style.display = 'none';
             document.getElementById('variantsSidebar').style.display = 'block';
-            document.getElementById('routerSidebar').style.display = 'none';
             if (window.currentModel) {
                 resetVariantsFilters();
                 window.loadVariants();
@@ -514,32 +448,6 @@
                 document.getElementById('variantSectionFilter').disabled = false;
                 document.getElementById('variantSort').disabled = false;
                 document.getElementById('addVariantBtn').disabled = false;
-            }
-        });
-
-        routerTab.addEventListener('click', () => {
-            if (routerTab.disabled) return;
-            routerTab.classList.add('active');
-            groupsTab.classList.remove('active');
-            sectionsTab.classList.remove('active');
-            topicsTab.classList.remove('active');
-            variantsTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'none';
-            document.getElementById('sectionsContent').style.display = 'none';
-            document.getElementById('topicsContent').style.display = 'none';
-            document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('routerContent').style.display = 'block';
-            document.getElementById('groupsSidebar').style.display = 'none';
-            document.getElementById('sectionsSidebar').style.display = 'none';
-            document.getElementById('topicsSidebar').style.display = 'none';
-            document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('routerSidebar').style.display = 'block';
-            if (window.currentModel) {
-                resetRouterFilters();
-                window.loadRouteSummaries();
-                document.getElementById('routeSearch').disabled = false;
-                document.getElementById('routeSort').disabled = false;
-                document.getElementById('addRouteBtn').disabled = false;
             }
         });
     </script>
