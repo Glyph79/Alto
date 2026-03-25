@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+from quart import Quart, request, jsonify, send_from_directory
+from plugin_manager import list_plugins, create_plugin, get_plugin, update_plugin, delete_plugin
+
+app = Quart(__name__, static_folder='static')
+
+@app.route('/')
+async def index():
+    return await send_from_directory('static', 'index.html')
+
+@app.route('/api/plugins', methods=['GET'])
+async def api_list_plugins():
+    result = list_plugins()
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+@app.route('/api/plugins', methods=['POST'])
+async def api_create_plugin():
+    data = await request.get_json()
+    name = data.get('name')
+    version = data.get('version', '1.0.0')
+    description = data.get('description', '')
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    result = create_plugin(name, version, description)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({'status': 'ok', 'name': name}), 201
+
+@app.route('/api/plugins/<string:name>', methods=['GET'])
+async def api_get_plugin(name):
+    result = get_plugin(name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+@app.route('/api/plugins/<string:name>', methods=['PUT'])
+async def api_update_plugin(name):
+    data = await request.get_json()
+    result = update_plugin(name, data)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/plugins/<string:name>', methods=['DELETE'])
+async def api_delete_plugin(name):
+    result = delete_plugin(name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5002)

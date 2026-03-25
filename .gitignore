@@ -181,3 +181,4 @@ cython_debug/
 .cursorindexingignore
 /Alto-0.1a/trainer/models
 /Alto-0.1a/alto/models
+/Alto-0.2a/Plugger/plugins
