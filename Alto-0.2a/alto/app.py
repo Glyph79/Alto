@@ -1,10 +1,19 @@
+import os
 from quart import Quart, request, Response, send_from_directory, redirect, url_for
 import uuid
 import json
 from alto.layer.layer import process_message
 from alto.auth.auth import register_user, authenticate_user, user_exists
 
-app = Quart(__name__, static_folder='static')
+# Absolute path to the directory containing this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Absolute paths to static subdirectories
+STATIC_CHAT_DIR = os.path.join(BASE_DIR, 'static', 'chat')
+STATIC_LOGIN_DIR = os.path.join(BASE_DIR, 'static', 'login')
+
+# Use absolute static_folder for Quart's default static handling
+app = Quart(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
 # Serve chat page – only if authenticated
 @app.route('/chat')
@@ -12,23 +21,23 @@ async def chat_page():
     user_id = request.cookies.get('user_id')
     if user_id and user_id.isdigit():
         if user_exists(int(user_id)):
-            return await send_from_directory('static/chat', 'index.html')
+            return await send_from_directory(STATIC_CHAT_DIR, 'index.html')
     # Not authenticated → redirect to login
     return redirect('/')
 
 # Serve login page (root)
 @app.route('/')
 async def login_page():
-    return await send_from_directory('static/login', 'index.html')
+    return await send_from_directory(STATIC_LOGIN_DIR, 'index.html')
 
 # Serve static files from chat and login subfolders
 @app.route('/static/chat/<path:filename>')
 async def chat_static(filename):
-    return await send_from_directory('static/chat', filename)
+    return await send_from_directory(STATIC_CHAT_DIR, filename)
 
 @app.route('/static/login/<path:filename>')
 async def login_static(filename):
-    return await send_from_directory('static/login', filename)
+    return await send_from_directory(STATIC_LOGIN_DIR, filename)
 
 # Authentication endpoints
 @app.route('/api/register', methods=['POST'])

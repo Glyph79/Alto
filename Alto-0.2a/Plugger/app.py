@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
+import os
 from quart import Quart, request, jsonify, send_from_directory
 from plugin_manager import list_plugins, create_plugin, get_plugin, update_plugin, delete_plugin
 
-app = Quart(__name__, static_folder='static')
+# Absolute path to the directory containing this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Use absolute static_folder for Quart's default static handling
+app = Quart(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
 @app.route('/')
 async def index():
-    return await send_from_directory('static', 'index.html')
+    return await send_from_directory(os.path.join(BASE_DIR, 'static'), 'index.html')
 
 @app.route('/api/plugins', methods=['GET'])
 async def api_list_plugins():

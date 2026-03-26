@@ -3,7 +3,7 @@ from alto.core.handler import process_message as pipeline_process
 from alto.session.session import get_session, save_session
 
 STREAM_BY_CHAR = True
-STREAM_DELAY = 0.00025
+STREAM_DELAY = 0.005          # increased from 0.00025 to prevent TCP batching
 
 class AltoLayer:
     async def process_message(self, user_message: str, session_id: str = "default", user_id: int = None):
@@ -18,6 +18,7 @@ class AltoLayer:
             for char in final_response:
                 yield char
                 await asyncio.sleep(STREAM_DELAY)
+                await asyncio.sleep(0)          # force event loop to flush socket
         else:
             words = final_response.split()
             for i, word in enumerate(words):
@@ -26,6 +27,7 @@ class AltoLayer:
                 else:
                     yield word
                 await asyncio.sleep(STREAM_DELAY)
+                await asyncio.sleep(0)
 
 alto_layer = AltoLayer()
 process_message = alto_layer.process_message

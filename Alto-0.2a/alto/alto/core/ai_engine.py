@@ -356,11 +356,27 @@ class RuleBot:
 
 def handle(text, state=None):
     global _bot
-    if _bot is None:
-        _bot = RuleBot()
+    # Attempt to create the bot if it doesn't exist
+    try:
+        if _bot is None:
+            _bot = RuleBot()
+    except FileNotFoundError as e:
+        print(f"⚠️ Model not found: {e}")
+        # Return a clear error message and keep state unchanged
+        return f"Model '{RuleBot.DEFAULT}' not found. Please create a model using the Alto Trainer.", state
+    except Exception as e:
+        print(f"⚠️ Exception while creating bot: {e}")
+        return "I'm sorry, I encountered an error. Please try again later.", state
+
+    # Use the existing bot to generate a response
     try:
         return _bot.get_response(text, state)
     except Exception as e:
         print(f"⚠️ Exception: {e}")
-        _bot = RuleBot()
-        return _bot.get_response(text, state)
+        # Try to recover by recreating the bot and retrying once
+        try:
+            _bot = RuleBot()
+            return _bot.get_response(text, state)
+        except Exception as e2:
+            print(f"⚠️ Second exception: {e2}")
+            return "I'm sorry, I encountered an error. Please try again later.", state

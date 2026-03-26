@@ -165,7 +165,7 @@ async function sendMessage(isRetry = false, reuseBubble = null) {
                 botDiv.innerHTML = '';
                 firstChunk = false;
             }
-            botDiv.innerHTML += chunk;
+            botDiv.insertAdjacentHTML('beforeend', chunk);
 
             maybeScroll(wasAtBottom);
         }
