@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
         'hot_timeout': '5',
         'cold_timeout': '10',
         'cleanup_interval': '1',
+        'max_active_trees': '3',          # added
     },
     'ai': {
         'max_topics': '3',
@@ -35,7 +36,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "alto_config.cfg")
 def load_config():
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
-        # Create new config with defaults
+        # New install: create file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -46,8 +47,8 @@ def load_config():
                     config.set(section, key, val)
         save_config(config)
     else:
+        # Existing file: read it, then apply defaults in memory only (no save)
         config.read(CONFIG_PATH)
-        # Ensure all default sections and options exist
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -59,7 +60,7 @@ def load_config():
                 for key, val in options.items():
                     if not config.has_option(section, key):
                         config.set(section, key, val)
-        save_config(config)
+        # IMPORTANT: No call to save_config() here – file remains unchanged
     return config
 
 def save_config(config):

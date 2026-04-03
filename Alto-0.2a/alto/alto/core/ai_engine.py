@@ -19,6 +19,7 @@ SCAN_INTERVAL = config.getint('ai', 'scan_interval')
 MAX_TOPICS = config.getint('ai', 'max_topics')
 TOPIC_DECAY = config.getint('ai', 'topic_decay')
 TOPIC_BOOST_MAX = config.getint('ai', 'topic_boost_max')
+MAX_ACTIVE_TREES = config.getint('session', 'max_active_trees')
 
 def _get_db_path(model_name: str) -> str | None:
     global _last_scan
@@ -170,7 +171,6 @@ class SessionTree:
 
 class RuleBot:
     DEFAULT = "Alto"
-    MAX_TREES = 3
     GROUP_CACHE_SIZE = 3
 
     def __init__(self, model=None, threshold=None):
@@ -272,6 +272,14 @@ class RuleBot:
             return best_score, best_group
         return 0, None
 
+    def _evict_lru_tree(self, active_trees: dict):
+        """Remove the least recently used tree from active_trees."""
+        if not active_trees:
+            return
+        oldest = min(active_trees.items(), key=lambda kv: kv[1]["last_used"])
+        del active_trees[oldest[0]]
+        print(f"🗑 Evicted LRU tree for group {oldest[0]} (max {MAX_ACTIVE_TREES} trees)")
+
     def get_response(self, text, state=None):
         if state is None:
             state = {}
@@ -279,32 +287,32 @@ class RuleBot:
         print(f"\n--- Incoming message: '{text}' ---")
         print(f"Current state: {state}")
 
-        words = [_norm_word(w) for w in text.split() if w]
-        exp = _expand_synonyms(self.conn, words)
-
-        # Ensure topics dict exists
+        # Ensure required keys exist
         if "topics" not in state:
             state["topics"] = {}
+        if "active_trees" not in state:
+            state["active_trees"] = {}
 
-        # Step 1: Continue existing session
-        if "group_id" in state and "path" in state and state["group_id"] is not None:
-            gid = state["group_id"]
-            path = state["path"]
-            print(f"🔄 Continuing session in group {gid}, path {path}")
+        words = [_norm_word(w) for w in text.split() if w]
+        exp = _expand_synonyms(self.conn, words)
+        now = time.time()
+
+        # Step 1: Check all active trees for a match
+        for gid, tree_info in list(state["active_trees"].items()):
+            path = tree_info["path"]
+            print(f"🔄 Checking active tree group {gid}, path {path}")
             tree = SessionTree(self.conn, gid, path)
             candidates = tree.candidates(path)
-            print(f"  Candidate nodes: {[n.get('branch_name', n['id']) for n in candidates]}")
             score, node = self._match_score_in_nodes(text, candidates)
             if node and score >= self.threshold:
                 new_path = tree.move_to(node["id"], path)
-                print(f"✅ Matched node '{node.get('branch_name', 'unnamed')}' (score {score}), new path {new_path}")
-                # Load answers for this node
+                print(f"✅ Matched node in existing tree, new path {new_path}")
                 tree.ensure_answers(node["id"])
-                # Update state with new path
-                state["path"] = new_path
+                # Update last_used timestamp
+                state["active_trees"][gid] = {"path": new_path, "last_used": now}
                 return self._random_answer(node), state
 
-        # Step 2: No active session – search all groups via FTS
+        # Step 2: No active tree matched – search all groups via FTS
         if exp:
             match = ' OR '.join(f'"{w}"' for w in exp)
             cur = self.conn.execute(
@@ -330,25 +338,27 @@ class RuleBot:
                     # Update topics with the selected group's topic
                     if group["topic"]:
                         self._update_topics(state["topics"], group["topic"])
+                    # Check for root node match
                     tree = SessionTree(self.conn, gid)
                     root_score, root = self._match_score_in_nodes(text, tree.roots())
                     if root and root_score >= self.threshold:
                         print(f"  ➡️ Also matched root node '{root.get('branch_name', 'unnamed')}' (score {root_score})")
-                        # Load answers for this root node
                         tree.ensure_answers(root["id"])
-                        state["group_id"] = gid
-                        state["path"] = [root["id"]]
+                        # Add to active_trees with LRU eviction if needed
+                        if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
+                            self._evict_lru_tree(state["active_trees"])
+                        state["active_trees"][gid] = {"path": [root["id"]], "last_used": now}
                         return self._random_answer(root), state
-                    # No root matched – use group answer
-                    if group["answers"] is None:
-                        group["answers"] = _load_group_answers(self.conn, gid)
-                    state["group_id"] = gid
-                    state["path"] = []
-                    return self._random_answer(group), state
+                    else:
+                        # No root matched – use group answer
+                        if group["answers"] is None:
+                            group["answers"] = _load_group_answers(self.conn, gid)
+                        if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
+                            self._evict_lru_tree(state["active_trees"])
+                        state["active_trees"][gid] = {"path": [], "last_used": now}
+                        return self._random_answer(group), state
 
         print("❌ No match found, using fallback")
-        state["group_id"] = None
-        state["path"] = []
         return self.fallback, state
 
     def _random_answer(self, obj):

@@ -23,7 +23,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "trainer_config.cfg")
 def load_config():
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
-        # Create new config with defaults
+        # New install: create file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -34,8 +34,8 @@ def load_config():
                     config.set(section, key, val)
         save_config(config)
     else:
+        # Existing file: read it, then add missing defaults in memory only (no save)
         config.read(CONFIG_PATH)
-        # Ensure all default sections and options exist
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -47,7 +47,7 @@ def load_config():
                 for key, val in options.items():
                     if not config.has_option(section, key):
                         config.set(section, key, val)
-        save_config(config)
+        # IMPORTANT: No call to save_config() – the .cfg file remains unchanged
     return config
 
 def save_config(config):

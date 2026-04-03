@@ -28,8 +28,19 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
         now = time.time()
         if session_id in _hot:
             state, _ = _hot[session_id]
+            # Migrate old format if necessary
+            if "active_trees" not in state:
+                state["active_trees"] = {}
             if "topics" not in state:
                 state["topics"] = {}
+            # If old group_id/path exist, convert to active_trees
+            if "group_id" in state and state["group_id"] is not None:
+                gid = state["group_id"]
+                path = state.get("path", [])
+                state["active_trees"][gid] = {"path": path, "last_used": now}
+                del state["group_id"]
+                if "path" in state:
+                    del state["path"]
             _hot[session_id] = (state, now)
             heapq.heappush(_hot_heap, (now, session_id))
             return state
@@ -42,8 +53,18 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
             saved_at = data.get("saved_at", 0)
             if now - saved_at <= COLD_TIMEOUT:
                 state = data["state"]
+                # Migrate old format
+                if "active_trees" not in state:
+                    state["active_trees"] = {}
                 if "topics" not in state:
                     state["topics"] = {}
+                if "group_id" in state and state["group_id"] is not None:
+                    gid = state["group_id"]
+                    path = state.get("path", [])
+                    state["active_trees"][gid] = {"path": path, "last_used": saved_at}
+                    del state["group_id"]
+                    if "path" in state:
+                        del state["path"]
                 with _lock:
                     _hot[session_id] = (state, now)
                     heapq.heappush(_hot_heap, (now, session_id))
@@ -54,7 +75,7 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
         except Exception:
             pass
 
-    new_state = {"topics": {}}
+    new_state = {"topics": {}, "active_trees": {}}
     if user_id is not None:
         new_state["user_id"] = user_id
     with _lock:
@@ -65,6 +86,11 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
 def save_session(session_id: str, state: dict) -> None:
     with _lock:
         now = time.time()
+        # Ensure required keys exist
+        if "active_trees" not in state:
+            state["active_trees"] = {}
+        if "topics" not in state:
+            state["topics"] = {}
         if session_id in _hot:
             _hot[session_id] = (state, now)
             heapq.heappush(_hot_heap, (now, session_id))
