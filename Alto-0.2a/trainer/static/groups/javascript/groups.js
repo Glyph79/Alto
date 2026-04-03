@@ -14,7 +14,10 @@ window.loadGroupsAndSections = async function() {
         document.getElementById('groupSort').disabled = false;
         document.getElementById('addGroupBtn').disabled = false;
     } catch (err) {
-        alert('Error loading groups: ' + err.message);
+        const container = document.getElementById('groupsGridContainer');
+        window.showSimpleRetry(container, `Failed to load groups: ${err.message}`, async () => {
+            await window.loadGroupsAndSections();
+        });
     }
 };
 
@@ -125,9 +128,16 @@ function renderGroups() {
 
 async function deleteGroup(index, callback) {
     window.showConfirmModal('Are you sure you want to delete this group?', async () => {
-        await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
-        await window.loadGroupsAndSections();
-        if (callback) callback();
+        try {
+            await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+            await window.loadGroupsAndSections();
+            if (callback) callback();
+        } catch (err) {
+            const container = document.getElementById('groupsGridContainer');
+            window.showSimpleRetry(container, `Failed to delete group: ${err.message}`, async () => {
+                await deleteGroup(index, callback);
+            });
+        }
     });
 }
 
@@ -146,7 +156,7 @@ async function ensureTopicsLoaded() {
 // ========== Group Modal ==========
 window.selectedGroupIndex = -1;
 let modalGroupCopy = null;
-let currentGroupFetchAnimation = null;
+let currentGroupFetchCleanup = null;
 
 function attachGroupModalHandlers() {
     document.getElementById('modalAddQuestionBtn').onclick = () => {
@@ -178,64 +188,62 @@ function attachGroupModalHandlers() {
     };
 
     document.getElementById('modalSaveBtn').onclick = async () => {
-        if (window.selectedGroupIndex === -1 || !modalGroupCopy) return;
+        if (!modalGroupCopy) return;
 
         modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
         modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
         modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
         modalGroupCopy.section = document.getElementById('modalGroupSection').value;
 
-        await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
-        
-        // Refresh global groups and sections
-        await window.loadGroupsAndSections();
-        
-        // Also refresh topics and sections data so that the topics/sections grids update immediately
-        if (typeof window.loadTopics === 'function') {
-            await window.loadTopics();
-        }
-        if (typeof window.loadSections === 'function') {
-            await window.loadSections();
-        }
-        
-        window.popModal();
-        modalGroupCopy = null;
-
-        if (window._groupModalOnSave) {
-            window._groupModalOnSave();
-            window._groupModalOnSave = null;
+        try {
+            if (window.selectedGroupIndex === null) {
+                await window.apiPost(`/api/models/${window.currentModel}/groups`, modalGroupCopy);
+            } else {
+                await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
+            }
+            await window.loadGroupsAndSections();
+            if (typeof window.loadTopics === 'function') await window.loadTopics();
+            if (typeof window.loadSections === 'function') await window.loadSections();
+            window.popModal();
+            modalGroupCopy = null;
+            if (window._groupModalOnSave) {
+                window._groupModalOnSave();
+                window._groupModalOnSave = null;
+            }
+        } catch (err) {
+            const modalContent = document.querySelector('#groupModal .modal-content');
+            window.showSimpleRetry(modalContent, `Save failed: ${err.message}`, async () => {
+                document.getElementById('modalSaveBtn').click();
+            });
         }
     };
 
     document.getElementById('modalCancelBtn').onclick = () => {
+        if (currentGroupFetchCleanup) currentGroupFetchCleanup.clear();
         modalGroupCopy = null;
         window.popModal();
         window._groupModalOnSave = null;
     };
 
     document.getElementById('modalEditFollowupsBtn').onclick = async () => {
-        if (typeof window.selectedGroupIndex === 'undefined' || window.selectedGroupIndex === -1) return;
-        try {
-            const treeData = await window.apiGet(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`);
-            if (window.openTreeModal) {
-                window.openTreeModal(treeData);
-            } else {
-                console.error('Tree modal handler not available');
-            }
-        } catch (err) {
-            alert('Error loading follow-up tree: ' + err.message);
+        if (window.selectedGroupIndex === null) {
+            const modalContent = document.querySelector('#groupModal .modal-content');
+            window.showSimpleRetry(modalContent, 'Cannot edit follow‑up tree for a group that hasn’t been saved yet. Please save the group first.', () => {});
+            return;
         }
+        window.openTreeModalForGroup(window.selectedGroupIndex);
     };
 }
 
 window.openGroupModal = async function(index, onSaveCallback) {
     window.selectedGroupIndex = index;
+    const isNew = (index === null);
 
     const modal = document.getElementById('groupModal');
     const content = modal.querySelector('.modal-content');
-    // Build basic structure with placeholders
+    // Build modal without any static loading text inside the lists
     content.innerHTML = `
-        <h2>Edit Group</h2>
+        <h2>${isNew ? 'Create Group' : 'Edit Group'}</h2>
         <div class="form-row">
             <label>Group Name</label>
             <input type="text" id="modalGroupName" value="">
@@ -257,13 +265,13 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
         <div class="qa-section">
             <h3>Questions</h3>
-            <ul class="qa-list" id="modalQuestionsList"><li>Loading questions...</li></ul>
+            <ul class="qa-list" id="modalQuestionsList"></ul>
             <button class="add-btn" id="modalAddQuestionBtn">+ Add Question</button>
         </div>
 
         <div class="qa-section">
             <h3>Answers</h3>
-            <ul class="qa-list" id="modalAnswersList"><li>Loading answers...</li></ul>
+            <ul class="qa-list" id="modalAnswersList"></ul>
             <button class="add-btn" id="modalAddAnswerBtn">+ Add Answer</button>
         </div>
 
@@ -280,44 +288,55 @@ window.openGroupModal = async function(index, onSaveCallback) {
     window.pushModal('groupModal');
     attachGroupModalHandlers();
 
-    if (currentGroupFetchAnimation) {
-        clearTimeout(currentGroupFetchAnimation.timeout);
-        clearInterval(currentGroupFetchAnimation.interval);
-        currentGroupFetchAnimation = null;
-    }
+    const modalContentDiv = document.querySelector('#groupModal .modal-content');
+    window.disableButtonsInContainer(modalContentDiv);
 
-    let loadingTimeout = setTimeout(() => {
-        const qList = document.getElementById('modalQuestionsList');
-        const aList = document.getElementById('modalAnswersList');
-        if (qList) qList.innerHTML = '<li>Loading questions</li>';
-        if (aList) aList.innerHTML = '<li>Loading answers</li>';
-        let dots = 0;
-        const loadingInterval = setInterval(() => {
-            dots = (dots + 1) % 4;
-            const dotsStr = '.'.repeat(dots);
-            if (qList) qList.innerHTML = `<li>Loading questions${dotsStr}</li>`;
-            if (aList) aList.innerHTML = `<li>Loading answers${dotsStr}</li>`;
-        }, 300);
-        currentGroupFetchAnimation = { timeout: loadingTimeout, interval: loadingInterval };
-    }, 300);
+    if (currentGroupFetchCleanup) currentGroupFetchCleanup.clear();
 
-    let attempts = 0;
-    const maxAttempts = 3;
+    const qList = document.getElementById('modalQuestionsList');
+    const aList = document.getElementById('modalAnswersList');
 
-    while (attempts < maxAttempts) {
-        attempts++;
-        try {
-            await ensureTopicsLoaded();
-            const fullGroup = await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
-            modalGroupCopy = fullGroup;
+    // Show inline loading indicators (no static text)
+    currentGroupFetchCleanup = window.showInlineLoading(qList, "Loading questions");
+    const answersLoading = window.showInlineLoading(aList, "Loading answers");
 
-            if (currentGroupFetchAnimation) {
-                clearTimeout(currentGroupFetchAnimation.timeout);
-                clearInterval(currentGroupFetchAnimation.interval);
-                currentGroupFetchAnimation = null;
+    try {
+        await ensureTopicsLoaded();
+        if (isNew) {
+            modalGroupCopy = {
+                group_name: '',
+                group_description: '',
+                topic: '',
+                section: '',
+                questions: [],
+                answers: []
+            };
+            document.getElementById('modalGroupName').value = '';
+            document.getElementById('modalGroupDesc').value = '';
+
+            const topicSelect = document.getElementById('modalGroupTopic');
+            let topicOptions = '<option value="">(No Topic)</option>';
+            if (window.topicsList && window.topicsList.length) {
+                topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
             } else {
-                clearTimeout(loadingTimeout);
+                topicOptions += '<option value="general">general</option>';
             }
+            topicSelect.innerHTML = topicOptions;
+            topicSelect.value = '';
+
+            const sectionSelect = document.getElementById('modalGroupSection');
+            let sectionOptions = '<option value="">(Uncategorized)</option>';
+            sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+            sectionSelect.innerHTML = sectionOptions;
+            sectionSelect.value = '';
+
+            refreshModalLists();
+            window._groupModalOnSave = onSaveCallback;
+        } else {
+            const fullGroup = await window.retryOperation(async () => {
+                return await window.apiGet(`/api/models/${window.currentModel}/groups/${index}/full`);
+            });
+            modalGroupCopy = fullGroup;
 
             document.getElementById('modalGroupName').value = modalGroupCopy.group_name || '';
             document.getElementById('modalGroupDesc').value = modalGroupCopy.group_description || '';
@@ -340,24 +359,27 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
             refreshModalLists();
             window._groupModalOnSave = onSaveCallback;
-            return;
-        } catch (err) {
-            if (attempts < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
-            }
+        }
+        // Success – remove loading indicators and enable buttons
+        if (currentGroupFetchCleanup) currentGroupFetchCleanup.clear();
+        answersLoading.clear();
+        window.enableButtonsInContainer(modalContentDiv);
+    } catch (err) {
+        if (currentGroupFetchCleanup) currentGroupFetchCleanup.clear();
+        answersLoading.clear();
+        window.showInlineListRetry(qList, 'questions', async () => {
+            await openGroupModal(index, onSaveCallback);
+        });
+        window.showInlineListRetry(aList, 'answers', async () => {
+            await openGroupModal(index, onSaveCallback);
+        });
+        // Buttons remain disabled – they will be re‑enabled only on retry success
+    } finally {
+        if (currentGroupFetchCleanup && !currentGroupFetchCleanup.interval) {
+            currentGroupFetchCleanup.clear();
+            currentGroupFetchCleanup = null;
         }
     }
-
-    if (currentGroupFetchAnimation) {
-        clearTimeout(currentGroupFetchAnimation.timeout);
-        clearInterval(currentGroupFetchAnimation.interval);
-        currentGroupFetchAnimation = null;
-    } else {
-        clearTimeout(loadingTimeout);
-    }
-    document.getElementById('modalQuestionsList').innerHTML = '<li style="color: #ff6b9d;">Error loading questions</li>';
-    document.getElementById('modalAnswersList').innerHTML = '<li style="color: #ff6b9d;">Error loading answers</li>';
-    modalGroupCopy = { group_name: '', group_description: '', topic: '', section: '', questions: [], answers: [] };
 };
 
 window.refreshGroupModalTopicDropdown = function() {
@@ -433,19 +455,11 @@ window.deleteAnswer = (aIdx) => {
 
 async function createNewGroup() {
     if (!window.currentModel) {
-        alert('Please select or create a model first.');
+        const container = document.getElementById('groupsGridContainer');
+        window.showSimpleRetry(container, 'Please select or create a model first.', () => {});
         return;
     }
-    const newGroup = {
-        group_name: 'New Group',
-        group_description: '',
-        questions: [],
-        answers: [],
-        topic: '',
-        section: ''
-    };
-    await window.apiPost(`/api/models/${window.currentModel}/groups`, newGroup);
-    await window.loadGroupsAndSections();
+    await window.openGroupModal(null);
 }
 
 document.getElementById('addGroupBtn').onclick = createNewGroup;

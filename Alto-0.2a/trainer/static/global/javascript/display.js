@@ -39,12 +39,6 @@ window.popModal = function() {
     const previousTopZ = 1000 + oldStackLength;             // the z-index it had as top
     modal.style.zIndex = previousTopZ;
     
-    // Only the bottom-most modal (index 0) should have its backdrop visible.
-    // The closing modal might be the bottom one; if so, keep its backdrop,
-    // otherwise hide it (though it's already hidden if it wasn't bottom).
-    // For safety, we just ensure its backdrop stays as it was (updateModalBackdrops
-    // will later fix it, but we don't want to change it mid‑fade).
-    
     // Start fade-out
     modal.classList.remove('visible');
 
@@ -102,9 +96,10 @@ window.showSimpleModal = function(title, fields, onSave, buttonText = 'Save') {
             html += `<input type="text" id="simple_${f.name}" placeholder="${f.label}" value="${f.value || ''}">`;
         }
     });
+    // Button order: Cancel (left), Save (right)
     html += `<div class="modal-actions">
-                <button class="save" id="simpleSaveBtn">${buttonText}</button>
                 <button class="cancel" id="simpleCancelBtn">Cancel</button>
+                <button class="save" id="simpleSaveBtn">${buttonText}</button>
             </div>`;
     content.innerHTML = html;
     window.pushModal('simpleModal');

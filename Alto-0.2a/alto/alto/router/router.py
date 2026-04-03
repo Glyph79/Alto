@@ -6,10 +6,11 @@ import sqlite3
 import json
 import os
 from fuzzywuzzy import fuzz
+from alto.config import config
 
-ROUTER_THRESHOLD = 70
+ROUTER_THRESHOLD = config.getint('router', 'threshold')
+MIN_WORD_SCORE = config.getint('router', 'min_word_score')
 WORD_SCORER = fuzz.ratio
-MIN_WORD_SCORE = 80
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'routing', 'router.db')
 

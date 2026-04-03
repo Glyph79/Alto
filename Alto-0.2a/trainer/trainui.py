@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+from config import config
 
 app = Quart(__name__, static_folder="static")
 
@@ -280,7 +281,7 @@ async def delete_topic(name, topic):
     result = await send_command("delete-topic", **kwargs)
     if "error" in result:
         return jsonify(result), 400
-    return jsonify(result)
+    return jsonify({"status": "ok"})
 
 # ========== Variant endpoints ==========
 @app.route('/api/models/<name>/variants', methods=['GET'])
@@ -364,4 +365,7 @@ async def shutdown():
     await stop_trainer()
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(
+        debug=config.getboolean('DEFAULT', 'debug'),
+        port=config.getint('DEFAULT', 'port')
+    )

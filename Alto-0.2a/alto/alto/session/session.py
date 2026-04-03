@@ -4,11 +4,12 @@ import time
 import threading
 import heapq
 from typing import Dict, Tuple, Optional
+from alto.config import config
 
-HOT_TIMEOUT = 5
-COLD_TIMEOUT = 10
-CLEANUP_INTERVAL = 1
-SESSIONS_DIR = "sessions"
+HOT_TIMEOUT = config.getint('session', 'hot_timeout')
+COLD_TIMEOUT = config.getint('session', 'cold_timeout')
+CLEANUP_INTERVAL = config.getint('session', 'cleanup_interval')
+SESSIONS_DIR = config.get('DEFAULT', 'sessions_dir')
 
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 

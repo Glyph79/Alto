@@ -1,9 +1,10 @@
 import asyncio
 from alto.core.handler import process_message as pipeline_process
 from alto.session.session import get_session, save_session
+from alto.config import config
 
-STREAM_BY_CHAR = True
-STREAM_DELAY = 0.005          # increased from 0.00025 to prevent TCP batching
+STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
+STREAM_DELAY = config.getfloat('stream', 'delay')
 
 class AltoLayer:
     async def process_message(self, user_message: str, session_id: str = "default", user_id: int = None):

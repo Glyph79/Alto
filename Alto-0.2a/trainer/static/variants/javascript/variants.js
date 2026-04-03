@@ -1,9 +1,9 @@
 // ========== Variants State ==========
 window.variants = [];
 let variantCards = [];
-let currentVariantId = null;          // null for new variant, else existing id
-let currentVariantWords = [];          // array of words for the variant being edited
-let currentVariantName = '';           // name for the variant being edited
+let currentVariantId = null;
+let currentVariantWords = [];
+let currentVariantName = '';
 
 // ========== Load Variants ==========
 window.loadVariants = async function() {
@@ -17,10 +17,13 @@ window.loadVariants = async function() {
         document.getElementById('addVariantBtn').disabled = false;
     } catch (err) {
         console.error('Error loading variants:', err);
+        const container = document.getElementById('variantsGridContainer');
+        window.showSimpleRetry(container, `Error loading variants: ${err.message}`, async () => {
+            await window.loadVariants();
+        });
     }
 };
 
-// ========== Clear Variants (when no model) ==========
 window.clearVariants = function() {
     window.variants = [];
     const container = document.getElementById('variantsGridContainer');
@@ -33,7 +36,6 @@ window.clearVariants = function() {
 };
 
 function populateVariantFilters() {
-    // Populate section filter
     const sectionSelect = document.getElementById('variantSectionFilter');
     const sections = window.sections || [];
     const currentSection = sectionSelect.value;
@@ -78,7 +80,6 @@ function renderVariantsGrid() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Update manager's grid reference
     if (window.variantsManager) {
         window.variantsManager.grid = container.querySelector('.grid') || container;
     }
@@ -111,7 +112,7 @@ function renderVariantsGrid() {
             containerId: 'variantsGridContainer',
             cardArray: variantCards,
             searchInputId: 'variantSearch',
-            searchFields: ['name', 'words'], // searches full words array (item.words)
+            searchFields: ['name', 'words'],
             filterSelectors: {
                 'variantSectionFilter': (item, value) => {
                     if (value === 'All Sections') return true;
@@ -134,12 +135,10 @@ function renderVariantsGrid() {
     }
 }
 
-// ========== Variant Modal Functions ==========
 function openVariantModal(title, name, section, words, onSave) {
     document.getElementById('variantModalTitle').textContent = title;
     document.getElementById('variantName').value = name || '';
 
-    // Populate section dropdown
     const sectionSelect = document.getElementById('variantSection');
     sectionSelect.innerHTML = '<option value="">(Uncategorized)</option>';
     (window.sections || []).forEach(s => {
@@ -184,10 +183,11 @@ function renderVariantWordsList() {
 }
 
 function addVariantWord() {
-    window.showSimpleModal('Add Word', [{ name: 'word', label: 'Word', value: '' }], (vals) => {
+    window.showSimpleModal('Add Word', [{ name: 'word', label: 'Word', value: '' }], (vals, errorDiv) => {
         const word = vals.word.trim();
         if (!word) {
-            alert('Word cannot be empty.');
+            errorDiv.textContent = 'Word cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         currentVariantWords.push(word);
@@ -197,10 +197,11 @@ function addVariantWord() {
 
 window.editVariantWord = function(idx) {
     const oldWord = currentVariantWords[idx];
-    window.showSimpleModal('Edit Word', [{ name: 'word', label: 'Word', value: oldWord }], (vals) => {
+    window.showSimpleModal('Edit Word', [{ name: 'word', label: 'Word', value: oldWord }], (vals, errorDiv) => {
         const newWord = vals.word.trim();
         if (!newWord) {
-            alert('Word cannot be empty.');
+            errorDiv.textContent = 'Word cannot be empty.';
+            errorDiv.style.display = 'block';
             return;
         }
         currentVariantWords[idx] = newWord;
@@ -218,12 +219,14 @@ window.deleteVariantWord = function(idx) {
 async function saveVariantModal() {
     const name = document.getElementById('variantName').value.trim();
     if (!name) {
-        alert('Variant name is required.');
+        const modalContent = document.querySelector('#variantModal .modal-content');
+        window.showSimpleRetry(modalContent, 'Variant name is required.', () => {});
         return;
     }
     const section = document.getElementById('variantSection').value || null;
     if (currentVariantWords.length === 0) {
-        alert('At least one word is required.');
+        const modalContent = document.querySelector('#variantModal .modal-content');
+        window.showSimpleRetry(modalContent, 'At least one word is required.', () => {});
         return;
     }
 
@@ -236,11 +239,13 @@ async function saveVariantModal() {
         closeVariantModal();
         await window.loadVariants();
     } catch (err) {
-        alert('Error saving variant: ' + err.message);
+        const modalContent = document.querySelector('#variantModal .modal-content');
+        window.showSimpleRetry(modalContent, `Error saving variant: ${err.message}`, async () => {
+            await saveVariantModal();
+        });
     }
 }
 
-// ========== Variant CRUD ==========
 function addVariant() {
     openVariantModal('Add Variant', '', '', [], async (data) => {
         await window.apiPost(`/api/models/${window.currentModel}/variants`, data);
@@ -257,8 +262,15 @@ function editVariant(id) {
 
 function deleteVariant(id) {
     window.showConfirmModal('Delete this variant group?', async () => {
-        await window.apiDelete(`/api/models/${window.currentModel}/variants/${id}`);
-        await window.loadVariants();
+        try {
+            await window.apiDelete(`/api/models/${window.currentModel}/variants/${id}`);
+            await window.loadVariants();
+        } catch (err) {
+            const container = document.getElementById('variantsGridContainer');
+            window.showSimpleRetry(container, `Failed to delete variant: ${err.message}`, async () => {
+                await deleteVariant(id);
+            });
+        }
     });
 }
 

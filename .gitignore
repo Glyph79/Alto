@@ -184,3 +184,6 @@ cython_debug/
 /Alto-0.2a/Plugger/plugins
 /Alto-0.2a/Client/node_modules
 Alto-0.2a/Client/package-lock.json
+/Alto-0.2a/Client/static
+Alto-0.2a/Alto/users.db
+/Alto-0.2a/Trainer/models

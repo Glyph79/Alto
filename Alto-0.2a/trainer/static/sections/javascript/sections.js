@@ -62,23 +62,20 @@ function renderSectionsGrid() {
     document.querySelectorAll('.section-card').forEach(card => {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.card-actions')) return;
-            const section = card.dataset.section;
-            editSection(section);
+            editSection(card.dataset.section);
         });
     });
 
     document.querySelectorAll('.edit-section').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const section = btn.dataset.section;
-            editSection(section);
+            editSection(btn.dataset.section);
         });
     });
     document.querySelectorAll('.delete-section').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const section = btn.dataset.section;
-            deleteSection(section);
+            deleteSection(btn.dataset.section);
         });
     });
 
@@ -182,12 +179,10 @@ async function editSection(sectionName) {
             if (groupId) {
                 const index = window.groups.findIndex(g => g.id == groupId);
                 if (index !== -1) {
-                    window.openGroupModal(index, () => {
-                        // After group save, refresh the section modal
-                        editSection(sectionName);
-                    });
+                    window.openGroupModal(index, () => editSection(sectionName));
                 } else {
-                    alert('Group not found');
+                    const modalContent = document.querySelector('#simpleModal .modal-content');
+                    window.showSimpleRetry(modalContent, 'Group not found', () => {});
                 }
             }
         });
@@ -202,32 +197,44 @@ async function editSection(sectionName) {
                 window.showConfirmModal('Delete this group?', async () => {
                     const index = window.groups.findIndex(g => g.id == groupId);
                     if (index !== -1) {
-                        await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
-                        await window.loadGroupsAndSections();
-                        window.popModal(); // close confirm
-                        window.popModal(); // close section edit
-                        editSection(sectionName);
+                        try {
+                            await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+                            await window.loadGroupsAndSections();
+                            window.popModal();
+                            window.popModal();
+                            editSection(sectionName);
+                        } catch (err) {
+                            const modalContent = document.querySelector('#simpleModal .modal-content');
+                            window.showSimpleRetry(modalContent, `Failed to delete group: ${err.message}`, async () => {
+                                await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+                                await window.loadGroupsAndSections();
+                                window.popModal();
+                                window.popModal();
+                                editSection(sectionName);
+                            });
+                        }
                     } else {
-                        alert('Group not found');
+                        const modalContent = document.querySelector('#simpleModal .modal-content');
+                        window.showSimpleRetry(modalContent, 'Group not found', () => {});
                     }
                 });
             }
         });
     });
 
-    document.getElementById('editSectionCancelBtn').onclick = () => {
-        window.popModal();
-    };
+    document.getElementById('editSectionCancelBtn').onclick = () => window.popModal();
 
     if (!isUncategorized) {
         document.getElementById('editSectionSaveBtn').onclick = async () => {
             const newName = document.getElementById('editSectionName').value.trim();
             if (!newName) {
-                alert('Section name cannot be empty.');
+                const modalContent = document.querySelector('#simpleModal .modal-content');
+                window.showSimpleRetry(modalContent, 'Section name cannot be empty.', () => {});
                 return;
             }
             if (newName.toLowerCase() === 'uncategorized') {
-                alert('"Uncategorized" is a reserved name.');
+                const modalContent = document.querySelector('#simpleModal .modal-content');
+                window.showSimpleRetry(modalContent, '"Uncategorized" is a reserved name.', () => {});
                 return;
             }
             if (newName === sectionName) {
@@ -239,7 +246,12 @@ async function editSection(sectionName) {
                 await window.loadSections();
                 window.popModal();
             } catch (err) {
-                alert('Failed to rename section: ' + err.message);
+                const modalContent = document.querySelector('#simpleModal .modal-content');
+                window.showSimpleRetry(modalContent, `Failed to rename section: ${err.message}`, async () => {
+                    await window.apiPut(`/api/models/${window.currentModel}/sections/${sectionName}`, { new_name: newName });
+                    await window.loadSections();
+                    window.popModal();
+                });
             }
         };
     }
@@ -247,7 +259,8 @@ async function editSection(sectionName) {
 
 async function deleteSection(section) {
     if (section === 'Uncategorized') {
-        alert('The "Uncategorized" pseudo‑section cannot be deleted.');
+        const container = document.getElementById('sectionsGridContainer');
+        window.showSimpleRetry(container, 'The "Uncategorized" pseudo‑section cannot be deleted.', () => {});
         return;
     }
 
@@ -298,9 +311,7 @@ async function deleteSection(section) {
         let target = null;
         if (groupsUsing > 0) {
             action = document.querySelector('input[name="deleteAction"]:checked').value;
-            if (action === 'move') {
-                target = document.getElementById('moveTarget').value;
-            }
+            if (action === 'move') target = document.getElementById('moveTarget').value;
         }
         try {
             let url = `/api/models/${window.currentModel}/sections/${section}?action=${action}`;
@@ -309,7 +320,10 @@ async function deleteSection(section) {
             await window.loadSections();
             window.popModal();
         } catch (err) {
-            alert('Failed to delete section: ' + err.message);
+            const modalContent = document.querySelector('#simpleModal .modal-content');
+            window.showSimpleRetry(modalContent, `Failed to delete section: ${err.message}`, async () => {
+                await deleteSection(section);
+            });
         }
     };
 }

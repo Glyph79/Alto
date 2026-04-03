@@ -6,18 +6,30 @@ let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
 
-// Global to track loading animation for the currently selected node
 window.currentNodeAnimation = null;
 
-// ========== Open Tree Modal (called from groups.js) ==========
-window.openTreeModal = function(treeData) {
-    currentTree = treeData;
+window.openTreeModalForGroup = async function(groupIndex) {
+    window._pendingGroupIndex = groupIndex;
+    const initialTree = [];
+    window.openTreeModal(initialTree, { isLoading: true, groupIndex: groupIndex });
+    try {
+        const treeData = await window.apiGet(`/api/models/${window.currentModel}/groups/${groupIndex}/followups`);
+        window.updateTreeModalData(treeData);
+    } catch (err) {
+        console.error('Failed to load follow-up tree:', err);
+        window.updateTreeModalError('Failed to load follow-up tree. You can still edit, but unsaved changes may overwrite existing data.');
+    }
+};
+
+window.openTreeModal = function(treeData, options = {}) {
+    const { isLoading = false, groupIndex = null } = options;
+    currentTree = treeData || [];
     nodeMap.clear();
     nodeDetailsCache.clear();
     nextNodeId = 0;
     function buildMap(nodes) {
         nodes.forEach(node => {
-            node.dbId = node.id;          // preserve real DB id (undefined for new nodes)
+            node.dbId = node.id;
             node.id = `node_${nextNodeId++}`;
             nodeMap.set(node.id, node);
             if (node.children) buildMap(node.children);
@@ -31,6 +43,69 @@ window.openTreeModal = function(treeData) {
     updateToolbarButtons();
     document.getElementById('nodeQAPanel').style.display = 'none';
     document.getElementById('noNodeSelected').style.display = 'flex';
+
+    if (isLoading) {
+        showTreeLoadingIndicator();
+    } else {
+        hideTreeLoadingIndicator();
+    }
+};
+
+function showTreeLoadingIndicator() {
+    const container = document.getElementById('treeContainer');
+    if (container) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'treeLoadingIndicator';
+        loadingDiv.className = 'tree-loading';
+        loadingDiv.innerHTML = '<div class="spinner"></div><span>Loading tree data...</span>';
+        container.style.position = 'relative';
+        container.appendChild(loadingDiv);
+    }
+}
+
+function hideTreeLoadingIndicator() {
+    const indicator = document.getElementById('treeLoadingIndicator');
+    if (indicator) indicator.remove();
+    const container = document.getElementById('treeContainer');
+    if (container) container.style.position = '';
+}
+
+window.updateTreeModalData = function(treeData) {
+    hideTreeLoadingIndicator();
+    currentTree = treeData;
+    nodeMap.clear();
+    nodeDetailsCache.clear();
+    nextNodeId = 0;
+    function buildMap(nodes) {
+        nodes.forEach(node => {
+            node.dbId = node.id;
+            node.id = `node_${nextNodeId++}`;
+            nodeMap.set(node.id, node);
+            if (node.children) buildMap(node.children);
+        });
+    }
+    buildMap(currentTree);
+    renderTree();
+    if (selectedNodeId) {
+        const selectedDbId = nodeMap.get(selectedNodeId)?.dbId;
+        if (selectedDbId) {
+            const newId = Array.from(nodeMap.entries()).find(([_, node]) => node.dbId === selectedDbId)?.[0];
+            if (newId) selectNode(newId);
+        } else {
+            selectedNodeId = null;
+        }
+    }
+    updateToolbarButtons();
+};
+
+window.updateTreeModalError = function(message) {
+    hideTreeLoadingIndicator();
+    const container = document.getElementById('treeContainer');
+    if (container) {
+        window.showRetryError(container, message, async () => {
+            await window.openTreeModalForGroup(window._pendingGroupIndex);
+        });
+    }
 };
 
 function renderTree() {
@@ -108,7 +183,6 @@ function selectNode(nodeId) {
 }
 
 async function showNodeQAPanel(nodeId) {
-    // Clear any existing loading animation from previous node
     if (window.currentNodeAnimation) {
         clearTimeout(window.currentNodeAnimation.timeout);
         clearInterval(window.currentNodeAnimation.interval);
@@ -118,11 +192,9 @@ async function showNodeQAPanel(nodeId) {
     const node = nodeMap.get(nodeId);
     if (!node) return;
 
-    // Show the Q&A panel immediately (blank initially)
     document.getElementById('nodeQAPanel').style.display = 'block';
     document.getElementById('noNodeSelected').style.display = 'none';
 
-    // If node is new (no dbId) or we already have cached details, render instantly
     if (!node.dbId) {
         node.questions = node.questions || [];
         node.answers = node.answers || [];
@@ -138,65 +210,48 @@ async function showNodeQAPanel(nodeId) {
         return;
     }
 
-    // Set a timeout to show loading animation after 300ms if request still pending
-    let loadingTimeout = setTimeout(() => {
-        // Initial loading text
-        document.getElementById('treeQuestionsList').innerHTML = '<li>Loading questions</li>';
-        document.getElementById('treeAnswersList').innerHTML = '<li>Loading answers</li>';
-        
-        // Start animation
-        let dots = 0;
-        const loadingInterval = setInterval(() => {
-            dots = (dots + 1) % 4; // 0,1,2,3
-            const dotsStr = '.'.repeat(dots);
-            document.getElementById('treeQuestionsList').innerHTML = `<li>Loading questions${dotsStr}</li>`;
-            document.getElementById('treeAnswersList').innerHTML = `<li>Loading answers${dotsStr}</li>`;
-        }, 300);
-        
-        window.currentNodeAnimation = { timeout: loadingTimeout, interval: loadingInterval };
-    }, 300);
+    // Disable add buttons while loading
+    const addQuestionBtn = document.getElementById('treeAddQuestionBtn');
+    const addAnswerBtn = document.getElementById('treeAddAnswerBtn');
+    if (addQuestionBtn) addQuestionBtn.disabled = true;
+    if (addAnswerBtn) addAnswerBtn.disabled = true;
 
-    // Fetch with retry (max 3 attempts)
-    let attempts = 0;
-    const maxAttempts = 3;
+    const qList = document.getElementById('treeQuestionsList');
+    const aList = document.getElementById('treeAnswersList');
+    // Clear any old content
+    qList.innerHTML = '';
+    aList.innerHTML = '';
 
-    while (attempts < maxAttempts) {
-        attempts++;
-        try {
-            const details = await window.apiGet(
+    // Show inline loading indicators
+    const qLoading = window.showInlineLoading(qList, "Loading questions");
+    const aLoading = window.showInlineLoading(aList, "Loading answers");
+
+    try {
+        const details = await window.retryOperation(async () => {
+            return await window.apiGet(
                 `/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/nodes/${node.dbId}`
             );
-            // Clear any pending loading animation
-            if (window.currentNodeAnimation) {
-                clearTimeout(window.currentNodeAnimation.timeout);
-                clearInterval(window.currentNodeAnimation.interval);
-                window.currentNodeAnimation = null;
-            } else {
-                clearTimeout(loadingTimeout);
-            }
-            node.questions = details.questions;
-            node.answers = details.answers;
-            nodeDetailsCache.set(nodeId, details);
-            renderNodeQAPanel(node);
-            return; // success
-        } catch (err) {
-            if (attempts < maxAttempts) {
-                // wait before retrying (exponential backoff)
-                await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
-            }
-        }
+        });
+        qLoading.clear();
+        aLoading.clear();
+        node.questions = details.questions;
+        node.answers = details.answers;
+        nodeDetailsCache.set(nodeId, details);
+        renderNodeQAPanel(node);
+        // Re‑enable buttons
+        if (addQuestionBtn) addQuestionBtn.disabled = false;
+        if (addAnswerBtn) addAnswerBtn.disabled = false;
+    } catch (err) {
+        qLoading.clear();
+        aLoading.clear();
+        window.showInlineListRetry(qList, 'questions', async () => {
+            await showNodeQAPanel(nodeId);
+        });
+        window.showInlineListRetry(aList, 'answers', async () => {
+            await showNodeQAPanel(nodeId);
+        });
+        // Keep add buttons disabled until retry succeeds
     }
-
-    // All retries failed
-    if (window.currentNodeAnimation) {
-        clearTimeout(window.currentNodeAnimation.timeout);
-        clearInterval(window.currentNodeAnimation.interval);
-        window.currentNodeAnimation = null;
-    } else {
-        clearTimeout(loadingTimeout);
-    }
-    document.getElementById('treeQuestionsList').innerHTML = '<li style="color: #ff6b9d;">Error loading questions</li>';
-    document.getElementById('treeAnswersList').innerHTML = '<li style="color: #ff6b9d;">Error loading answers</li>';
 }
 
 function renderNodeQAPanel(node) {
@@ -274,9 +329,7 @@ document.getElementById('deleteNodeBtn').onclick = () => {
                     nodes.splice(i, 1);
                     return true;
                 }
-                if (nodes[i].children) {
-                    if (removeNode(nodes[i].children, nodeId)) return true;
-                }
+                if (nodes[i].children && removeNode(nodes[i].children, nodeId)) return true;
             }
             return false;
         }
@@ -289,11 +342,9 @@ document.getElementById('deleteNodeBtn').onclick = () => {
     });
 };
 
-// Node Q&A editing
 window.editTreeNodeQuestion = (qIdx) => {
     const node = nodeMap.get(selectedNodeId);
-    const question = node.questions[qIdx];
-    window.showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: question }], (vals, errorDiv) => {
+    window.showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: node.questions[qIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Question cannot be empty.';
             errorDiv.style.display = 'block';
@@ -318,8 +369,7 @@ window.deleteTreeNodeQuestion = (qIdx) => {
 
 window.editTreeNodeAnswer = (aIdx) => {
     const node = nodeMap.get(selectedNodeId);
-    const answer = node.answers[aIdx];
-    window.showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: answer }], (vals, errorDiv) => {
+    window.showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: node.answers[aIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Answer cannot be empty.';
             errorDiv.style.display = 'block';
@@ -376,14 +426,12 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     }, 'Add');
 };
 
-// Tree modal save/cancel
 document.getElementById('treeModalSaveBtn').onclick = async () => {
-    // Build full tree by merging skeleton with cached details, including real ids
     function buildFullTree(nodes) {
         return nodes.map(node => {
             const details = nodeDetailsCache.get(node.id) || { questions: [], answers: [] };
             return {
-                id: node.dbId,                     // include real DB id (undefined for new nodes)
+                id: node.dbId,
                 branch_name: node.branch_name,
                 questions: details.questions || [],
                 answers: details.answers || [],
@@ -394,14 +442,16 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
     const treeToSave = buildFullTree(currentTree);
     try {
         await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}/followups`, treeToSave);
-        // Update modalGroupCopy if present
         if (typeof modalGroupCopy !== 'undefined' && modalGroupCopy) {
             modalGroupCopy.follow_ups = treeToSave;
         }
         treeUnsaved = false;
         window.popModal();
     } catch (err) {
-        alert('Failed to save follow‑up tree: ' + err.message);
+        const container = document.getElementById('treeContainer');
+        window.showRetryError(container, `Failed to save tree: ${err.message}`, async () => {
+            document.getElementById('treeModalSaveBtn').click();
+        });
     }
 };
 
@@ -414,3 +464,36 @@ document.getElementById('treeModalCancelBtn').onclick = () => {
         window.popModal();
     }
 };
+
+if (!document.querySelector('#tree-styles')) {
+    const style = document.createElement('style');
+    style.id = 'tree-styles';
+    style.textContent = `
+        .tree-loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            border-radius: 8px;
+        }
+        .tree-loading .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #fff;
+            border-top-color: #6c63ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 12px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
+}

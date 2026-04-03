@@ -6,18 +6,19 @@ import random
 import time
 from fuzzywuzzy import fuzz
 from collections import OrderedDict
+from alto.config import config
 
 MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
 
 _bot = None
 _model_cache = {}
 _last_scan = 0
-SCAN_INTERVAL = 5
+SCAN_INTERVAL = config.getint('ai', 'scan_interval')
 
 # --- Topic system constants ---
-MAX_TOPICS = 3
-TOPIC_DECAY = 5
-TOPIC_BOOST_MAX = 20
+MAX_TOPICS = config.getint('ai', 'max_topics')
+TOPIC_DECAY = config.getint('ai', 'topic_decay')
+TOPIC_BOOST_MAX = config.getint('ai', 'topic_boost_max')
 
 def _get_db_path(model_name: str) -> str | None:
     global _last_scan
@@ -172,9 +173,10 @@ class RuleBot:
     MAX_TREES = 3
     GROUP_CACHE_SIZE = 3
 
-    def __init__(self, model=None, threshold=70):
-        self.threshold = threshold
-        self.fallback = "I'm sorry, I didn't understand that."
+    def __init__(self, model=None, threshold=None):
+        self.conn = None  # Initialize to None
+        self.threshold = threshold if threshold is not None else config.getint('ai', 'threshold')
+        self.fallback = config.get('DEFAULT', 'fallback')
         model = model or self.DEFAULT
         path = _get_db_path(model)
         if not path or not os.path.isfile(path):
@@ -210,7 +212,7 @@ class RuleBot:
         g = _group_light(row)
         self._group_cache[gid] = g
         self._group_cache.move_to_end(gid)
-        if len(self._group_cache) > 100:
+        if len(self._group_cache) > self.GROUP_CACHE_SIZE:
             self._group_cache.popitem(last=False)
         return g
 

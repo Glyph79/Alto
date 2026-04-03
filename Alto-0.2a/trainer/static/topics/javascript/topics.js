@@ -2,7 +2,7 @@
 window.topicsList = [];
 let topicCards = [];
 let topicsSectionFilter = 'All Sections';
-let currentTopicFetchAnimation = null;
+let currentTopicFetchCleanup = null;
 
 const NO_TOPIC = '(No Topic)';
 
@@ -17,6 +17,10 @@ window.loadTopics = async function() {
         populateTopicSectionFilter();
     } catch (err) {
         console.error('Error loading topics:', err);
+        const container = document.getElementById('topicsGridContainer');
+        window.showSimpleRetry(container, `Error loading topics: ${err.message}`, async () => {
+            await window.loadTopics();
+        });
     }
 };
 
@@ -59,7 +63,6 @@ function renderTopicsGrid() {
 
     let html = '<div class="topics-grid grid">';
 
-    // "No Topic" pseudo‑topic
     html += `
         <div class="topic-card" data-topic="${NO_TOPIC}" data-count="${noTopicCount}" data-is-no-topic="true">
             <div class="header">
@@ -108,23 +111,20 @@ function renderTopicsGrid() {
     document.querySelectorAll('.topic-card').forEach(card => {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.card-actions')) return;
-            const topic = card.dataset.topic;
-            editTopic(topic);
+            editTopic(card.dataset.topic);
         });
     });
 
     document.querySelectorAll('.edit-topic').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const topic = btn.dataset.topic;
-            editTopic(topic);
+            editTopic(btn.dataset.topic);
         });
     });
     document.querySelectorAll('.delete-topic').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const topic = btn.dataset.topic;
-            deleteTopic(topic);
+            deleteTopic(btn.dataset.topic);
         });
     });
 
@@ -232,7 +232,7 @@ async function editTopic(topicName) {
         ` : ''}
         <div class="form-row">
             <label>Groups using this topic</label>
-            <ul class="group-usage-list" id="topicGroupList"><li>Loading groups...</li></ul>
+            <ul class="group-usage-list" id="topicGroupList"></ul>
         </div>
         <div class="modal-actions">
             <button class="cancel" id="editTopicCancelBtn">Close</button>
@@ -241,69 +241,106 @@ async function editTopic(topicName) {
     `;
     window.pushModal('simpleModal');
 
-    if (currentTopicFetchAnimation) {
-        clearTimeout(currentTopicFetchAnimation.timeout);
-        clearInterval(currentTopicFetchAnimation.interval);
-        currentTopicFetchAnimation = null;
+    if (!isNoTopic) {
+        document.getElementById('editTopicSaveBtn').disabled = true;
     }
 
+    if (currentTopicFetchCleanup) currentTopicFetchCleanup.clear();
+
     const groupList = document.getElementById('topicGroupList');
-    let loadingTimeout = setTimeout(() => {
-        groupList.innerHTML = '<li>Loading groups</li>';
-        let dots = 0;
-        const loadingInterval = setInterval(() => {
-            dots = (dots + 1) % 4;
-            const dotsStr = '.'.repeat(dots);
-            groupList.innerHTML = `<li>Loading groups${dotsStr}</li>`;
-        }, 300);
-        currentTopicFetchAnimation = { timeout: loadingTimeout, interval: loadingInterval };
-    }, 300);
+    currentTopicFetchCleanup = window.showInlineLoading(groupList, "Loading groups");
 
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    const refreshTopicGroups = async () => {
-        try {
-            const result = await window.apiGet(`/api/models/${window.currentModel}/topics/${topicName}/groups`);
-            const groupsUsing = result.groups || [];
-            let groupsHtml = '';
-            if (groupsUsing.length === 0) {
-                groupsHtml = '<li class="group-usage-item" style="justify-content:center; color:#888;">No groups use this topic</li>';
-            } else {
-                groupsUsing.forEach((g) => {
-                    groupsHtml += `
-                        <li class="group-usage-item" data-group-id="${g.id}">
-                            <span class="group-name">${g.group_name || 'Unnamed'}</span>
-                            <div class="group-usage-actions">
-                                <button class="edit-group-from-topic" title="Edit Group">✎</button>
-                                <button class="delete-group-from-topic" title="Delete Group">🗑</button>
-                            </div>
-                        </li>
-                    `;
-                });
-            }
-            document.getElementById('topicGroupList').innerHTML = groupsHtml;
-            attachGroupHandlers();
-        } catch (err) {
-            console.error('Failed to refresh topic groups', err);
+    try {
+        let groupsUsing = [];
+        if (isNoTopic) {
+            groupsUsing = window.groups.filter(g => !g.topic);
+        } else {
+            const result = await window.retryOperation(async () => {
+                return await window.apiGet(`/api/models/${window.currentModel}/topics/${topicName}/groups`);
+            });
+            groupsUsing = result.groups || [];
         }
-    };
 
-    const attachGroupHandlers = () => {
+        if (currentTopicFetchCleanup) currentTopicFetchCleanup.clear();
+
+        let groupsHtml = '';
+        if (groupsUsing.length === 0) {
+            groupsHtml = '<li class="group-usage-item" style="justify-content:center; color:#888;">No groups use this topic</li>';
+        } else {
+            groupsUsing.forEach((g) => {
+                groupsHtml += `
+                    <li class="group-usage-item" data-group-id="${g.id}">
+                        <span class="group-name">${g.group_name || 'Unnamed'}</span>
+                        <div class="group-usage-actions">
+                            <button class="edit-group-from-topic" title="Edit Group">✎</button>
+                            <button class="delete-group-from-topic" title="Delete Group">🗑</button>
+                        </div>
+                    </li>
+                `;
+            });
+        }
+        groupList.innerHTML = groupsHtml;
+        attachGroupHandlers(groupsUsing, topicName);
+
+        document.getElementById('editTopicCancelBtn').onclick = () => window.popModal();
+        if (!isNoTopic) {
+            document.getElementById('editTopicSaveBtn').disabled = false;
+            document.getElementById('editTopicSaveBtn').onclick = async () => {
+                const newName = document.getElementById('editTopicName').value.trim();
+                if (!newName) {
+                    const modalContent = document.querySelector('#simpleModal .modal-content');
+                    window.showSimpleRetry(modalContent, 'Topic name cannot be empty.', () => {});
+                    return;
+                }
+                if (newName.toLowerCase() === 'null' || newName === NO_TOPIC) {
+                    const modalContent = document.querySelector('#simpleModal .modal-content');
+                    window.showSimpleRetry(modalContent, `"${newName}" is a reserved name.`, () => {});
+                    return;
+                }
+                if (newName === topicName) {
+                    window.popModal();
+                    return;
+                }
+                try {
+                    await window.retryOperation(async () => {
+                        await window.apiPut(`/api/models/${window.currentModel}/topics/${topicName}`, { new_name: newName });
+                    });
+                    await window.loadTopics();
+                    window.popModal();
+                } catch (err) {
+                    const modalContent = document.querySelector('#simpleModal .modal-content');
+                    window.showSimpleRetry(modalContent, `Failed to rename topic: ${err.message}`, async () => {
+                        await window.apiPut(`/api/models/${window.currentModel}/topics/${topicName}`, { new_name: newName });
+                        await window.loadTopics();
+                        window.popModal();
+                    });
+                }
+            };
+        }
+    } catch (err) {
+        if (currentTopicFetchCleanup) currentTopicFetchCleanup.clear();
+        window.showInlineListRetry(groupList, 'groups', async () => {
+            await editTopic(topicName);
+        });
+        if (!isNoTopic) {
+            document.getElementById('editTopicSaveBtn').disabled = true;
+        }
+    }
+
+    function attachGroupHandlers(groups, topic) {
         document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const li = e.target.closest('.group-usage-item');
                 const groupId = li.dataset.groupId;
                 if (groupId) {
-                    if (!window.groups || window.groups.length === 0) {
-                        await window.loadGroupsAndSections();
-                    }
+                    if (!window.groups || window.groups.length === 0) await window.loadGroupsAndSections();
                     const index = window.groups.findIndex(g => g.id == groupId);
                     if (index !== -1) {
-                        window.openGroupModal(index, refreshTopicGroups);
+                        window.openGroupModal(index, () => editTopic(topic));
                     } else {
-                        alert('Group not found');
+                        const modalContent = document.querySelector('#simpleModal .modal-content');
+                        window.showSimpleRetry(modalContent, 'Group not found', () => {});
                     }
                 }
             });
@@ -316,134 +353,34 @@ async function editTopic(topicName) {
                 const groupId = li.dataset.groupId;
                 if (groupId) {
                     window.showConfirmModal('Delete this group?', async () => {
-                        if (!window.groups || window.groups.length === 0) {
-                            await window.loadGroupsAndSections();
-                        }
+                        if (!window.groups || window.groups.length === 0) await window.loadGroupsAndSections();
                         const index = window.groups.findIndex(g => g.id == groupId);
                         if (index !== -1) {
-                            await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
-                            await refreshTopicGroups();
+                            try {
+                                await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+                                await editTopic(topic);
+                            } catch (err) {
+                                const modalContent = document.querySelector('#simpleModal .modal-content');
+                                window.showSimpleRetry(modalContent, `Failed to delete group: ${err.message}`, async () => {
+                                    await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+                                    await editTopic(topic);
+                                });
+                            }
                         } else {
-                            alert('Group not found');
+                            const modalContent = document.querySelector('#simpleModal .modal-content');
+                            window.showSimpleRetry(modalContent, 'Group not found', () => {});
                         }
                     });
                 }
             });
         });
-    };
-
-    while (attempts < maxAttempts) {
-        attempts++;
-        try {
-            let groupsUsing = [];
-            if (isNoTopic) {
-                groupsUsing = window.groups.filter(g => !g.topic);
-                if (currentTopicFetchAnimation) {
-                    clearTimeout(currentTopicFetchAnimation.timeout);
-                    clearInterval(currentTopicFetchAnimation.interval);
-                    currentTopicFetchAnimation = null;
-                } else {
-                    clearTimeout(loadingTimeout);
-                }
-                let groupsHtml = '';
-                if (groupsUsing.length === 0) {
-                    groupsHtml = '<li class="group-usage-item" style="justify-content:center; color:#888;">No groups use this topic</li>';
-                } else {
-                    groupsUsing.forEach((g) => {
-                        groupsHtml += `
-                            <li class="group-usage-item" data-group-id="${g.id}">
-                                <span class="group-name">${g.group_name || 'Unnamed'}</span>
-                                <div class="group-usage-actions">
-                                    <button class="edit-group-from-topic" title="Edit Group">✎</button>
-                                    <button class="delete-group-from-topic" title="Delete Group">🗑</button>
-                                </div>
-                            </li>
-                        `;
-                    });
-                }
-                groupList.innerHTML = groupsHtml;
-                attachGroupHandlers();
-
-                document.getElementById('editTopicCancelBtn').onclick = () => {
-                    window.popModal();
-                };
-                return;
-            } else {
-                const result = await window.apiGet(`/api/models/${window.currentModel}/topics/${topicName}/groups`);
-                groupsUsing = result.groups || [];
-                if (currentTopicFetchAnimation) {
-                    clearTimeout(currentTopicFetchAnimation.timeout);
-                    clearInterval(currentTopicFetchAnimation.interval);
-                    currentTopicFetchAnimation = null;
-                } else {
-                    clearTimeout(loadingTimeout);
-                }
-                let groupsHtml = '';
-                if (groupsUsing.length === 0) {
-                    groupsHtml = '<li class="group-usage-item" style="justify-content:center; color:#888;">No groups use this topic</li>';
-                } else {
-                    groupsUsing.forEach((g) => {
-                        groupsHtml += `
-                            <li class="group-usage-item" data-group-id="${g.id}">
-                                <span class="group-name">${g.group_name || 'Unnamed'}</span>
-                                <div class="group-usage-actions">
-                                    <button class="edit-group-from-topic" title="Edit Group">✎</button>
-                                    <button class="delete-group-from-topic" title="Delete Group">🗑</button>
-                                </div>
-                            </li>
-                        `;
-                    });
-                }
-                groupList.innerHTML = groupsHtml;
-                attachGroupHandlers();
-
-                document.getElementById('editTopicCancelBtn').onclick = () => {
-                    window.popModal();
-                };
-                document.getElementById('editTopicSaveBtn').onclick = async () => {
-                    const newName = document.getElementById('editTopicName').value.trim();
-                    if (!newName) {
-                        alert('Topic name cannot be empty.');
-                        return;
-                    }
-                    if (newName.toLowerCase() === 'null' || newName === NO_TOPIC) {
-                        alert(`"${newName}" is a reserved name.`);
-                        return;
-                    }
-                    if (newName === topicName) {
-                        window.popModal();
-                        return;
-                    }
-                    try {
-                        await window.apiPut(`/api/models/${window.currentModel}/topics/${topicName}`, { new_name: newName });
-                        await window.loadTopics();
-                        window.popModal();
-                    } catch (err) {
-                        alert('Failed to rename topic: ' + err.message);
-                    }
-                };
-                return;
-            }
-        } catch (err) {
-            if (attempts < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempts - 1)));
-            }
-        }
     }
-
-    if (currentTopicFetchAnimation) {
-        clearTimeout(currentTopicFetchAnimation.timeout);
-        clearInterval(currentTopicFetchAnimation.interval);
-        currentTopicFetchAnimation = null;
-    } else {
-        clearTimeout(loadingTimeout);
-    }
-    groupList.innerHTML = '<li style="color: #ff6b9d;">Error loading groups</li>';
 }
 
 function deleteTopic(topic) {
     if (topic === NO_TOPIC) {
-        alert('The "(No Topic)" pseudo‑topic cannot be deleted.');
+        const container = document.getElementById('topicsGridContainer');
+        window.showSimpleRetry(container, 'The "(No Topic)" pseudo‑topic cannot be deleted.', () => {});
         return;
     }
 
@@ -489,9 +426,7 @@ function deleteTopic(topic) {
     `;
     window.pushModal('simpleModal');
 
-    document.getElementById('deleteCancelBtn').onclick = () => {
-        window.popModal();
-    };
+    document.getElementById('deleteCancelBtn').onclick = () => window.popModal();
     document.getElementById('deleteConfirmBtn').onclick = async () => {
         if (groupsUsing > 0) {
             const action = document.querySelector('input[name="deleteAction"]:checked').value;
@@ -506,7 +441,10 @@ function deleteTopic(topic) {
                 await window.loadTopics();
                 window.popModal();
             } catch (err) {
-                alert('Failed to delete topic: ' + err.message);
+                const modalContent = document.querySelector('#simpleModal .modal-content');
+                window.showSimpleRetry(modalContent, `Failed to delete topic: ${err.message}`, async () => {
+                    await deleteTopic(topic);
+                });
             }
         } else {
             try {
@@ -514,7 +452,10 @@ function deleteTopic(topic) {
                 await window.loadTopics();
                 window.popModal();
             } catch (err) {
-                alert('Failed to delete topic: ' + err.message);
+                const modalContent = document.querySelector('#simpleModal .modal-content');
+                window.showSimpleRetry(modalContent, `Failed to delete topic: ${err.message}`, async () => {
+                    await deleteTopic(topic);
+                });
             }
         }
     };
