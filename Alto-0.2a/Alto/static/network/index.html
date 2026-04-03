@@ -4,132 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alto · Network Visualizer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #fff;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        header {
-            padding: 12px 20px;
-            background: #252547;
-            border-bottom: 1px solid #2d2d5a;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        header h1 {
-            font-size: 1.3rem;
-            font-weight: 400;
-        }
-        .controls {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-        }
-        button {
-            background: #6c63ff;
-            border: none;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: 0.2s;
-        }
-        button:hover {
-            background: #5a52d5;
-        }
-        .info {
-            font-size: 0.8rem;
-            color: #b0b0d0;
-        }
-        #graph-container {
-            flex: 1;
-            position: relative;
-            background: #1a1a2e;
-        }
-        svg {
-            width: 100%;
-            height: 100%;
-            cursor: grab;
-        }
-        svg:active {
-            cursor: grabbing;
-        }
-        .node circle {
-            stroke: #fff;
-            stroke-width: 1.5px;
-            transition: r 0.1s;
-        }
-        .node:hover circle {
-            stroke: #6c63ff;
-            stroke-width: 2.5px;
-        }
-        .node text {
-            fill: #fff;
-            font-size: 10px;
-            dominant-baseline: middle;
-            text-anchor: start;
-            pointer-events: none;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-        }
-        .link {
-            stroke: #4a4a7a;
-            stroke-width: 1.5px;
-            stroke-opacity: 0.6;
-        }
-        .tooltip {
-            position: absolute;
-            background: rgba(0,0,0,0.8);
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            pointer-events: none;
-            z-index: 100;
-            backdrop-filter: blur(4px);
-            border: 1px solid #6c63ff;
-            white-space: nowrap;
-        }
-        .legend {
-            position: absolute;
-            bottom: 16px;
-            right: 16px;
-            background: rgba(37,37,71,0.9);
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 0.7rem;
-            backdrop-filter: blur(4px);
-            border: 1px solid #2d2d5a;
-            pointer-events: none;
-            z-index: 10;
-        }
-        .legend h4 {
-            margin-bottom: 6px;
-            font-size: 0.75rem;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 4px;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/network/style/style.css">
 </head>
 <body>
     <header>
@@ -148,6 +23,6 @@
         <div class="legend-item"><div style="width:12px; height:2px; background:#4a4a7a;"></div> Connection</div>
     </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="/static/network/network.js"></script>
+    <script src="/static/network/javascript/script.js"></script>
 </body>
 </html>
