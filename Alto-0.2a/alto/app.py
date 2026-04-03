@@ -124,5 +124,78 @@ async def chat():
         response.set_cookie('user_id', str(user_id))
     return response
 
+# ========== Network Visualizer ==========
+@app.route('/network')
+async def network_page():
+    return await send_from_directory(os.path.join(BASE_DIR, 'static', 'network'), 'index.html')
+
+@app.route('/api/network')
+async def network_data():
+    from alto.core.ai_engine import _get_db_path
+    from alto.config import config
+    import sqlite3
+
+    model_name = config.get('DEFAULT', 'default_model')
+    db_path = _get_db_path(model_name)
+    if not db_path:
+        return {"error": f"Model '{model_name}' not found"}, 404
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    nodes = []
+    links = []
+    node_ids = set()
+
+    def add_node(nid, name, node_type, topic='', section=''):
+        if nid in node_ids:
+            return
+        node_ids.add(nid)
+        nodes.append({
+            "id": nid,
+            "name": name,
+            "type": node_type,
+            "topic": topic,
+            "section": section
+        })
+
+    # Groups as nodes
+    cur = conn.execute("""
+        SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, COALESCE(s.name, '') as section
+        FROM groups g
+        LEFT JOIN topics t ON g.topic_id = t.id
+        LEFT JOIN sections s ON g.section_id = s.id
+        ORDER BY g.id
+    """)
+    groups = []
+    for row in cur:
+        group_id = f"group_{row['id']}"
+        add_node(group_id, row['group_name'], 'group', row['topic'], row['section'])
+        groups.append((row['id'], group_id))
+
+    # Follow-up nodes and links
+    cur = conn.execute("""
+        SELECT id, group_id, parent_id, branch_name
+        FROM followup_nodes
+        ORDER BY id
+    """)
+    followup_nodes = {}
+    for row in cur:
+        node_id = f"node_{row['id']}"
+        parent_id = f"node_{row['parent_id']}" if row['parent_id'] else None
+        group_id = f"group_{row['group_id']}"
+        node_type = 'root' if parent_id is None else 'followup'
+        add_node(node_id, row['branch_name'] or 'Unnamed', node_type)
+        followup_nodes[row['id']] = (node_id, group_id, parent_id)
+
+    # Create links: group -> root nodes, and parent -> child
+    for fn_id, (node_id, group_id, parent_id) in followup_nodes.items():
+        if parent_id is None:
+            links.append({"source": group_id, "target": node_id})
+        else:
+            links.append({"source": parent_id, "target": node_id})
+
+    conn.close()
+    return {"nodes": nodes, "links": links}
+
 if __name__ == '__main__':
     app.run(debug=True)
