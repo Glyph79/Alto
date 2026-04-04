@@ -4,6 +4,7 @@ import time
 import shutil
 import tempfile
 import os
+import zlib
 from collections import OrderedDict
 from typing import List, Dict, Optional, Any
 from train.utils.file_helpers import (
@@ -11,7 +12,6 @@ from train.utils.file_helpers import (
     get_model_container_path, get_model_temp_dir, pack_model, unpack_model
 )
 from train.utils.msgpack_helpers import pack_array, unpack_array
-from train.utils.fts_helpers import update_fts_index
 from train.groups.utils import (
     insert_followup_tree, delete_followup_tree, load_followup_tree_full
 )
@@ -19,9 +19,19 @@ from train.groups.utils import (
 ALTO_VERSION = "0.2a"
 
 # ----------------------------------------------------------------------
-# Model DB initialization (new schema)
+# Compression helpers
 # ----------------------------------------------------------------------
-def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
+def compress_blob(data: bytes) -> bytes:
+    return zlib.compress(data, level=6)
+
+def decompress_blob(data: bytes) -> bytes:
+    return zlib.decompress(data)
+
+# ----------------------------------------------------------------------
+# Schema creation
+# ----------------------------------------------------------------------
+def create_empty_schema(conn: sqlite3.Connection):
+    """Create all tables and indexes without default data."""
     conn.execute("""
         CREATE TABLE model_info (
             name TEXT PRIMARY KEY,
@@ -53,17 +63,48 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             group_name TEXT NOT NULL,
             topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL,
             section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL,
-            questions_blob BLOB NOT NULL,
             answers_blob BLOB NOT NULL,
-            question_count INTEGER NOT NULL DEFAULT 0,
-            answer_count INTEGER NOT NULL DEFAULT 0
+            answer_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     """)
     conn.execute("""
-        CREATE VIRTUAL TABLE questions_fts USING fts5(
-            group_id UNINDEXED,
-            question
+        CREATE TABLE questions (
+            id INTEGER PRIMARY KEY,
+            text TEXT NOT NULL UNIQUE
         )
+    """)
+    conn.execute("""
+        CREATE TABLE group_questions (
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (group_id, question_id)
+        ) WITHOUT ROWID
+    """)
+    conn.execute("""
+        CREATE VIRTUAL TABLE questions_fts USING fts5(
+            content=questions,
+            content_rowid=id,
+            text
+        )
+    """)
+    conn.execute("""
+        CREATE TRIGGER questions_ai AFTER INSERT ON questions BEGIN
+            INSERT INTO questions_fts(rowid, text) VALUES (new.id, new.text);
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER questions_ad AFTER DELETE ON questions BEGIN
+            INSERT INTO questions_fts(questions_fts, rowid, text) VALUES('delete', old.id, old.text);
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER questions_au AFTER UPDATE OF text ON questions BEGIN
+            INSERT INTO questions_fts(questions_fts, rowid, text) VALUES('delete', old.id, old.text);
+            INSERT INTO questions_fts(rowid, text) VALUES (new.id, new.text);
+        END
     """)
     conn.execute("""
         CREATE TABLE followup_nodes (
@@ -90,6 +131,7 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             PRIMARY KEY (word, group_id)
         ) WITHOUT ROWID
     """)
+
     conn.execute("CREATE INDEX idx_groups_topic ON groups(topic_id)")
     conn.execute("CREATE INDEX idx_groups_section ON groups(section_id)")
     conn.execute("CREATE INDEX idx_topics_section ON topics(section_id)")
@@ -97,6 +139,12 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
     conn.execute("CREATE INDEX idx_variant_words_word ON variant_words(word)")
     conn.execute("CREATE INDEX idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
     conn.execute("CREATE INDEX idx_followup_nodes_parent ON followup_nodes(parent_id)")
+    conn.execute("CREATE INDEX idx_group_questions_group ON group_questions(group_id)")
+    conn.execute("CREATE INDEX idx_group_questions_question ON group_questions(question_id)")
+
+def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
+    """Create full schema with default sections/topics for a new model."""
+    create_empty_schema(conn)
 
     default_sections = ["General", "Technical", "Creative"]
     for idx, name in enumerate(default_sections):
@@ -115,6 +163,131 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
         (model_name, description, author, version, ALTO_VERSION, now, now)
     )
     conn.commit()
+
+# ----------------------------------------------------------------------
+# Helper: get or create question ID
+# ----------------------------------------------------------------------
+def _get_or_create_question_id(conn: sqlite3.Connection, question_text: str) -> int:
+    cur = conn.execute("SELECT id FROM questions WHERE text = ?", (question_text,))
+    row = cur.fetchone()
+    if row:
+        return row[0]
+    cur = conn.execute("INSERT INTO questions (text) VALUES (?) RETURNING id", (question_text,))
+    return cur.fetchone()[0]
+
+# ----------------------------------------------------------------------
+# Group operations with normalized questions
+# ----------------------------------------------------------------------
+def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
+    group_dict.setdefault("group_name", "New Group")
+    questions = group_dict.get("questions", [])
+    answers = group_dict.get("answers", [])
+    topic_name = group_dict.get("topic", "")
+    section_name = group_dict.get("section", "")
+
+    topic_id = _get_topic_id(conn, topic_name)
+    section_id = _get_section_id(conn, section_name)
+
+    answers_blob = pack_array(answers)
+    compressed_answers = compress_blob(answers_blob)
+    a_count = len(answers)
+    now = datetime.datetime.now().isoformat()
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        cursor = conn.execute(
+            """INSERT INTO groups (group_name, topic_id, section_id, answers_blob, answer_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
+            (group_dict["group_name"], topic_id, section_id, compressed_answers, a_count, now, now)
+        )
+        group_id = cursor.fetchone()[0]
+
+        for idx, q in enumerate(questions):
+            qid = _get_or_create_question_id(conn, q)
+            conn.execute(
+                "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
+                (group_id, qid, idx)
+            )
+
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+        conn.commit()
+        return group_id
+    except Exception:
+        conn.rollback()
+        raise
+
+def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, Any]):
+    group_dict.setdefault("group_name", "New Group")
+    questions = group_dict.get("questions", [])
+    answers = group_dict.get("answers", [])
+    topic_name = group_dict.get("topic", "")
+    section_name = group_dict.get("section", "")
+
+    topic_id = _get_topic_id(conn, topic_name)
+    section_id = _get_section_id(conn, section_name)
+    answers_blob = pack_array(answers)
+    compressed_answers = compress_blob(answers_blob)
+    a_count = len(answers)
+    now = datetime.datetime.now().isoformat()
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            """UPDATE groups SET group_name = ?, topic_id = ?, section_id = ?,
+               answers_blob = ?, answer_count = ?, updated_at = ?
+               WHERE id = ?""",
+            (group_dict["group_name"], topic_id, section_id, compressed_answers, a_count, now, group_id)
+        )
+        conn.execute("DELETE FROM group_questions WHERE group_id = ?", (group_id,))
+        for idx, q in enumerate(questions):
+            qid = _get_or_create_question_id(conn, q)
+            conn.execute(
+                "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
+                (group_id, qid, idx)
+            )
+        delete_followup_tree(conn, group_id)
+        if "follow_ups" in group_dict and group_dict["follow_ups"]:
+            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+def delete_group(conn: sqlite3.Connection, group_id: int):
+    conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
+    conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+
+# ----------------------------------------------------------------------
+# Helper functions (unchanged)
+# ----------------------------------------------------------------------
+def _get_topic_id(conn: sqlite3.Connection, topic_name: str) -> Optional[int]:
+    if not topic_name:
+        return None
+    cur = conn.execute("SELECT id FROM topics WHERE name = ?", (topic_name,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+def _get_section_id(conn: sqlite3.Connection, section_name: str) -> Optional[int]:
+    if not section_name:
+        return None
+    cur = conn.execute("SELECT id FROM sections WHERE name = ?", (section_name,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+def _get_topic_name(conn: sqlite3.Connection, topic_id: Optional[int]) -> str:
+    if topic_id is None:
+        return ""
+    cur = conn.execute("SELECT name FROM topics WHERE id = ?", (topic_id,))
+    row = cur.fetchone()
+    return row[0] if row else ""
+
+def _get_section_name(conn: sqlite3.Connection, section_id: Optional[int]) -> str:
+    if section_id is None:
+        return ""
+    cur = conn.execute("SELECT name FROM sections WHERE id = ?", (section_id,))
+    row = cur.fetchone()
+    return row[0] if row else ""
 
 def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
     cur = conn.execute("SELECT name, description, author, version, alto_version, created_at, updated_at FROM model_info")
@@ -156,105 +329,6 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
     conn.commit()
     return info
 
-def _get_topic_id(conn: sqlite3.Connection, topic_name: str) -> Optional[int]:
-    if not topic_name:
-        return None
-    cur = conn.execute("SELECT id FROM topics WHERE name = ?", (topic_name,))
-    row = cur.fetchone()
-    return row[0] if row else None
-
-def _get_section_id(conn: sqlite3.Connection, section_name: str) -> Optional[int]:
-    if not section_name:
-        return None
-    cur = conn.execute("SELECT id FROM sections WHERE name = ?", (section_name,))
-    row = cur.fetchone()
-    return row[0] if row else None
-
-def _get_topic_name(conn: sqlite3.Connection, topic_id: Optional[int]) -> str:
-    if topic_id is None:
-        return ""
-    cur = conn.execute("SELECT name FROM topics WHERE id = ?", (topic_id,))
-    row = cur.fetchone()
-    return row[0] if row else ""
-
-def _get_section_name(conn: sqlite3.Connection, section_id: Optional[int]) -> str:
-    if section_id is None:
-        return ""
-    cur = conn.execute("SELECT name FROM sections WHERE id = ?", (section_id,))
-    row = cur.fetchone()
-    return row[0] if row else ""
-
-def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
-    group_dict.setdefault("group_name", "New Group")
-    group_dict.setdefault("questions", [])
-    group_dict.setdefault("answers", [])
-    topic_name = group_dict.get("topic", "")
-    section_name = group_dict.get("section", "")
-    topic_id = _get_topic_id(conn, topic_name)
-    section_id = _get_section_id(conn, section_name)
-    questions = group_dict["questions"]
-    answers = group_dict["answers"]
-    questions_blob = pack_array(questions)
-    answers_blob = pack_array(answers)
-    q_count = len(questions)
-    a_count = len(answers)
-
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        cursor = conn.execute(
-            """INSERT INTO groups (group_name, topic_id, section_id, questions_blob, answers_blob, question_count, answer_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id""",
-            (group_dict["group_name"], topic_id, section_id,
-             questions_blob, answers_blob, q_count, a_count)
-        )
-        group_id = cursor.fetchone()[0]
-        update_fts_index(conn, group_id, questions)
-        if "follow_ups" in group_dict and group_dict["follow_ups"]:
-            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
-        conn.commit()
-        return group_id
-    except Exception:
-        conn.rollback()
-        raise
-
-def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, Any]):
-    group_dict.setdefault("group_name", "New Group")
-    group_dict.setdefault("questions", [])
-    group_dict.setdefault("answers", [])
-    topic_name = group_dict.get("topic", "")
-    section_name = group_dict.get("section", "")
-    topic_id = _get_topic_id(conn, topic_name)
-    section_id = _get_section_id(conn, section_name)
-    questions = group_dict["questions"]
-    answers = group_dict["answers"]
-    questions_blob = pack_array(questions)
-    answers_blob = pack_array(answers)
-    q_count = len(questions)
-    a_count = len(answers)
-
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        conn.execute(
-            """UPDATE groups SET group_name = ?, topic_id = ?, section_id = ?,
-               questions_blob = ?, answers_blob = ?, question_count = ?, answer_count = ?
-               WHERE id = ?""",
-            (group_dict["group_name"], topic_id, section_id,
-             questions_blob, answers_blob, q_count, a_count, group_id)
-        )
-        update_fts_index(conn, group_id, questions)
-        delete_followup_tree(conn, group_id)
-        if "follow_ups" in group_dict and group_dict["follow_ups"]:
-            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-def delete_group(conn: sqlite3.Connection, group_id: int):
-    conn.execute("DELETE FROM questions_fts WHERE group_id = ?", (group_id,))
-    conn.execute("DELETE FROM followup_nodes WHERE group_id = ?", (group_id,))
-    conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
-
 # ----------------------------------------------------------------------
 # Model class
 # ----------------------------------------------------------------------
@@ -267,10 +341,30 @@ class Model:
 
         if self.container_path:
             self.db_path, manifest = unpack_model(self.container_path, self.temp_dir)
+            # Check if this container uses the old schema (missing group_questions)
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='group_questions'")
+            if cursor.fetchone() is None:
+                # Old schema – check version
+                cur = conn.execute("SELECT alto_version FROM model_info")
+                row = cur.fetchone()
+                version = row[0] if row else "0.1a"
+                conn.close()
+                if version.startswith("0.1"):
+                    # Auto‑convert 0.1a models
+                    self._migrate_legacy_container(self.db_path, manifest)
+                    # Re‑unpack the new container
+                    self.db_path, manifest = unpack_model(self.container_path, self.temp_dir)
+                else:
+                    conn.close()
+                    raise RuntimeError(f"Model '{name}' uses an unsupported schema.")
+            else:
+                conn.close()
         else:
             legacy_db_path = get_model_db_path(name)
             if legacy_db_path and os.path.isfile(legacy_db_path):
-                self._migrate_legacy(legacy_db_path)
+                # Legacy folder – assume 0.1a, convert
+                self._migrate_legacy_folder(legacy_db_path)
                 self.container_path = get_model_container_path(name)
                 self.db_path, manifest = unpack_model(self.container_path, self.temp_dir)
             else:
@@ -287,20 +381,135 @@ class Model:
         self._group_summaries = None
         self.last_used = time.time()
 
-    def _migrate_legacy(self, legacy_db_path: str):
+    def _migrate_legacy_container(self, old_db_path: str, old_manifest: dict):
+        """Convert an old‑schema .rbm container (0.1a) to the new schema."""
+        new_db_path = os.path.join(self.temp_dir, "new_database.db")
+        new_conn = sqlite3.connect(new_db_path)
+        create_empty_schema(new_conn)
+
+        new_conn.execute(f"ATTACH DATABASE '{old_db_path}' AS old")
+
+        # Copy sections, topics, variants
+        for table in ['sections', 'topics', 'variant_groups', 'variant_words']:
+            new_conn.execute(f"INSERT INTO {table} SELECT * FROM old.{table}")
+
+        # Copy groups with migration
+        now_iso = datetime.datetime.now().isoformat()
+        cur = new_conn.execute("SELECT id, group_name, topic_id, section_id, questions_blob, answers_blob FROM old.groups")
+        for row in cur:
+            gid, gname, tid, sid, q_blob, a_blob = row
+            questions = unpack_array(q_blob)
+            answers = unpack_array(a_blob)
+            answers_compressed = compress_blob(pack_array(answers))
+            new_conn.execute(
+                """INSERT INTO groups
+                   (id, group_name, topic_id, section_id, answers_blob, answer_count, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (gid, gname, tid, sid, answers_compressed, len(answers), now_iso, now_iso)
+            )
+            for idx, q in enumerate(questions):
+                qid = _get_or_create_question_id(new_conn, q)
+                new_conn.execute(
+                    "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
+                    (gid, qid, idx)
+                )
+
+        new_conn.execute("INSERT INTO followup_nodes SELECT * FROM old.followup_nodes")
+
+        # Copy model_info from manifest
+        name = old_manifest.get("name", self.name)
+        desc = old_manifest.get("description", "")
+        author = old_manifest.get("author", "")
+        version = old_manifest.get("version", "1.0.0")
+        alto_ver = old_manifest.get("alto_version", "0.1a")
+        created = old_manifest.get("created_at", now_iso)
+        updated = old_manifest.get("updated_at", now_iso)
+        new_conn.execute(
+            """INSERT INTO model_info
+               (name, description, author, version, alto_version, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, desc, author, version, alto_ver, created, updated)
+        )
+
+        new_conn.execute("DETACH old")
+        new_conn.commit()
+        new_conn.close()
+
+        # Replace the old .rbm
+        new_manifest = get_model_info(sqlite3.connect(new_db_path))
+        folder = find_model_dir(self.name)
+        safe = safe_filename(self.name)
+        new_container_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
+        fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=os.path.dirname(new_container_path))
+        os.close(fd)
+        try:
+            pack_model(new_db_path, new_manifest, tmp_path)
+            os.replace(tmp_path, new_container_path)
+            os.remove(old_db_path)
+            self.container_path = new_container_path
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+
+    def _migrate_legacy_folder(self, legacy_db_path: str):
+        """Convert a legacy .db folder (0.1a) to the new schema."""
         temp_conn = sqlite3.connect(legacy_db_path)
         temp_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         temp_conn.close()
-        conn = sqlite3.connect(legacy_db_path)
-        manifest = get_model_info(conn)
-        conn.close()
+
+        new_db_path = os.path.join(self.temp_dir, "new_database.db")
+        new_conn = sqlite3.connect(new_db_path)
+        create_empty_schema(new_conn)
+
+        new_conn.execute(f"ATTACH DATABASE '{legacy_db_path}' AS old")
+
+        for table in ['sections', 'topics', 'variant_groups', 'variant_words']:
+            new_conn.execute(f"INSERT INTO {table} SELECT * FROM old.{table}")
+
+        now_iso = datetime.datetime.now().isoformat()
+        cur = new_conn.execute("SELECT id, group_name, topic_id, section_id, questions_blob, answers_blob FROM old.groups")
+        for row in cur:
+            gid, gname, tid, sid, q_blob, a_blob = row
+            questions = unpack_array(q_blob)
+            answers = unpack_array(a_blob)
+            answers_compressed = compress_blob(pack_array(answers))
+            new_conn.execute(
+                "INSERT INTO groups (id, group_name, topic_id, section_id, answers_blob, answer_count, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (gid, gname, tid, sid, answers_compressed, len(answers), now_iso, now_iso)
+            )
+            for idx, q in enumerate(questions):
+                qid = _get_or_create_question_id(new_conn, q)
+                new_conn.execute("INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)", (gid, qid, idx))
+
+        new_conn.execute("INSERT INTO followup_nodes SELECT * FROM old.followup_nodes")
+
+        # Read model_info from old
+        cur = new_conn.execute("SELECT name, description, author, version, alto_version, created_at, updated_at FROM old.model_info")
+        row = cur.fetchone()
+        if row:
+            name, desc, author, version, alto_ver, created, updated = row
+        else:
+            name, desc, author, version, alto_ver = self.name, "", "", "1.0.0", "0.1a"
+            created = updated = now_iso
+        new_conn.execute(
+            "INSERT INTO model_info (name, description, author, version, alto_version, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, desc, author, version, alto_ver, created, updated)
+        )
+
+        new_conn.execute("DETACH old")
+        new_conn.commit()
+        new_conn.close()
+
         folder = find_model_dir(self.name)
         safe = safe_filename(self.name)
         container_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
         fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=os.path.dirname(container_path))
         os.close(fd)
         try:
-            pack_model(legacy_db_path, manifest, tmp_path)
+            pack_model(new_db_path, get_model_info(sqlite3.connect(new_db_path)), tmp_path)
             os.replace(tmp_path, container_path)
         except Exception:
             if os.path.exists(tmp_path):
@@ -311,36 +520,13 @@ class Model:
             if os.path.exists(f):
                 os.remove(f)
 
-    def close(self, skip_repack=False):
-        """
-        Close the model and optionally repack into the container.
-        If skip_repack is True, only close the connection and do not save changes.
-        """
-        if self.conn is None:
-            return
-        # Checkpoint and close the database
-        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        self.conn.close()
-        self.conn = None
-
-        if not skip_repack and self.container_path and self.db_path:
-            # Repack only if we are not deleting the model
-            manifest = get_model_info(self.conn)  # FIXME: this will fail because conn is None!
-            # Actually we need to re-open the database to get manifest? No, we already closed it.
-            # Better: get manifest BEFORE closing the connection.
-            # Let's restructure: call get_model_info before closing.
-            pass
-
     def close_and_repack(self):
-        """Close the database connection and pack changes into the container."""
         if self.conn is None:
             return
-        # Get manifest while connection is still alive
         manifest = get_model_info(self.conn)
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         self.conn.close()
         self.conn = None
-        # Pack into container
         fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=os.path.dirname(self.container_path))
         os.close(fd)
         try:
@@ -353,7 +539,6 @@ class Model:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def close_without_repack(self):
-        """Close the database connection without saving changes (used for deletion)."""
         if self.conn is None:
             return
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -365,13 +550,22 @@ class Model:
         cur = self.conn.execute("""
             SELECT g.id, g.group_name,
                    COALESCE(t.name, '') as topic,
-                   COALESCE(s.name, '') as section
+                   COALESCE(s.name, '') as section,
+                   (SELECT GROUP_CONCAT(q.text, '|') FROM group_questions gq JOIN questions q ON gq.question_id = q.id WHERE gq.group_id = g.id ORDER BY gq.sort_order) as questions_text
             FROM groups g
             LEFT JOIN topics t ON g.topic_id = t.id
             LEFT JOIN sections s ON g.section_id = s.id
             ORDER BY g.id
         """)
-        self._group_summaries = [dict(row) for row in cur]
+        self._group_summaries = []
+        for row in cur:
+            self._group_summaries.append({
+                "id": row[0],
+                "group_name": row[1],
+                "topic": row[2],
+                "section": row[3],
+                "questions": row[4].split('|') if row[4] else []
+            })
 
     def get_group_summaries(self) -> List[Dict]:
         self.last_used = time.time()
@@ -385,7 +579,8 @@ class Model:
             SELECT g.id, g.group_name,
                    COALESCE(t.name, '') as topic,
                    COALESCE(s.name, '') as section,
-                   g.question_count, g.answer_count
+                   (SELECT COUNT(*) FROM group_questions WHERE group_id = g.id) as question_count,
+                   g.answer_count
             FROM groups g
             LEFT JOIN topics t ON g.topic_id = t.id
             LEFT JOIN sections s ON g.section_id = s.id
@@ -417,20 +612,31 @@ class Model:
         self.last_used = time.time()
         cur = self.conn.execute("""
             SELECT g.id, g.group_name, g.topic_id, g.section_id,
-                   g.questions_blob, g.answers_blob
+                   g.answers_blob, g.created_at, g.updated_at
             FROM groups g
             WHERE g.id = ?
         """, (group_id,))
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group id {group_id} not found")
+        answers_blob = decompress_blob(row[4])
+        answers = unpack_array(answers_blob)
+        cur_q = self.conn.execute("""
+            SELECT q.text FROM group_questions gq
+            JOIN questions q ON gq.question_id = q.id
+            WHERE gq.group_id = ?
+            ORDER BY gq.sort_order
+        """, (group_id,))
+        questions = [r[0] for r in cur_q]
         group = {
             "id": row[0],
             "group_name": row[1],
             "topic": _get_topic_name(self.conn, row[2]),
             "section": _get_section_name(self.conn, row[3]),
-            "questions": unpack_array(row[4]),
-            "answers": unpack_array(row[5])
+            "questions": questions,
+            "answers": answers,
+            "created_at": row[5],
+            "updated_at": row[6]
         }
         if include_followups:
             group["follow_ups"] = load_followup_tree_full(self.conn, group_id)
@@ -458,6 +664,7 @@ class Model:
             self.conn.rollback()
             raise
 
+    # ---------- Section management (unchanged) ----------
     def add_section(self, name: str) -> int:
         self.last_used = time.time()
         conn = self.conn
@@ -530,6 +737,7 @@ class Model:
             conn.rollback()
             raise
 
+    # ---------- Topic management (unchanged) ----------
     def add_topic(self, name: str, section_name: Optional[str] = None) -> int:
         self.last_used = time.time()
         section_id = _get_section_id(self.conn, section_name) if section_name else None
@@ -612,6 +820,7 @@ class Model:
             })
         return groups
 
+    # ---------- Variant management (unchanged) ----------
     def get_variants(self) -> List[Dict]:
         self.last_used = time.time()
         cur = self.conn.execute("""
@@ -678,6 +887,9 @@ class Model:
         self.conn.execute("DELETE FROM variant_groups WHERE id = ?", (variant_id,))
         self.conn.commit()
 
+# ----------------------------------------------------------------------
+# Global cache
+# ----------------------------------------------------------------------
 _model_cache: OrderedDict[str, Model] = OrderedDict()
 MAX_CACHED_MODELS = 3
 

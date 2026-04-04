@@ -6,6 +6,7 @@ import tempfile
 import hashlib
 import sqlite3
 from abc import ABC, abstractmethod
+from typing import List, Dict, Optional, Any, Tuple
 
 MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
 CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
@@ -73,9 +74,74 @@ def get_db_alto_version(db_path: str) -> str | None:
 
 class BaseLoader(ABC):
     @abstractmethod
-    def get_connection(self, model_name: str) -> sqlite3.Connection:
+    def get_version(self) -> str:
         pass
 
     @abstractmethod
-    def get_version(self) -> str:
+    def get_connection(self, model_name: str) -> sqlite3.Connection:
+        """Return a read‑only SQLite connection (may be used internally)."""
+        pass
+
+    # ----- Group matching (core AI logic) -----
+    @abstractmethod
+    def match_groups(self, text: str, topic_weights: Dict[str, int], threshold: int) -> Tuple[Optional[int], Optional[Dict], int]:
+        """
+        Find the best matching group for the input text.
+        Returns (group_id, group_data, score) or (None, None, 0).
+        group_data should contain at least:
+            - id
+            - group_name
+            - topic
+            - questions (list of str)
+            - answers (list of str)
+        """
+        pass
+
+    @abstractmethod
+    def get_group_answers(self, group_id: int) -> List[str]:
+        pass
+
+    @abstractmethod
+    def get_group_questions(self, group_id: int) -> List[str]:
+        pass
+
+    # ----- Follow‑up trees -----
+    @abstractmethod
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
+        """Return list of root nodes for a group's follow‑up tree (each node has id, branch_name, questions, answers)."""
+        pass
+
+    @abstractmethod
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        pass
+
+    @abstractmethod
+    def get_node_questions(self, node_id: int) -> List[str]:
+        pass
+
+    @abstractmethod
+    def get_node_answers(self, node_id: int) -> List[str]:
+        pass
+
+    @abstractmethod
+    def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
+        """Find best matching node from a list of nodes."""
+        pass
+
+    # ----- Session state helpers -----
+    @abstractmethod
+    def get_topics(self) -> List[str]:
+        pass
+
+    @abstractmethod
+    def get_sections(self) -> List[str]:
+        pass
+
+    @abstractmethod
+    def get_variants(self) -> List[Dict]:
+        pass
+
+    # ----- Variant synonyms -----
+    @abstractmethod
+    def expand_synonyms(self, words: List[str]) -> set:
         pass
