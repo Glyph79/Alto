@@ -1,7 +1,7 @@
 import asyncio
-from backend.engine.handler import process_message as pipeline_process
-from backend.session.session import get_session, save_session
-from backend.config import config
+from ..engine.handler import process_message as pipeline_process
+from ..session.session import get_session, save_session
+from ..config import config
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')

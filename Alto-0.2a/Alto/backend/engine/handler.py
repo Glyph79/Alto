@@ -1,4 +1,4 @@
-from backend.router.router import router
+from ..router.router import router
 
 def process_message(user_message: str, session_state: dict) -> (str, dict):
     """

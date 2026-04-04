@@ -1,8 +1,8 @@
 import time
 import re
 from collections import OrderedDict
-from backend.config import config
-from backend.loaders import get_loader
+from ..config import config
+from ..loaders import get_loader
 
 DEBUG = True
 
@@ -128,7 +128,6 @@ class RuleBot:
         if "active_trees" not in state:
             state["active_trees"] = {}
 
-        # Normalize words (same regex as loader)
         def norm_word(w):
             return re.sub(r'[^\w\s]', '', w.lower())
         words = [norm_word(w) for w in text.split() if w]
@@ -144,7 +143,7 @@ class RuleBot:
             tree = SessionTree(self.loader, gid, path)
             candidates = tree.candidates(path)
             debug_print(f"   Candidates: {[c.get('branch_name', 'unnamed') for c in candidates]}")
-            node, score = self.loader.match_nodes(text, candidates, self.threshold)  # fixed order
+            node, score = self.loader.match_nodes(text, candidates, self.threshold)
             if node and score >= self.threshold:
                 new_path = tree.move_to(node["id"], path)
                 debug_print(f"✅ Matched node in existing tree, new path {new_path}")
@@ -162,7 +161,7 @@ class RuleBot:
                 if group_data["topic"]:
                     self._update_topics(state["topics"], group_data["topic"])
                 tree = SessionTree(self.loader, gid)
-                node, root_score = self.loader.match_nodes(text, tree.roots(), self.threshold)  # fixed order
+                node, root_score = self.loader.match_nodes(text, tree.roots(), self.threshold)
                 if node and root_score >= self.threshold:
                     debug_print(f"  ➡️ Also matched root node '{node.get('branch_name', 'unnamed')}' (score {root_score})")
                     tree.ensure_answers(node["id"])

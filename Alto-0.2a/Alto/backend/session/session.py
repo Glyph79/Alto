@@ -4,7 +4,7 @@ import time
 import threading
 import heapq
 from typing import Dict, Tuple, Optional
-from backend.config import config
+from ..config import config
 
 HOT_TIMEOUT = config.getint('session', 'hot_timeout')
 COLD_TIMEOUT = config.getint('session', 'cold_timeout')
