@@ -7,6 +7,7 @@ DEFAULT_CONFIG = {
         'models_dir': 'models',
         'sessions_dir': 'sessions',
         'fallback': "I'm sorry, I didn't understand that.",
+        'serve_webui': 'True',          # added
     },
     'stream': {
         'by_char': 'True',
@@ -20,7 +21,7 @@ DEFAULT_CONFIG = {
         'hot_timeout': '5',
         'cold_timeout': '10',
         'cleanup_interval': '1',
-        'max_active_trees': '3',          # added
+        'max_active_trees': '3',
     },
     'ai': {
         'max_topics': '3',
@@ -36,7 +37,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "backend_config.cfg")
 def load_config():
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
-        # New install: create file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -47,7 +47,6 @@ def load_config():
                     config.set(section, key, val)
         save_config(config)
     else:
-        # Existing file: read it, then apply defaults in memory only (no save)
         config.read(CONFIG_PATH)
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
@@ -60,7 +59,6 @@ def load_config():
                 for key, val in options.items():
                     if not config.has_option(section, key):
                         config.set(section, key, val)
-        # IMPORTANT: No call to save_config() here – file remains unchanged
     return config
 
 def save_config(config):

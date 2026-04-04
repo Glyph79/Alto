@@ -4,42 +4,21 @@ import uuid
 import json
 from backend.layer.layer import process_message
 from backend.auth.auth import register_user, authenticate_user, user_exists
+from backend.config import config
 
 # Absolute path to the directory containing this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Absolute paths to static subdirectories
-STATIC_CHAT_DIR = os.path.join(BASE_DIR, 'static', 'chat')
-STATIC_LOGIN_DIR = os.path.join(BASE_DIR, 'static', 'login')
+# Read the flag from config (default True for backward compatibility)
+SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
 
-# Use absolute static_folder for Quart's default static handling
-app = Quart(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
+# Frontend directory (only used if SERVE_WEBUI is True)
+FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 
-# Serve chat page – only if authenticated
-@app.route('/chat')
-async def chat_page():
-    user_id = request.cookies.get('user_id')
-    if user_id and user_id.isdigit():
-        if user_exists(int(user_id)):
-            return await send_from_directory(STATIC_CHAT_DIR, 'index.html')
-    # Not authenticated → redirect to login
-    return redirect('/')
+# Create Quart app without default static folder – we'll serve static files manually if needed
+app = Quart(__name__, static_folder=None)
 
-# Serve login page (root)
-@app.route('/')
-async def login_page():
-    return await send_from_directory(STATIC_LOGIN_DIR, 'index.html')
-
-# Serve static files from chat and login subfolders
-@app.route('/static/chat/<path:filename>')
-async def chat_static(filename):
-    return await send_from_directory(STATIC_CHAT_DIR, filename)
-
-@app.route('/static/login/<path:filename>')
-async def login_static(filename):
-    return await send_from_directory(STATIC_LOGIN_DIR, filename)
-
-# Authentication endpoints
+# ---------- API endpoints (always available) ----------
 @app.route('/api/register', methods=['POST'])
 async def register():
     data = await request.get_json()
@@ -79,7 +58,6 @@ async def logout():
     resp.set_cookie('user_id', '', expires=0)
     return resp
 
-# Optional endpoint for client‑side session checks (e.g., during long‑lived sessions)
 @app.route('/api/check-session', methods=['GET'])
 async def check_session():
     user_id = request.cookies.get('user_id')
@@ -88,7 +66,6 @@ async def check_session():
             return {"valid": True}, 200
     return {"valid": False}, 401
 
-# Chat endpoint (POST)
 @app.route('/chat', methods=['POST'])
 async def chat():
     data = await request.get_json()
@@ -103,9 +80,7 @@ async def chat():
     user_id = request.cookies.get('user_id')
     if user_id:
         user_id = int(user_id)
-        # Validate that the user still exists
         if not user_exists(user_id):
-            # Invalid user, clear cookies and return 401 with special flag
             response_data = {"error": "invalid_user"}
             resp = Response(json.dumps(response_data), status=401, mimetype='application/json')
             resp.set_cookie('session_id', '', expires=0)
@@ -124,11 +99,6 @@ async def chat():
         response.set_cookie('user_id', str(user_id))
     return response
 
-# ========== Network Visualizer ==========
-@app.route('/network')
-async def network_page():
-    return await send_from_directory(os.path.join(BASE_DIR, 'static', 'network'), 'index.html')
-
 @app.route('/api/network')
 async def network_data():
     from backend.engine.ai_engine import RuleBot
@@ -138,16 +108,14 @@ async def network_data():
     model_name = config.get('DEFAULT', 'default_model')
     try:
         bot = RuleBot(model=model_name)
-        conn = bot.loader.get_connection(model_name)   # read‑only connection
+        conn = bot.loader.get_connection(model_name)
     except FileNotFoundError:
-        # No model found – return empty graph with a friendly message
         return {
             "nodes": [],
             "links": [],
             "message": "No model found. Please create a model using the Alto Trainer."
         }
     except Exception as e:
-        # Other error – also return empty graph with error message
         return {
             "nodes": [],
             "links": [],
@@ -171,7 +139,6 @@ async def network_data():
             "section": section
         })
 
-    # Groups as nodes
     cur = conn.execute("""
         SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, COALESCE(s.name, '') as section
         FROM groups g
@@ -185,7 +152,6 @@ async def network_data():
         add_node(group_id, row['group_name'], 'group', row['topic'], row['section'])
         groups.append((row['id'], group_id))
 
-    # Follow-up nodes and links
     cur = conn.execute("""
         SELECT id, group_id, parent_id, branch_name
         FROM followup_nodes
@@ -200,7 +166,6 @@ async def network_data():
         add_node(node_id, row['branch_name'] or 'Unnamed', node_type)
         followup_nodes[row['id']] = (node_id, group_id, parent_id)
 
-    # Create links: group -> root nodes, and parent -> child
     for fn_id, (node_id, group_id, parent_id) in followup_nodes.items():
         if parent_id is None:
             links.append({"source": group_id, "target": node_id})
@@ -208,6 +173,40 @@ async def network_data():
             links.append({"source": parent_id, "target": node_id})
 
     return {"nodes": nodes, "links": links, "message": None}
+
+# ---------- Web UI routes (only if enabled) ----------
+if SERVE_WEBUI:
+    # Serve login page (root)
+    @app.route('/')
+    async def login_page():
+        return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'login'), 'index.html')
+
+    # Serve chat page
+    @app.route('/chat', methods=['GET'])
+    async def chat_page():
+        user_id = request.cookies.get('user_id')
+        if user_id and user_id.isdigit():
+            if user_exists(int(user_id)):
+                return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'chat'), 'index.html')
+        return redirect('/')
+
+    # Serve network visualizer page
+    @app.route('/network')
+    async def network_page():
+        return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'network'), 'index.html')
+
+    # Serve static assets for chat, login, network
+    @app.route('/static/chat/<path:filename>')
+    async def chat_static(filename):
+        return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'chat'), filename)
+
+    @app.route('/static/login/<path:filename>')
+    async def login_static(filename):
+        return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'login'), filename)
+
+    @app.route('/static/network/<path:filename>')
+    async def network_static(filename):
+        return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'network'), filename)
 
 if __name__ == '__main__':
     app.run(debug=True)
