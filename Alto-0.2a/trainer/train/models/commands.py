@@ -147,7 +147,14 @@ def cmd_rename_model(name: str, new_name: str, **kwargs) -> Dict:
     return {"status": "ok", "old_name": name, "new_name": new_name}
 
 def cmd_get_model_container_path(name: str, **kwargs) -> Dict:
-    """Return the path to the .rbm container file for a model."""
+    """
+    Return the path to the .rbm container file for a model,
+    ensuring it is up‑to‑date by flushing any cached changes.
+    """
+    if name in _model_cache:
+        model = _model_cache.pop(name)
+        model.close_and_repack()
+
     container_path = get_model_container_path(name)
     if not container_path or not os.path.isfile(container_path):
         return {"error": f"Model '{name}' not found or container missing"}

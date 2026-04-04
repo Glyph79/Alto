@@ -1,137 +1,18 @@
 import os
 import re
-import json
-import tarfile
-import tempfile
-import hashlib
-import sqlite3
 import time
+import sqlite3
 import msgpack
-import sys
 from collections import OrderedDict
 from fuzzywuzzy import fuzz
 from alto.config import config
+from alto.loaders import get_loader
 
-# Current version of the Alto AI engine (must match trainer's ALTO_VERSION)
-ALTO_VERSION = "0.2a"
+DEBUG = True   # set to False to disable debug prints
 
-MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
-# Cache directory for extracted databases (separate from trainer's temp dir)
-CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
-os.makedirs(CACHE_ROOT, exist_ok=True)
-
-# --- Helpers for container handling (self-contained) ---
-def safe_filename(name: str) -> str:
-    return re.sub(r'[^\w\-]', '_', name)
-
-def find_model_dir(model_name: str):
-    """Find the folder containing the model's .rbm container (or legacy .db)."""
-    safe = safe_filename(model_name)
-    if not os.path.exists(MODELS_BASE_DIR):
-        return None
-    for entry in os.listdir(MODELS_BASE_DIR):
-        full_path = os.path.join(MODELS_BASE_DIR, entry)
-        if not os.path.isdir(full_path):
-            continue
-        if entry.endswith('_' + safe):
-            return entry
-    return None
-
-def get_model_container_path(model_name: str):
-    folder = find_model_dir(model_name)
-    if not folder:
-        return None
-    safe = safe_filename(model_name)
-    candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
-    if os.path.isfile(candidate):
-        return candidate
-    # fallback: any .rbm in the folder
-    for f in os.listdir(os.path.join(MODELS_BASE_DIR, folder)):
-        if f.endswith('.rbm'):
-            return os.path.join(MODELS_BASE_DIR, folder, f)
-    return None
-
-def get_legacy_db_path(model_name: str):
-    """Find a legacy .db file (old format)."""
-    folder = find_model_dir(model_name)
-    if not folder:
-        return None
-    safe = safe_filename(model_name)
-    candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
-    if os.path.isfile(candidate):
-        return candidate
-    # fallback: any .db in the folder
-    for f in os.listdir(os.path.join(MODELS_BASE_DIR, folder)):
-        if f.endswith('.db'):
-            return os.path.join(MODELS_BASE_DIR, folder, f)
-    return None
-
-def read_manifest(container_path: str):
-    try:
-        with tarfile.open(container_path, 'r') as tar:
-            member = tar.getmember('manifest.json')
-            with tar.extractfile(member) as f:
-                return json.load(f)
-    except:
-        return None
-
-def get_cached_db_path(model_name: str) -> str:
-    """
-    Returns a path to an extracted database file for the model.
-    Prefers .rbm container; falls back to legacy .db with warning.
-    """
-    container_path = get_model_container_path(model_name)
-    if container_path and os.path.isfile(container_path):
-        # Use container
-        mtime = os.path.getmtime(container_path)
-        key = hashlib.md5(f"{model_name}_{mtime}".encode()).hexdigest()[:16]
-        cache_dir = os.path.join(CACHE_ROOT, model_name, key)
-        db_path = os.path.join(cache_dir, "database.db")
-        if os.path.isfile(db_path) and os.path.getmtime(db_path) >= mtime:
-            return db_path
-        os.makedirs(cache_dir, exist_ok=True)
-        with tarfile.open(container_path, 'r') as tar:
-            tar.extractall(cache_dir)
-        if not os.path.isfile(db_path):
-            raise RuntimeError(f"Extraction failed: {db_path} missing")
-        return db_path
-
-    # Fallback to legacy .db
-    legacy_path = get_legacy_db_path(model_name)
-    if legacy_path and os.path.isfile(legacy_path):
-        print(f"⚠️ Model '{model_name}' is using the old .db format. "
-              "Please convert it to the new .rbm format using the Alto Trainer for better compatibility.",
-              file=sys.stderr)
-        return legacy_path
-
-    raise FileNotFoundError(f"Model '{model_name}' not found (no .rbm or .db)")
-
-def get_db_alto_version(db_path: str) -> str | None:
-    """Read alto_version from the database, return None if not found."""
-    try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur = conn.execute("SELECT alto_version FROM model_info")
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
-    except Exception:
-        return None
-
-# --- Original AI engine code below, with modifications ---
-def _get_db_path(model_name: str) -> str | None:
-    """Return path to a read‑only database (extracted from .rbm or legacy .db)."""
-    try:
-        db_path = get_cached_db_path(model_name)
-        # Check version compatibility
-        db_version = get_db_alto_version(db_path)
-        if db_version and db_version != ALTO_VERSION:
-            print(f"⚠️ Model '{model_name}' was created with Alto version {db_version}, "
-                  f"but the current engine is version {ALTO_VERSION}. "
-                  "Some features may not work correctly.",
-                  file=sys.stderr)
-        return db_path
-    except FileNotFoundError:
-        return None
+def debug_print(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
 
 def _unpack(data: bytes) -> list:
     return msgpack.unpackb(data, raw=False)
@@ -166,6 +47,7 @@ def _expand_synonyms(conn, words: list) -> set:
             expanded.update(r[0] for r in rows)
         else:
             expanded.add(w)
+    debug_print(f"🔍 Expanded synonyms: {words} -> {expanded}")
     return expanded
 
 def _load_node_answers(conn, node_id):
@@ -263,14 +145,11 @@ class RuleBot:
         self.conn = None
         self.threshold = threshold if threshold is not None else config.getint('ai', 'threshold')
         self.fallback = config.get('DEFAULT', 'fallback')
-        model = model or self.DEFAULT
-        db_path = _get_db_path(model)
-        if not db_path or not os.path.isfile(db_path):
-            raise FileNotFoundError(f"Model '{model}' not found")
-        # Open database read-only
-        self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
-        self.conn.execute("PRAGMA query_only = 1")
-        self.conn.row_factory = sqlite3.Row
+        self.model_name = model or self.DEFAULT
+        debug_print(f"🤖 Initializing RuleBot with model '{self.model_name}', threshold={self.threshold}")
+        loader = get_loader(self.model_name)
+        self.conn = loader.get_connection(self.model_name)
+        debug_print(f"✅ Loader {loader.get_version()} provided connection")
         self._group_cache = OrderedDict()
 
     def close(self):
@@ -318,7 +197,7 @@ class RuleBot:
             new_topics = dict(sorted_topics[:MAX_TOPICS])
             session_topics.clear()
             session_topics.update(new_topics)
-        print(f"📈 Updated topic weights: {session_topics}")
+        debug_print(f"📈 Updated topic weights: {session_topics}")
 
     def _match_score_in_nodes(self, text: str, nodes: list) -> tuple[int, dict | None]:
         best_score = 0
@@ -331,7 +210,7 @@ class RuleBot:
                     best_score = score
                     best_node = node
         if best_node:
-            print(f"  📌 Node '{best_node.get('branch_name', 'unnamed')}' score: {best_score}")
+            debug_print(f"  📌 Node '{best_node.get('branch_name', 'unnamed')}' score: {best_score}")
         if best_score >= self.threshold:
             return best_score, best_node
         return 0, None
@@ -348,7 +227,7 @@ class RuleBot:
                     base_score = score
             boost = topic_weights.get(group["topic"], 0)
             final_score = base_score + boost
-            print(f"  📊 Group '{group['group_name']}' (topic: '{group['topic']}') base: {base_score}, boost: {boost}, final: {final_score}")
+            debug_print(f"  📊 Group '{group['group_name']}' (topic: '{group['topic']}') base: {base_score}, boost: {boost}, final: {final_score}")
             if final_score > best_score:
                 best_score = final_score
                 best_group = group
@@ -361,14 +240,14 @@ class RuleBot:
             return
         oldest = min(active_trees.items(), key=lambda kv: kv[1]["last_used"])
         del active_trees[oldest[0]]
-        print(f"🗑 Evicted LRU tree for group {oldest[0]} (max {max_trees} trees)")
+        debug_print(f"🗑 Evicted LRU tree for group {oldest[0]} (max {max_trees} trees)")
 
     def get_response(self, text, state=None):
         if state is None:
             state = {}
 
-        print(f"\n--- Incoming message: '{text}' ---")
-        print(f"Current state: {state}")
+        debug_print(f"\n--- Incoming message: '{text}' ---")
+        debug_print(f"Current state: {state}")
 
         if "topics" not in state:
             state["topics"] = {}
@@ -381,15 +260,17 @@ class RuleBot:
         MAX_ACTIVE_TREES = config.getint('session', 'max_active_trees')
 
         # Step 1: Check all active trees for a match
+        debug_print(f"🔍 Checking {len(state['active_trees'])} active trees")
         for gid, tree_info in list(state["active_trees"].items()):
             path = tree_info["path"]
-            print(f"🔄 Checking active tree group {gid}, path {path}")
+            debug_print(f"🔄 Checking active tree group {gid}, path {path}")
             tree = SessionTree(self.conn, gid, path)
             candidates = tree.candidates(path)
+            debug_print(f"   Candidates: {[c.get('branch_name', 'unnamed') for c in candidates]}")
             score, node = self._match_score_in_nodes(text, candidates)
             if node and score >= self.threshold:
                 new_path = tree.move_to(node["id"], path)
-                print(f"✅ Matched node in existing tree, new path {new_path}")
+                debug_print(f"✅ Matched node in existing tree, new path {new_path}")
                 tree.ensure_answers(node["id"])
                 state["active_trees"][gid] = {"path": new_path, "last_used": now}
                 return self._random_answer(node), state
@@ -397,74 +278,83 @@ class RuleBot:
         # Step 2: No active tree matched – search all groups via FTS
         if exp:
             match = ' OR '.join(f'"{w}"' for w in exp)
+            debug_print(f"🔎 FTS query: {match}")
             cur = self.conn.execute(
                 "SELECT DISTINCT group_id FROM questions_fts WHERE questions_fts MATCH ?", (match,)
             )
             gids = [r[0] for r in cur]
+            debug_print(f"   FTS returned {len(gids)} group IDs: {gids}")
             if gids:
                 placeholders = ','.join(['?'] * len(gids))
-                cur = self.conn.execute(
-                    f"""SELECT g.id, g.group_name, COALESCE(t.name, '') as topic,
-                               g.questions_blob
-                        FROM groups g
-                        LEFT JOIN topics t ON g.topic_id = t.id
-                        WHERE g.id IN ({placeholders})""",
-                    gids
-                )
+                query = f"""SELECT g.id, g.group_name, COALESCE(t.name, '') as topic,
+                                  g.questions_blob
+                           FROM groups g
+                           LEFT JOIN topics t ON g.topic_id = t.id
+                           WHERE g.id IN ({placeholders})"""
+                cur = self.conn.execute(query, gids)
                 groups = [_group_light(row) for row in cur]
-                print("🔎 Searching groups...")
+                debug_print(f"   Loaded {len(groups)} groups")
+                debug_print(f"   Current topic weights: {state['topics']}")
                 score, group = self._match_score_in_groups(text, groups, state["topics"])
                 if group and score >= self.threshold:
                     gid = group["id"]
-                    print(f"✅ Matched group '{group['group_name']}' (final score {score})")
+                    debug_print(f"✅ Matched group '{group['group_name']}' (final score {score} >= threshold {self.threshold})")
                     if group["topic"]:
                         self._update_topics(state["topics"], group["topic"])
                     tree = SessionTree(self.conn, gid)
                     root_score, root = self._match_score_in_nodes(text, tree.roots())
                     if root and root_score >= self.threshold:
-                        print(f"  ➡️ Also matched root node '{root.get('branch_name', 'unnamed')}' (score {root_score})")
+                        debug_print(f"  ➡️ Also matched root node '{root.get('branch_name', 'unnamed')}' (score {root_score})")
                         tree.ensure_answers(root["id"])
                         if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
                             self._evict_lru_tree(state["active_trees"], MAX_ACTIVE_TREES)
                         state["active_trees"][gid] = {"path": [root["id"]], "last_used": now}
                         return self._random_answer(root), state
                     else:
+                        debug_print(f"  ➡️ No root node matched, using group answer")
                         if group["answers"] is None:
                             group["answers"] = _load_group_answers(self.conn, gid)
                         if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
                             self._evict_lru_tree(state["active_trees"], MAX_ACTIVE_TREES)
                         state["active_trees"][gid] = {"path": [], "last_used": now}
                         return self._random_answer(group), state
+                else:
+                    debug_print(f"   No group matched with score >= {self.threshold} (best score: {score})")
+            else:
+                debug_print("   FTS returned no matching groups")
+        else:
+            debug_print("   No expanded synonyms to search with FTS")
 
-        print("❌ No match found, using fallback")
+        debug_print("❌ No match found, using fallback")
         return self.fallback, state
 
     def _random_answer(self, obj):
         if obj.get("answers"):
-            return obj["answers"][0]  # deterministic first answer
+            return obj["answers"][0]
         return self.fallback
 
 def handle(text, state=None):
     global _bot
     try:
         if _bot is None:
+            debug_print("🔄 Creating new RuleBot instance")
             _bot = RuleBot()
     except FileNotFoundError as e:
-        print(f"⚠️ Model not found: {e}")
+        debug_print(f"⚠️ Model not found: {e}")
         return f"Model '{RuleBot.DEFAULT}' not found. Please create a model using the Alto Trainer.", state
     except Exception as e:
-        print(f"⚠️ Exception while creating bot: {e}")
+        debug_print(f"⚠️ Exception while creating bot: {e}")
         return "I'm sorry, I encountered an error. Please try again later.", state
 
     try:
         return _bot.get_response(text, state)
     except Exception as e:
-        print(f"⚠️ Exception: {e}")
+        debug_print(f"⚠️ Exception: {e}")
         try:
             _bot = RuleBot()
             return _bot.get_response(text, state)
         except Exception as e2:
-            print(f"⚠️ Second exception: {e2}")
+            debug_print(f"⚠️ Second exception: {e2}")
             return "I'm sorry, I encountered an error. Please try again later.", state
 
 _bot = None
