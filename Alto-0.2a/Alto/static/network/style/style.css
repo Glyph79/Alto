@@ -114,3 +114,55 @@ svg:active {
     height: 12px;
     border-radius: 50%;
 }
+
+/* No model card – unclosable, styled like trainer cards */
+.no-model-card {
+    background: #252547;
+    border: 1px solid #2d2d5a;
+    border-radius: 12px;
+    padding: 24px;
+    margin: 40px auto;
+    max-width: 500px;
+    text-align: center;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    animation: fadeIn 0.3s ease;
+}
+
+.no-model-card .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.no-model-card .card-icon {
+    font-size: 32px;
+}
+
+.no-model-card h3 {
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: #ffaa66;
+    margin: 0;
+}
+
+.no-model-card .card-content p {
+    color: #ccc;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 12px 0;
+}
+
+.no-model-card .card-hint {
+    font-size: 0.85rem;
+    color: #888;
+    border-top: 1px solid #2d2d5a;
+    padding-top: 12px;
+    margin-top: 12px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

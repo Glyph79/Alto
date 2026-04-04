@@ -1,7 +1,7 @@
 import asyncio
-from alto.core.handler import process_message as pipeline_process
-from alto.session.session import get_session, save_session
-from alto.config import config
+from backend.engine.handler import process_message as pipeline_process
+from backend.session.session import get_session, save_session
+from backend.config import config
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')

@@ -2,8 +2,8 @@ import os
 from quart import Quart, request, Response, send_from_directory, redirect, url_for
 import uuid
 import json
-from alto.layer.layer import process_message
-from alto.auth.auth import register_user, authenticate_user, user_exists
+from backend.layer.layer import process_message
+from backend.auth.auth import register_user, authenticate_user, user_exists
 
 # Absolute path to the directory containing this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -131,16 +131,29 @@ async def network_page():
 
 @app.route('/api/network')
 async def network_data():
-    from alto.core.ai_engine import _get_db_path
-    from alto.config import config
+    from backend.engine.ai_engine import RuleBot
+    from backend.config import config
     import sqlite3
 
     model_name = config.get('DEFAULT', 'default_model')
-    db_path = _get_db_path(model_name)
-    if not db_path:
-        return {"error": f"Model '{model_name}' not found"}, 404
+    try:
+        bot = RuleBot(model=model_name)
+        conn = bot.loader.get_connection(model_name)   # read‑only connection
+    except FileNotFoundError:
+        # No model found – return empty graph with a friendly message
+        return {
+            "nodes": [],
+            "links": [],
+            "message": "No model found. Please create a model using the Alto Trainer."
+        }
+    except Exception as e:
+        # Other error – also return empty graph with error message
+        return {
+            "nodes": [],
+            "links": [],
+            "message": f"Error loading model: {str(e)}"
+        }
 
-    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     nodes = []
     links = []
@@ -194,8 +207,7 @@ async def network_data():
         else:
             links.append({"source": parent_id, "target": node_id})
 
-    conn.close()
-    return {"nodes": nodes, "links": links}
+    return {"nodes": nodes, "links": links, "message": None}
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -6,7 +6,7 @@ import sqlite3
 import json
 import os
 from fuzzywuzzy import fuzz
-from alto.config import config
+from backend.config import config
 
 ROUTER_THRESHOLD = config.getint('router', 'threshold')
 MIN_WORD_SCORE = config.getint('router', 'min_word_score')
@@ -144,11 +144,11 @@ class Router:
                 return module.handle(text, state)
             except Exception as e:
                 print(f"--- Router: module '{module.__name__}' raised error: {e}")
-                from alto.core.ai_engine import handle as fallback_handle
+                from backend.engine.ai_engine import handle as fallback_handle
                 return fallback_handle(text, state)
         else:
             print("--- Router: no module matched, falling back to bot")
-            from alto.core.ai_engine import handle as fallback_handle
+            from backend.engine.ai_engine import handle as fallback_handle
             return fallback_handle(text, state)
 
 router = Router()

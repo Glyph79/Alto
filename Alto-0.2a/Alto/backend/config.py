@@ -31,7 +31,7 @@ DEFAULT_CONFIG = {
     }
 }
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "alto_config.cfg")
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "backend_config.cfg")
 
 def load_config():
     config = configparser.ConfigParser()

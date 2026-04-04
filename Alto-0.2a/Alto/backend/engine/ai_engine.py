@@ -1,8 +1,8 @@
 import time
 import re
 from collections import OrderedDict
-from alto.config import config
-from alto.loaders import get_loader
+from backend.config import config
+from backend.loaders import get_loader
 
 DEBUG = True
 

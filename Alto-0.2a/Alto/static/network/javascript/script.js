@@ -3,17 +3,56 @@ let nodes = [], links = [];
 let activeTooltip = null;
 let activeTooltipNode = null;
 
+// Helper to show a card when no model or no groups
+function showNoModelCard(message) {
+    const container = document.getElementById('graph-container');
+    // Remove any existing card or svg
+    container.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'no-model-card';
+    card.innerHTML = `
+        <div class="card-header">
+            <span class="card-icon">📁</span>
+            <h3>No Model Loaded</h3>
+        </div>
+        <div class="card-content">
+            <p>${message}</p>
+            <p class="card-hint">Use the <strong>Alto Trainer</strong> to create or import a model.</p>
+        </div>
+    `;
+    container.appendChild(card);
+}
+
+function hideCard() {
+    const container = document.getElementById('graph-container');
+    const existingCard = container.querySelector('.no-model-card');
+    if (existingCard) existingCard.remove();
+}
+
 async function loadNetwork() {
     try {
         const response = await fetch('/api/network');
         if (!response.ok) throw new Error('Failed to load network data');
         const data = await response.json();
+        
+        if (data.message) {
+            showNoModelCard(data.message);
+            return;
+        }
+        
         nodes = data.nodes;
         links = data.links;
+        
+        if (nodes.length === 0) {
+            showNoModelCard('The current model has no groups or follow‑up trees.');
+            return;
+        }
+        
+        hideCard();
         renderTreeLayout();
     } catch (err) {
         console.error(err);
-        document.getElementById('graph-container').innerHTML = `<div style="color:#ff6b9d; text-align:center; padding:40px;">Error loading network: ${err.message}</div>`;
+        showNoModelCard(`Error loading network: ${err.message}`);
     }
 }
 
@@ -43,7 +82,6 @@ function renderTreeLayout() {
 
     zoom = d3.zoom().on('zoom', (event) => {
         g.attr('transform', event.transform);
-        // Update tooltip position on zoom/pan
         updateTooltipPosition();
     });
 
@@ -53,13 +91,11 @@ function renderTreeLayout() {
         .attr('height', height)
         .call(zoom);
 
-    // Prevent middle‑mouse button default behavior
     svg.on('mousedown', (event) => {
         if (event.button === 1) {
             event.preventDefault();
             return false;
         }
-        // Hide tooltip when dragging starts
         hideTooltip();
     }).on('contextmenu', (event) => {
         event.preventDefault();
@@ -67,7 +103,6 @@ function renderTreeLayout() {
 
     g = svg.append('g');
 
-    // Build hierarchy
     const nodeMap = new Map();
     nodes.forEach(n => {
         nodeMap.set(n.id, { ...n, children: [] });
@@ -117,7 +152,6 @@ function renderTreeLayout() {
     const posMap = new Map();
     positionedNodes.forEach(n => posMap.set(n.id, n));
 
-    // Draw links
     g.append('g')
         .attr('class', 'links')
         .selectAll('line')
@@ -129,7 +163,6 @@ function renderTreeLayout() {
         .attr('x2', d => posMap.get(d.target)?.x ?? 0)
         .attr('y2', d => posMap.get(d.target)?.y ?? 0);
 
-    // Draw nodes
     const nodeGroup = g.append('g')
         .attr('class', 'nodes')
         .selectAll('g')
@@ -148,26 +181,19 @@ function renderTreeLayout() {
         .attr('stroke', '#fff')
         .attr('stroke-width', 1.5);
 
-    // Tooltips with dynamic positioning
     nodeGroup.on('mouseenter', function(event, d) {
-        // Hide any existing tooltip
         hideTooltip();
-        // Store the current node element
         activeTooltipNode = d3.select(this);
-        // Create tooltip
         activeTooltip = d3.select('body').append('div')
             .attr('class', 'tooltip')
             .html(`<strong>${d.name}</strong><br>Type: ${d.type}${d.topic ? '<br>Topic: '+d.topic : ''}${d.section ? '<br>Section: '+d.section : ''}`);
-        // Position it initially
         updateTooltipPosition();
-        // Highlight circle
         d3.select(this).select('circle').attr('stroke-width', 2.5);
     }).on('mouseleave', function() {
         hideTooltip();
         d3.select(this).select('circle').attr('stroke-width', 1.5);
     });
 
-    // Auto‑fit and default zoom
     const minX = d3.min(positionedNodes, d => d.x);
     const maxX = d3.max(positionedNodes, d => d.x);
     const minY = d3.min(positionedNodes, d => d.y);

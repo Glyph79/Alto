@@ -15,7 +15,8 @@ os.makedirs(CACHE_ROOT, exist_ok=True)
 def safe_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name)
 
-def find_model_dir(model_name: str):
+def find_model_dir(model_name: str) -> Optional[str]:
+    """Find the folder containing the model, if any."""
     safe = safe_filename(model_name)
     if not os.path.exists(MODELS_BASE_DIR):
         return None
@@ -23,34 +24,49 @@ def find_model_dir(model_name: str):
         full_path = os.path.join(MODELS_BASE_DIR, entry)
         if not os.path.isdir(full_path):
             continue
-        if entry.endswith('_' + safe):
+        # Accept any folder name that contains the safe name (legacy: ends with _safe)
+        if entry.endswith('_' + safe) or safe in entry:
             return entry
     return None
 
-def get_model_container_path(model_name: str):
-    folder = find_model_dir(model_name)
-    if not folder:
-        return None
+def get_model_container_path(model_name: str) -> Optional[str]:
+    """Return the path to the .rbm container, supporting both flat and folder structures."""
     safe = safe_filename(model_name)
-    candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
-    if os.path.isfile(candidate):
-        return candidate
-    for f in os.listdir(os.path.join(MODELS_BASE_DIR, folder)):
-        if f.endswith('.rbm'):
-            return os.path.join(MODELS_BASE_DIR, folder, f)
+    # 1. Check flat file in models/ directly
+    flat_path = os.path.join(MODELS_BASE_DIR, f"{safe}.rbm")
+    if os.path.isfile(flat_path):
+        return flat_path
+    # 2. Check inside a subfolder
+    folder = find_model_dir(model_name)
+    if folder:
+        candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
+        if os.path.isfile(candidate):
+            return candidate
+        # Fallback: any .rbm file inside the folder (first found)
+        folder_path = os.path.join(MODELS_BASE_DIR, folder)
+        for f in os.listdir(folder_path):
+            if f.endswith('.rbm'):
+                return os.path.join(folder_path, f)
     return None
 
-def get_legacy_db_path(model_name: str):
-    folder = find_model_dir(model_name)
-    if not folder:
-        return None
+def get_legacy_db_path(model_name: str) -> Optional[str]:
+    """Return the path to a legacy .db file, supporting both flat and folder structures."""
     safe = safe_filename(model_name)
-    candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
-    if os.path.isfile(candidate):
-        return candidate
-    for f in os.listdir(os.path.join(MODELS_BASE_DIR, folder)):
-        if f.endswith('.db'):
-            return os.path.join(MODELS_BASE_DIR, folder, f)
+    # 1. Check flat file in models/ directly
+    flat_path = os.path.join(MODELS_BASE_DIR, f"{safe}.db")
+    if os.path.isfile(flat_path):
+        return flat_path
+    # 2. Check inside a subfolder
+    folder = find_model_dir(model_name)
+    if folder:
+        candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
+        if os.path.isfile(candidate):
+            return candidate
+        # Fallback: any .db file inside the folder (first found)
+        folder_path = os.path.join(MODELS_BASE_DIR, folder)
+        for f in os.listdir(folder_path):
+            if f.endswith('.db'):
+                return os.path.join(folder_path, f)
     return None
 
 def read_manifest(container_path: str):
