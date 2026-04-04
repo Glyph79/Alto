@@ -317,25 +317,31 @@ async def delete_variant(name, variant_id):
     return jsonify({"status": "ok"})
 
 # ========== Import/Export ==========
-@app.route('/api/models/import-db', methods=['POST'])
-async def import_db():
+@app.route('/api/models/import', methods=['POST'])
+async def import_model():
+    """Import a .db or .rbm file."""
     files = await request.files
     if 'file' not in files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = files['file']
-    if not file.filename.endswith('.db'):
-        return jsonify({'error': 'File must be a .db file'}), 400
+    filename = file.filename.lower()
+    if not (filename.endswith('.db') or filename.endswith('.rbm')):
+        return jsonify({'error': 'File must be .db or .rbm'}), 400
 
     form = await request.form
     custom_name = form.get('name', '').strip()
     overwrite = form.get('overwrite', '').lower() == 'true'
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
         content = file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
-    result = await send_command("import-db", file=tmp_path, name=custom_name, overwrite=overwrite)
+    if filename.endswith('.rbm'):
+        result = await send_command("import-rbm", file=tmp_path, name=custom_name, overwrite=overwrite)
+    else:
+        result = await send_command("import-db", file=tmp_path, name=custom_name, overwrite=overwrite)
+
     os.unlink(tmp_path)
 
     if "error" in result:
@@ -343,16 +349,17 @@ async def import_db():
         return jsonify(result), status
     return jsonify(result)
 
-@app.route('/api/models/<name>/export-db', methods=['GET'])
-async def export_db(name):
-    result = await send_command("get-model-db-path", name=name)
+@app.route('/api/models/<name>/export', methods=['GET'])
+async def export_model(name):
+    """Export the full .rbm container."""
+    result = await send_command("get-model-container-path", name=name)
     if "error" in result:
         return jsonify(result), 404
-    db_path = result["path"]
+    container_path = result["path"]
     return await send_file(
-        db_path,
-        mimetype='application/vnd.sqlite3',
-        attachment_filename=f'{name}.db',
+        container_path,
+        mimetype='application/x-tar',
+        attachment_filename=f'{name}.rbm',
         as_attachment=True
     )
 

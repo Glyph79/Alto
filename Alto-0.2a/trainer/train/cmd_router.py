@@ -1,9 +1,9 @@
 """Router that assembles the COMMANDS dictionary from all command modules."""
 from train.models.commands import (
     cmd_list_models, cmd_create_model, cmd_get_model, cmd_update_model,
-    cmd_delete_model, cmd_rename_model, cmd_get_model_db_path
+    cmd_delete_model, cmd_rename_model, cmd_get_model_container_path
 )
-from train.models.utils import cmd_import_db
+from train.models.utils import cmd_import_db, cmd_import_rbm
 from train.groups.commands import (
     cmd_add_group, cmd_update_group, cmd_delete_group,
     cmd_get_followups, cmd_save_followups, cmd_get_node_details,
@@ -27,8 +27,9 @@ COMMANDS = {
     "update-model":     cmd_update_model,
     "delete-model":     cmd_delete_model,
     "rename-model":     cmd_rename_model,
-    "get-model-db-path": cmd_get_model_db_path,
+    "get-model-container-path": cmd_get_model_container_path,
     "import-db":        cmd_import_db,
+    "import-rbm":       cmd_import_rbm,
     "add-group":        cmd_add_group,
     "update-group":     cmd_update_group,
     "delete-group":     cmd_delete_group,

@@ -11,17 +11,21 @@ from train.groups.utils import (
     insert_followup_tree, delete_followup_tree, load_followup_tree_full
 )
 
+# --- Version constant for this trainer release ---
+ALTO_VERSION = "0.1a"
+
 # ----------------------------------------------------------------------
-# Model DB initialization (new schema)
+# Model DB initialization (schema for 0.1a)
 # ----------------------------------------------------------------------
 def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
-    # Model info (no JSON arrays)
+    # Model info – includes alto_version
     conn.execute("""
         CREATE TABLE model_info (
             name TEXT PRIMARY KEY,
             description TEXT NOT NULL,
             author TEXT NOT NULL,
             version TEXT NOT NULL,
+            alto_version TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -79,7 +83,7 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
         )
     """)
 
-    # Variant groups (now with name and section_id only)
+    # Variant groups (with name and section_id only)
     conn.execute("""
         CREATE TABLE variant_groups (
             id INTEGER PRIMARY KEY,
@@ -121,18 +125,18 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             (name, general_section_id)
         )
 
-    # Insert model info
+    # Insert model info with alto_version
     now = datetime.datetime.now().isoformat()
     conn.execute(
         """INSERT INTO model_info
-           (name, description, author, version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (model_name, description, author, version, now, now)
+           (name, description, author, version, alto_version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (model_name, description, author, version, ALTO_VERSION, now, now)
     )
     conn.commit()
 
 def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
-    cur = conn.execute("SELECT name, description, author, version, created_at, updated_at FROM model_info")
+    cur = conn.execute("SELECT name, description, author, version, alto_version, created_at, updated_at FROM model_info")
     row = cur.fetchone()
     if not row:
         raise ValueError("Model info not found")
@@ -150,8 +154,9 @@ def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
         "description": row[1],
         "author": row[2],
         "version": row[3],
-        "created_at": row[4],
-        "updated_at": row[5],
+        "alto_version": row[4],
+        "created_at": row[5],
+        "updated_at": row[6],
         "sections": sections,
         "topics": topics
     }
@@ -164,7 +169,7 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
         info["author"] = kwargs["author"]
     if "version" in kwargs:
         info["version"] = kwargs["version"]
-    # sections and topics are managed via their own tables, not here
+    # alto_version is immutable – do not update it
     info["updated_at"] = datetime.datetime.now().isoformat()
     conn.execute(
         """UPDATE model_info
@@ -208,7 +213,7 @@ def _get_section_name(conn: sqlite3.Connection, section_id: Optional[int]) -> st
     return row[0] if row else ""
 
 # ----------------------------------------------------------------------
-# Group operations (unchanged)
+# Group operations
 # ----------------------------------------------------------------------
 def group_from_row_full(row: sqlite3.Row) -> Dict[str, Any]:
     return {
@@ -510,7 +515,6 @@ class Model:
             if action == "reassign":
                 # Move groups to target topic (or NULL)
                 conn.execute("UPDATE groups SET topic_id = ? WHERE topic_id = ?", (target_id, topic_id))
-                # No variants to update
             elif action == "delete_groups":
                 # Delete all groups using this topic
                 cur = conn.execute("SELECT id FROM groups WHERE topic_id = ?", (topic_id,))

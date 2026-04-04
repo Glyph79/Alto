@@ -160,13 +160,13 @@ document.getElementById('deleteModelBtn').onclick = async () => {
 document.getElementById('importBtn').onclick = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.db';
+    input.accept = '.db,.rbm';
     input.onchange = async (e) => {
         const file = e.target.files[0];
         const formData = new FormData();
         formData.append('file', file);
 
-        let response = await fetch('/api/models/import-db', {
+        let response = await fetch('/api/models/import', {
             method: 'POST',
             body: formData
         });
@@ -196,7 +196,7 @@ document.getElementById('importBtn').onclick = () => {
                 newFormData.append('name', action.name);
             }
 
-            response = await fetch('/api/models/import-db', {
+            response = await fetch('/api/models/import', {
                 method: 'POST',
                 body: newFormData
             });
@@ -261,7 +261,7 @@ function showImportConflictDialog(existingName, dbName) {
 
 document.getElementById('exportBtn').onclick = () => {
     if (!window.currentModel) return;
-    window.open(`/api/models/${window.currentModel}/export-db`);
+    window.open(`/api/models/${window.currentModel}/export`);
 };
 
 // Initialize

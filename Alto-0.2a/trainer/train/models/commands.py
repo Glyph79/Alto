@@ -1,11 +1,12 @@
 import os
-import datetime
 import sqlite3
 import shutil
+import tempfile
 from typing import Optional, Dict, List
 from train.utils.file_helpers import (
-    MODELS_BASE_DIR, find_model_dir, ensure_model_dir, get_model_db_path,
-    safe_filename
+    MODELS_BASE_DIR, find_model_dir, ensure_model_dir,
+    safe_filename, get_model_container_path, get_model_temp_dir,
+    pack_model, unpack_model, read_manifest
 )
 from train.model import (
     Model, get_model, _model_cache, init_model_db,
@@ -20,19 +21,13 @@ def cmd_list_models(**kwargs) -> List[Dict]:
         folder_path = os.path.join(MODELS_BASE_DIR, entry)
         if not os.path.isdir(folder_path):
             continue
-        db_files = [f for f in os.listdir(folder_path) if f.endswith('.db')]
-        if not db_files:
-            continue
-        db_path = os.path.join(folder_path, db_files[0])
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.execute("SELECT name, version FROM model_info")
-            row = cur.fetchone()
-            conn.close()
-            if row:
-                models.append({"name": row[0], "version": row[1]})
-        except:
-            pass
+        for f in os.listdir(folder_path):
+            if f.endswith('.rbm'):
+                container_path = os.path.join(folder_path, f)
+                manifest = read_manifest(container_path)
+                if manifest:
+                    models.append({"name": manifest["name"], "version": manifest["version"]})
+                break
     return sorted(models, key=lambda x: x["name"])
 
 def cmd_create_model(name: str, description: str = "", author: str = "", version: str = "1.0.0", **kwargs) -> Dict:
@@ -41,26 +36,27 @@ def cmd_create_model(name: str, description: str = "", author: str = "", version
 
     folder = ensure_model_dir(name)
     safe = safe_filename(name)
-    db_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
-    conn = sqlite3.connect(db_path)
-    try:
-        init_model_db(conn, name, description, author, version)
-    finally:
-        conn.close()
+    container_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
 
-    return {
-        "status": "ok",
-        "model": {
-            "name": name,
-            "description": description,
-            "author": author,
-            "version": version,
-            "created_at": datetime.datetime.now().isoformat(),
-            "updated_at": datetime.datetime.now().isoformat(),
-            "sections": ["General", "Technical", "Creative"],
-            "topics": ["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"]
-        }
-    }
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "database.db")
+        conn = sqlite3.connect(db_path)
+        init_model_db(conn, name, description, author, version)
+        conn.close()
+        conn = sqlite3.connect(db_path)
+        manifest = get_model_info(conn)
+        conn.close()
+        fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=os.path.dirname(container_path))
+        os.close(fd)
+        try:
+            pack_model(db_path, manifest, tmp_path)
+            os.replace(tmp_path, container_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+
+    return {"status": "ok", "model": manifest}
 
 def cmd_get_model(name: str, **kwargs) -> Dict:
     try:
@@ -92,8 +88,8 @@ def cmd_update_model(name: str, description: Optional[str] = None, author: Optio
 
 def cmd_delete_model(name: str, **kwargs) -> Dict:
     if name in _model_cache:
-        _model_cache[name].close()
-        del _model_cache[name]
+        model = _model_cache.pop(name)
+        model.close_without_repack()
 
     folder = find_model_dir(name)
     if not folder:
@@ -107,57 +103,52 @@ def cmd_delete_model(name: str, **kwargs) -> Dict:
         return {"error": str(e)}
 
 def cmd_rename_model(name: str, new_name: str, **kwargs) -> Dict:
-    old_folder = find_model_dir(name)
-    if not old_folder:
+    old_container = get_model_container_path(name)
+    if not old_container:
         return {"error": f"Model '{name}' not found"}
 
     if find_model_dir(new_name) is not None:
         return {"error": f"Model '{new_name}' already exists"}
 
     if name in _model_cache:
-        _model_cache[name].close()
+        _model_cache[name].close_and_repack()
         del _model_cache[name]
 
-    old_path = os.path.join(MODELS_BASE_DIR, old_folder)
-    timestamp = old_folder.split('_')[0]
-    safe_new = safe_filename(new_name)
-    new_folder = f"{timestamp}_{safe_new}"
-    new_path = os.path.join(MODELS_BASE_DIR, new_folder)
+    temp_dir = get_model_temp_dir(name)
+    db_path, manifest = unpack_model(old_container, temp_dir)
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE model_info SET name = ? WHERE name = ?", (new_name, name))
+    conn.commit()
+    new_manifest = get_model_info(conn)
+    conn.close()
 
-    counter = 1
-    while os.path.exists(new_path):
-        new_folder = f"{timestamp}_{safe_new}_{counter}"
-        new_path = os.path.join(MODELS_BASE_DIR, new_folder)
-        counter += 1
+    old_folder = os.path.dirname(old_container)
+    new_safe = safe_filename(new_name)
+    new_container_path = os.path.join(old_folder, f"{new_safe}.rbm")
 
+    fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=old_folder)
+    os.close(fd)
     try:
-        os.rename(old_path, new_path)
-        old_safe = safe_filename(name)
-        new_safe = safe_filename(new_name)
-        old_db_path = os.path.join(new_path, f"{old_safe}.db")
-        new_db_path = os.path.join(new_path, f"{new_safe}.db")
-        if os.path.exists(old_db_path):
-            os.rename(old_db_path, new_db_path)
-        else:
-            old_model_db = os.path.join(new_path, "model.db")
-            if os.path.exists(old_model_db):
-                os.rename(old_model_db, new_db_path)
+        pack_model(db_path, new_manifest, tmp_path)
+        os.replace(tmp_path, new_container_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
-        conn = sqlite3.connect(new_db_path)
-        conn.execute("UPDATE model_info SET name = ? WHERE name = ?", (new_name, name))
-        conn.commit()
-        conn.close()
-        return {"status": "ok", "old_name": name, "new_name": new_name}
-    except Exception as e:
-        if os.path.exists(new_path) and not os.path.exists(old_path):
-            os.rename(new_path, old_path)
-        return {"error": f"Rename failed: {str(e)}"}
+    os.remove(old_container)
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
-def cmd_get_model_db_path(name: str, **kwargs) -> Dict:
-    folder = find_model_dir(name)
-    if not folder:
-        return {"error": f"Model '{name}' not found"}
-    db_path = get_model_db_path(name)
-    if not db_path or not os.path.isfile(db_path):
-        return {"error": "Database file missing"}
-    return {"path": os.path.abspath(db_path)}
+    old_folder_path = os.path.join(MODELS_BASE_DIR, find_model_dir(name))
+    new_folder_name = os.path.basename(old_folder_path).replace(safe_filename(name), new_safe, 1)
+    new_folder_path = os.path.join(MODELS_BASE_DIR, new_folder_name)
+    os.rename(old_folder_path, new_folder_path)
+
+    return {"status": "ok", "old_name": name, "new_name": new_name}
+
+def cmd_get_model_container_path(name: str, **kwargs) -> Dict:
+    """Return the path to the .rbm container file for a model."""
+    container_path = get_model_container_path(name)
+    if not container_path or not os.path.isfile(container_path):
+        return {"error": f"Model '{name}' not found or container missing"}
+    return {"path": container_path}
