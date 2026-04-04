@@ -7,7 +7,7 @@ DEFAULT_CONFIG = {
         'models_dir': 'models',
         'sessions_dir': 'sessions',
         'fallback': "I'm sorry, I didn't understand that.",
-        'serve_webui': 'True',          # added
+        'serve_webui': 'True',
     },
     'stream': {
         'by_char': 'True',
@@ -32,11 +32,20 @@ DEFAULT_CONFIG = {
     }
 }
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "backend_config.cfg")
+# Get the project root (two levels up from this file: backend -> project_root)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+CONFIG_PATH = os.path.join(RESOURCES_DIR, 'backend_config.cfg')
+
+def ensure_resources_dir():
+    """Create resources directory if it doesn't exist."""
+    os.makedirs(RESOURCES_DIR, exist_ok=True)
 
 def load_config():
+    ensure_resources_dir()
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
+        # Create new config file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -48,6 +57,7 @@ def load_config():
         save_config(config)
     else:
         config.read(CONFIG_PATH)
+        # Apply any missing defaults (in memory only)
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -62,6 +72,7 @@ def load_config():
     return config
 
 def save_config(config):
+    ensure_resources_dir()
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 

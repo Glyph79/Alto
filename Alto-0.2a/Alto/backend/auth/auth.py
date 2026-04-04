@@ -4,9 +4,16 @@ import hashlib
 import secrets
 from typing import Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'users.db')
+# Get project root and resources directory
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+DB_PATH = os.path.join(RESOURCES_DIR, 'users.db')
+
+def ensure_resources_dir():
+    os.makedirs(RESOURCES_DIR, exist_ok=True)
 
 def _get_connection():
+    ensure_resources_dir()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -63,4 +70,5 @@ def user_exists(user_id: int) -> bool:
         row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
         return row is not None
 
+# Initialize the database when module loads
 init_db()

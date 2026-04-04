@@ -6,16 +6,10 @@ from backend.layer.layer import process_message
 from backend.auth.auth import register_user, authenticate_user, user_exists
 from backend.config import config
 
-# Absolute path to the directory containing this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Read the flag from config (default True for backward compatibility)
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
-
-# Frontend directory (only used if SERVE_WEBUI is True)
 FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 
-# Create Quart app without default static folder – we'll serve static files manually if needed
 app = Quart(__name__, static_folder=None)
 
 # ---------- API endpoints (always available) ----------
@@ -174,14 +168,12 @@ async def network_data():
 
     return {"nodes": nodes, "links": links, "message": None}
 
-# ---------- Web UI routes (only if enabled) ----------
+# ---------- Web UI routes (conditional) ----------
 if SERVE_WEBUI:
-    # Serve login page (root)
     @app.route('/')
     async def login_page():
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'login'), 'index.html')
 
-    # Serve chat page
     @app.route('/chat', methods=['GET'])
     async def chat_page():
         user_id = request.cookies.get('user_id')
@@ -190,12 +182,10 @@ if SERVE_WEBUI:
                 return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'chat'), 'index.html')
         return redirect('/')
 
-    # Serve network visualizer page
     @app.route('/network')
     async def network_page():
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'network'), 'index.html')
 
-    # Serve static assets for chat, login, network
     @app.route('/static/chat/<path:filename>')
     async def chat_static(filename):
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'chat'), filename)
@@ -207,6 +197,24 @@ if SERVE_WEBUI:
     @app.route('/static/network/<path:filename>')
     async def network_static(filename):
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'network'), filename)
+
+else:
+    # Return minimal valid HTML5 document (empty body) to avoid quirks mode
+    BLANK_HTML = '<!DOCTYPE html><html><head><title></title></head><body></body></html>'
+
+    @app.route('/')
+    async def login_page():
+        return Response(BLANK_HTML, status=200, mimetype='text/html')
+
+    @app.route('/chat', methods=['GET'])
+    async def chat_page():
+        return Response(BLANK_HTML, status=200, mimetype='text/html')
+
+    @app.route('/network')
+    async def network_page():
+        return Response(BLANK_HTML, status=200, mimetype='text/html')
+
+    # Static routes are not registered – they would 404, but no HTML pages request them.
 
 if __name__ == '__main__':
     app.run(debug=True)
