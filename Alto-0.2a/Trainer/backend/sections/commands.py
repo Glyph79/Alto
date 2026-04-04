@@ -1,5 +1,5 @@
 from typing import Optional, Dict
-from train.model import get_model
+from ..model import get_model
 
 def cmd_add_section(name: str, section: str, **kwargs) -> Dict:
     try:

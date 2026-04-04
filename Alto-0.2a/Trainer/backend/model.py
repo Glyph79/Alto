@@ -7,12 +7,12 @@ import os
 import zlib
 from collections import OrderedDict
 from typing import List, Dict, Optional, Any
-from train.utils.file_helpers import (
+from .utils.file_helpers import (
     get_model_db_path, find_model_dir, safe_filename, MODELS_BASE_DIR,
     get_model_container_path, get_model_temp_dir, pack_model, unpack_model
 )
-from train.utils.msgpack_helpers import pack_array, unpack_array
-from train.groups.utils import (
+from .utils.msgpack_helpers import pack_array, unpack_array
+from .groups.utils import (
     insert_followup_tree, delete_followup_tree, load_followup_tree_full
 )
 

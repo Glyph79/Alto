@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List
-from train.model import get_model
+from ..model import get_model
 
 def cmd_get_topics(name: str, **kwargs) -> List[str]:
     try:

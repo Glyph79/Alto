@@ -8,6 +8,7 @@ DEFAULT_CONFIG = {
         'models_dir': 'models',
         'default_model': '',
         'recent_models': '',
+        'serve_webui': 'True',
     },
     'editor': {
         'auto_save': 'True',
@@ -18,12 +19,19 @@ DEFAULT_CONFIG = {
     }
 }
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "trainer_config.cfg")
+# Get project root (train/ is one level below project root)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+CONFIG_PATH = os.path.join(RESOURCES_DIR, 'trainer_config.cfg')
+
+def ensure_resources_dir():
+    os.makedirs(RESOURCES_DIR, exist_ok=True)
 
 def load_config():
+    ensure_resources_dir()
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
-        # New install: create file with defaults
+        # Create new config file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -34,8 +42,8 @@ def load_config():
                     config.set(section, key, val)
         save_config(config)
     else:
-        # Existing file: read it, then add missing defaults in memory only (no save)
         config.read(CONFIG_PATH)
+        # Apply any missing defaults (in memory only)
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -47,10 +55,10 @@ def load_config():
                 for key, val in options.items():
                     if not config.has_option(section, key):
                         config.set(section, key, val)
-        # IMPORTANT: No call to save_config() – the .cfg file remains unchanged
     return config
 
 def save_config(config):
+    ensure_resources_dir()
     with open(CONFIG_PATH, 'w') as f:
         config.write(f)
 

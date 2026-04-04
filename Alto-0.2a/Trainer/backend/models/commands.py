@@ -3,12 +3,12 @@ import sqlite3
 import shutil
 import tempfile
 from typing import Optional, Dict, List
-from train.utils.file_helpers import (
+from ..utils.file_helpers import (
     MODELS_BASE_DIR, find_model_dir, ensure_model_dir,
     safe_filename, get_model_container_path, get_model_temp_dir,
     pack_model, unpack_model, read_manifest
 )
-from train.model import (
+from ..model import (
     Model, get_model, _model_cache, init_model_db,
     get_model_info, update_model_info
 )

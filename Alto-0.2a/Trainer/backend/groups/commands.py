@@ -1,8 +1,7 @@
-"""Commands for group and Q&A operations."""
 import json
 from typing import Dict
-from train.model import get_model
-from train.groups.utils import (
+from ..model import get_model
+from .utils import (
     load_followup_tree_skeleton,
     load_followup_tree_full,
     unpack_array,

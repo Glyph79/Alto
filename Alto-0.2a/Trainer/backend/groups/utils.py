@@ -1,7 +1,6 @@
-"""Follow‑up tree helpers for groups."""
 import sqlite3
 from typing import List, Dict, Optional
-from train.utils.msgpack_helpers import pack_array, unpack_array
+from ..utils.msgpack_helpers import pack_array, unpack_array
 
 def insert_followup_tree(conn: sqlite3.Connection, group_id: int, tree: List[Dict], parent_id: Optional[int] = None):
     for node in tree:

@@ -1,8 +1,8 @@
 import argparse
 import json
 import sys
-from train.cmd_router import COMMANDS
-from train.model import close_all_models
+from backend.cmd_router import COMMANDS   # changed from train to backend
+from backend.model import close_all_models   # changed from train to backend
 
 def interactive_loop():
     while True:

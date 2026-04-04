@@ -1,22 +1,21 @@
-"""Router that assembles the COMMANDS dictionary from all command modules."""
-from train.models.commands import (
+from .models.commands import (
     cmd_list_models, cmd_create_model, cmd_get_model, cmd_update_model,
     cmd_delete_model, cmd_rename_model, cmd_get_model_container_path
 )
-from train.models.utils import cmd_import_db, cmd_import_rbm
-from train.groups.commands import (
+from .models.utils import cmd_import_db, cmd_import_rbm
+from .groups.commands import (
     cmd_add_group, cmd_update_group, cmd_delete_group,
     cmd_get_followups, cmd_save_followups, cmd_get_node_details,
     cmd_get_group_summaries, cmd_get_group_full
 )
-from train.sections.commands import (
+from .sections.commands import (
     cmd_add_section, cmd_rename_section, cmd_delete_section
 )
-from train.topics.commands import (
+from .topics.commands import (
     cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic,
     cmd_get_topic_groups
 )
-from train.variants.commands import (
+from .variants.commands import (
     cmd_get_variants, cmd_add_variant, cmd_update_variant, cmd_delete_variant
 )
 

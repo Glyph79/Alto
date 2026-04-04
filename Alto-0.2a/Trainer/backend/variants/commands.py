@@ -1,6 +1,6 @@
 import json
 from typing import Dict, List
-from train.model import get_model
+from ..model import get_model
 
 def cmd_get_variants(name: str, **kwargs) -> List[Dict]:
     try:

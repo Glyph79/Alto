@@ -4,13 +4,13 @@ import sqlite3
 import shutil
 import tempfile
 from typing import Dict
-from train.utils.file_helpers import (
+from ..utils.file_helpers import (
     MODELS_BASE_DIR, find_model_dir, ensure_model_dir, safe_filename,
     pack_model, unpack_model, read_manifest, get_model_temp_dir
 )
-from train.model import get_model_info
-from train.utils.delete_helpers import delete_with_retry
-from train.model import _model_cache
+from ..model import get_model_info
+from ..utils.delete_helpers import delete_with_retry
+from ..model import _model_cache
 
 def cmd_import_db(file: str, name: str = "", overwrite: bool = False, **kwargs) -> Dict:
     """Import a .db file, convert to .rbm container."""
