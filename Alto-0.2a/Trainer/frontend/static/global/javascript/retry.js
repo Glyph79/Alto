@@ -1,4 +1,4 @@
-// retry.js – universal retry and inline loading (no dead code)
+// retry.js – universal retry, inline loading, and error display
 
 window.RETRY_CONFIG = {
     maxAttempts: 3,
@@ -103,11 +103,18 @@ window.showInlineListRetry = function(listElement, itemType, retryCallback) {
     listElement.appendChild(li);
 };
 
-// Only used by tree editor error display
-window.showRetryError = function(container, message, retryCallback) {
-    const existing = container.querySelector('.retry-error');
-    if (existing) existing.remove();
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
 
+window.showRetryError = function(container, message, retryCallback) {
+    window.clearRetryError(container);
     const errorDiv = document.createElement('div');
     errorDiv.className = 'retry-error';
     errorDiv.innerHTML = `
@@ -134,17 +141,39 @@ window.showRetryError = function(container, message, retryCallback) {
     return errorDiv;
 };
 
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
+window.showSimpleRetry = function(container, message, retryCallback) {
+    window.clearRetryError(container);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'simple-retry';
+    wrapper.innerHTML = `
+        <span class="simple-retry-message">⚠️ ${escapeHtml(message)}</span>
+        <button class="simple-retry-btn">Retry</button>
+    `;
+    const btn = wrapper.querySelector('.simple-retry-btn');
+    btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+            await retryCallback();
+            wrapper.remove();
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+            const msgSpan = wrapper.querySelector('.simple-retry-message');
+            msgSpan.textContent = `⚠️ Failed: ${err.message}`;
+        }
     });
-}
+    container.appendChild(wrapper);
+    return wrapper;
+};
 
-// Inject required styles once
+window.clearRetryError = function(container) {
+    const existing = container.querySelector('.retry-error, .simple-retry');
+    if (existing) existing.remove();
+};
+
+// Inject styles once
 if (!document.querySelector('#retry-styles')) {
     const style = document.createElement('style');
     style.id = 'retry-styles';
@@ -175,6 +204,32 @@ if (!document.querySelector('#retry-styles')) {
         }
         .retry-error .retry-btn:hover { background: #5a52d5; }
         .retry-error .retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .simple-retry {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: #2d2d5a;
+            border: 1px solid #ffaa66;
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin: 16px;
+            font-size: 0.85rem;
+            color: #ffe0e0;
+        }
+        .simple-retry-message { color: #ffaa66; }
+        .simple-retry-btn {
+            background: #6c63ff;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .simple-retry-btn:hover { background: #5a52d5; }
+        .simple-retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .inline-loading {
             display: flex;

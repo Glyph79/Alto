@@ -23,13 +23,11 @@ class SessionTree:
         self._load_roots()
 
     def _load_roots(self):
-        # Changed from get_root_nodes_skeleton to get_root_nodes
         self._roots = self.loader.get_root_nodes(self.group_id)
         for node in self._roots:
             self._nodes[node["id"]] = node
 
     def _load_children(self, node_id):
-        # Changed from get_node_children_skeleton to get_node_children
         children = self.loader.get_node_children(node_id)
         if node_id in self._nodes:
             self._nodes[node_id]["children"] = children
@@ -52,7 +50,6 @@ class SessionTree:
                 self._nodes[oldest_id]["questions"] = None
 
     def load_questions_for_node(self, node_id):
-        """Public method to ensure questions are loaded for a specific node."""
         self._ensure_questions(node_id)
 
     def ensure_answers(self, node_id):
@@ -197,7 +194,6 @@ class RuleBot:
                 if group_data["topic"]:
                     self._update_topics(state["topics"], group_data["topic"])
                 tree = SessionTree(self.loader, gid)
-                # Ensure questions are loaded for all root nodes before matching
                 for root in tree.roots():
                     tree.load_questions_for_node(root["id"])
                 node, root_score = self.loader.match_nodes(text, tree.roots(), self.threshold)

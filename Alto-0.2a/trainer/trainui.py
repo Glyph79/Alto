@@ -10,10 +10,8 @@ app = Quart(__name__, static_folder=None)
 
 # No per‑request GC – model cache and subprocess handle their own memory
 
-# Read the flag from config
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
 
-# Frontend directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'frontend')
 
@@ -23,7 +21,6 @@ trainer_stdin = None
 trainer_stdout = None
 _trainer_lock = asyncio.Lock()
 
-
 async def log_trainer_stderr():
     global trainer_process
     while trainer_process and trainer_process.stderr:
@@ -31,7 +28,6 @@ async def log_trainer_stderr():
         if not line:
             break
         print(f"[trainer stderr] {line.decode().strip()}")
-
 
 async def start_trainer():
     global trainer_process, trainer_stdin, trainer_stdout
@@ -46,14 +42,12 @@ async def start_trainer():
     trainer_stdout = trainer_process.stdout
     asyncio.create_task(log_trainer_stderr())
 
-
 async def stop_trainer():
     global trainer_process
     if trainer_process:
         trainer_process.terminate()
         await trainer_process.wait()
         trainer_process = None
-
 
 async def send_command(command, **kwargs):
     global trainer_process, trainer_stdin, trainer_stdout
@@ -78,7 +72,6 @@ async def send_command(command, **kwargs):
         except json.JSONDecodeError:
             return {"error": "Invalid JSON from trainer"}
 
-
 # ========== API routes (always available) ==========
 
 @app.route('/api/models', methods=['GET'])
@@ -87,7 +80,6 @@ async def list_models():
     if "error" in result:
         return jsonify(result), 500
     return jsonify(result)
-
 
 @app.route('/api/models', methods=['POST'])
 async def create_model():
@@ -102,14 +94,12 @@ async def create_model():
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>', methods=['GET'])
 async def get_model(name):
     result = await send_command("get-model", name=name)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)
-
 
 @app.route('/api/models/<name>', methods=['PUT'])
 async def update_model(name):
@@ -126,14 +116,12 @@ async def update_model(name):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>', methods=['DELETE'])
 async def delete_model(name):
     result = await send_command("delete-model", name=name)
     if "error" in result:
         return jsonify(result), 404
     return jsonify({"status": "ok"})
-
 
 @app.route('/api/models/<name>/rename', methods=['POST'])
 async def rename_model(name):
@@ -146,7 +134,6 @@ async def rename_model(name):
         return jsonify(result), 400
     return jsonify({"status": "ok", "new_name": new_name})
 
-
 # Group endpoints
 @app.route('/api/models/<name>/groups', methods=['POST'])
 async def add_group(name):
@@ -157,7 +144,6 @@ async def add_group(name):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/groups/<int:index>', methods=['PUT'])
 async def update_group(name, index):
     data = await request.get_json()
@@ -167,7 +153,6 @@ async def update_group(name, index):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/groups/<int:index>', methods=['DELETE'])
 async def delete_group(name, index):
     result = await send_command("delete-group", name=name, index=index)
@@ -175,14 +160,12 @@ async def delete_group(name, index):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/groups/<int:group_index>/followups', methods=['GET'])
 async def get_followups(name, group_index):
     result = await send_command("get-followups", name=name, index=group_index)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
-
 
 @app.route('/api/models/<name>/groups/<int:group_index>/followups', methods=['PUT'])
 async def save_followups(name, group_index):
@@ -193,14 +176,12 @@ async def save_followups(name, group_index):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/groups/<int:group_index>/nodes/<int:node_id>', methods=['GET'])
 async def get_node_details(name, group_index, node_id):
     result = await send_command("get-node-details", name=name, index=group_index, node_id=node_id)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
-
 
 # Lightweight group routes
 @app.route('/api/models/<name>/groups/summaries', methods=['GET'])
@@ -210,14 +191,12 @@ async def get_group_summaries(name):
         return jsonify(result), 404
     return jsonify(result)
 
-
 @app.route('/api/models/<name>/groups/<int:index>/full', methods=['GET'])
 async def get_group_full(name, index):
     result = await send_command("get-group-full", name=name, index=index)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)
-
 
 # Section endpoints
 @app.route('/api/models/<name>/sections', methods=['POST'])
@@ -231,7 +210,6 @@ async def add_section(name):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/sections/<old_name>', methods=['PUT'])
 async def rename_section(name, old_name):
     data = await request.get_json()
@@ -242,7 +220,6 @@ async def rename_section(name, old_name):
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
-
 
 @app.route('/api/models/<name>/sections/<section>', methods=['DELETE'])
 async def delete_section(name, section):
@@ -256,7 +233,6 @@ async def delete_section(name, section):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 # Topic endpoints
 @app.route('/api/models/<name>/topics', methods=['GET'])
 async def get_topics(name):
@@ -264,7 +240,6 @@ async def get_topics(name):
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
-
 
 @app.route('/api/models/<name>/topics', methods=['POST'])
 async def add_topic(name):
@@ -277,7 +252,6 @@ async def add_topic(name):
         return jsonify(result), 400
     return jsonify(result)
 
-
 @app.route('/api/models/<name>/topics/<old_name>', methods=['PUT'])
 async def rename_topic(name, old_name):
     data = await request.get_json()
@@ -289,14 +263,12 @@ async def rename_topic(name, old_name):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 @app.route('/api/models/<name>/topics/<topic>/groups', methods=['GET'])
 async def get_topic_groups(name, topic):
     result = await send_command("get-topic-groups", name=name, topic=topic)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)
-
 
 @app.route('/api/models/<name>/topics/<topic>', methods=['DELETE'])
 async def delete_topic(name, topic):
@@ -310,7 +282,6 @@ async def delete_topic(name, topic):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-
 # Variant endpoints
 @app.route('/api/models/<name>/variants', methods=['GET'])
 async def get_variants(name):
@@ -318,7 +289,6 @@ async def get_variants(name):
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
-
 
 @app.route('/api/models/<name>/variants', methods=['POST'])
 async def add_variant(name):
@@ -329,7 +299,6 @@ async def add_variant(name):
         return jsonify(result), 400
     return jsonify(result)
 
-
 @app.route('/api/models/<name>/variants/<int:variant_id>', methods=['PUT'])
 async def update_variant(name, variant_id):
     data = await request.get_json()
@@ -339,14 +308,12 @@ async def update_variant(name, variant_id):
         return jsonify(result), 400
     return jsonify(result)
 
-
 @app.route('/api/models/<name>/variants/<int:variant_id>', methods=['DELETE'])
 async def delete_variant(name, variant_id):
     result = await send_command("delete-variant", name=name, variant_id=variant_id)
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
-
 
 # Import/Export
 @app.route('/api/models/import', methods=['POST'])
@@ -380,7 +347,6 @@ async def import_model():
         return jsonify(result), status
     return jsonify(result)
 
-
 @app.route('/api/models/<name>/export', methods=['GET'])
 async def export_model(name):
     result = await send_command("get-model-container-path", name=name)
@@ -393,7 +359,6 @@ async def export_model(name):
         attachment_filename=f'{name}.rbm',
         as_attachment=True
     )
-
 
 # ========== Web UI routes (conditional) ==========
 if SERVE_WEBUI:
@@ -415,17 +380,14 @@ else:
     async def serve_static(filename):
         return Response('', status=204)
 
-
 # Startup/shutdown
 @app.before_serving
 async def startup():
     await start_trainer()
 
-
 @app.after_serving
 async def shutdown():
     await stop_trainer()
-
 
 if __name__ == '__main__':
     app.run(

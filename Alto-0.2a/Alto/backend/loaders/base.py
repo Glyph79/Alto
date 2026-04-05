@@ -87,7 +87,6 @@ class BaseLoader(ABC):
     def get_connection(self, model_name: str) -> sqlite3.Connection:
         pass
 
-    # Group matching
     @abstractmethod
     def match_groups(self, text: str, topic_weights: Dict[str, int], threshold: int) -> Tuple[Optional[int], Optional[Dict], int]:
         pass
@@ -100,7 +99,6 @@ class BaseLoader(ABC):
     def get_group_questions(self, group_id: int) -> List[str]:
         pass
 
-    # Follow‑up trees – unified methods (return skeleton by default)
     @abstractmethod
     def get_root_nodes(self, group_id: int) -> List[Dict]:
         """Return root nodes for a group (id + branch_name only, questions/answers None)."""
@@ -111,7 +109,6 @@ class BaseLoader(ABC):
         """Return children of a node (id + branch_name only)."""
         pass
 
-    # Full data (loaded on demand)
     @abstractmethod
     def get_node_questions(self, node_id: int) -> List[str]:
         pass
@@ -124,7 +121,6 @@ class BaseLoader(ABC):
     def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
         pass
 
-    # Session state helpers
     @abstractmethod
     def get_topics(self) -> List[str]:
         pass
@@ -137,7 +133,6 @@ class BaseLoader(ABC):
     def get_variants(self) -> List[Dict]:
         pass
 
-    # Variant synonyms
     @abstractmethod
     def expand_synonyms(self, words: List[str]) -> set:
         pass

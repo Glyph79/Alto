@@ -1,7 +1,7 @@
 // ========== Tree Editor State ==========
 let currentTree = [];
 let nodeMap = new Map();
-let nodeDetailsCache = new Map(); // nodeId -> { questions, answers }
+let nodeDetailsCache = new Map();
 let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
@@ -202,7 +202,6 @@ async function showNodeQAPanel(nodeId) {
         return;
     }
 
-    // Disable add buttons while loading
     const addQuestionBtn = document.getElementById('treeAddQuestionBtn');
     const addAnswerBtn = document.getElementById('treeAddAnswerBtn');
     if (addQuestionBtn) addQuestionBtn.disabled = true;
@@ -247,16 +246,28 @@ function renderNodeQAPanel(node) {
     qList.innerHTML = '';
     (node.questions || []).forEach((q, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button onclick="editTreeNodeQuestion(${i})">✎</button><button onclick="deleteTreeNodeQuestion(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button class="edit-tree-question" data-idx="${i}">✎</button><button class="delete-tree-question" data-idx="${i}">🗑</button></span>`;
         qList.appendChild(li);
+    });
+    qList.querySelectorAll('.edit-tree-question').forEach(btn => {
+        btn.addEventListener('click', () => editTreeNodeQuestion(parseInt(btn.dataset.idx)));
+    });
+    qList.querySelectorAll('.delete-tree-question').forEach(btn => {
+        btn.addEventListener('click', () => deleteTreeNodeQuestion(parseInt(btn.dataset.idx)));
     });
 
     const aList = document.getElementById('treeAnswersList');
     aList.innerHTML = '';
     (node.answers || []).forEach((a, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button onclick="editTreeNodeAnswer(${i})">✎</button><button onclick="deleteTreeNodeAnswer(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button class="edit-tree-answer" data-idx="${i}">✎</button><button class="delete-tree-answer" data-idx="${i}">🗑</button></span>`;
         aList.appendChild(li);
+    });
+    aList.querySelectorAll('.edit-tree-answer').forEach(btn => {
+        btn.addEventListener('click', () => editTreeNodeAnswer(parseInt(btn.dataset.idx)));
+    });
+    aList.querySelectorAll('.delete-tree-answer').forEach(btn => {
+        btn.addEventListener('click', () => deleteTreeNodeAnswer(parseInt(btn.dataset.idx)));
     });
 }
 
@@ -267,7 +278,6 @@ function updateToolbarButtons() {
     document.getElementById('deleteNodeBtn').disabled = !hasSelection;
 }
 
-// Tree toolbar handlers
 document.getElementById('addRootBtn').onclick = () => {
     const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [] };
     newNode.id = `node_${nextNodeId++}`;
@@ -330,7 +340,7 @@ document.getElementById('deleteNodeBtn').onclick = () => {
     });
 };
 
-window.editTreeNodeQuestion = (qIdx) => {
+function editTreeNodeQuestion(qIdx) {
     const node = nodeMap.get(selectedNodeId);
     window.showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: node.questions[qIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
@@ -343,19 +353,18 @@ window.editTreeNodeQuestion = (qIdx) => {
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
-};
+}
 
-window.deleteTreeNodeQuestion = (qIdx) => {
-    const node = nodeMap.get(selectedNodeId);
+function deleteTreeNodeQuestion(qIdx) {
     window.showConfirmModal('Delete this question?', () => {
         node.questions.splice(qIdx, 1);
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
-window.editTreeNodeAnswer = (aIdx) => {
+function editTreeNodeAnswer(aIdx) {
     const node = nodeMap.get(selectedNodeId);
     window.showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: node.answers[aIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
@@ -368,17 +377,16 @@ window.editTreeNodeAnswer = (aIdx) => {
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     }, 'Save');
-};
+}
 
-window.deleteTreeNodeAnswer = (aIdx) => {
-    const node = nodeMap.get(selectedNodeId);
+function deleteTreeNodeAnswer(aIdx) {
     window.showConfirmModal('Delete this answer?', () => {
         node.answers.splice(aIdx, 1);
         treeUnsaved = true;
         nodeDetailsCache.set(selectedNodeId, { questions: node.questions, answers: node.answers });
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
 document.getElementById('treeAddQuestionBtn').onclick = () => {
     if (!selectedNodeId) return;
@@ -452,16 +460,6 @@ document.getElementById('treeModalCancelBtn').onclick = () => {
         window.popModal();
     }
 };
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
-}
 
 // Inject styles once
 if (!document.querySelector('#tree-styles')) {

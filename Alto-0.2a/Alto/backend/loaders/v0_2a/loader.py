@@ -47,7 +47,6 @@ class LoaderV0_2a(BaseLoader):
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
 
-    # Unified skeleton methods
     def get_root_nodes(self, group_id: int) -> List[Dict]:
         cur = self._conn.execute("""
             SELECT id, branch_name
@@ -82,7 +81,6 @@ class LoaderV0_2a(BaseLoader):
             })
         return children
 
-    # Full data (on demand)
     def get_node_questions(self, node_id: int) -> List[str]:
         cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
         row = cur.fetchone()
@@ -97,7 +95,6 @@ class LoaderV0_2a(BaseLoader):
             return []
         return self._unpack(row[0])
 
-    # Group methods
     def get_group_questions(self, group_id: int) -> List[str]:
         cur = self._conn.execute("""
             SELECT q.text FROM group_questions gq

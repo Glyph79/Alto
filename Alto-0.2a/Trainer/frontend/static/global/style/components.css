@@ -104,8 +104,7 @@
 }
 
 /* Badges */
-.section-badge,
-.topic-badge {
+.section-badge {
     background: #6c63ff;
     color: white;
     font-size: 0.65rem;
