@@ -5,7 +5,7 @@ import json
 from backend.layer.layer import process_message
 from backend.auth.auth import register_user, authenticate_user, user_exists
 from backend.config import config
-from backend.engine.ai_engine import RuleBot   # moved import to top
+from backend.engine.ai_engine import RuleBot
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
@@ -211,5 +211,13 @@ else:
     async def network_page():
         return Response(BLANK_HTML, status=200, mimetype='text/html')
 
+# ---------- Run with Hypercorn (production server) ----------
 if __name__ == '__main__':
-    app.run(debug=True)
+    import asyncio
+    from hypercorn.config import Config
+    from hypercorn.asyncio import serve
+
+    port = config.getint('DEFAULT', 'port', fallback=5000)
+    cfg = Config()
+    cfg.bind = [f"127.0.0.1:{port}"]
+    asyncio.run(serve(app, cfg))

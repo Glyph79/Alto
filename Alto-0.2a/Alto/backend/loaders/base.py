@@ -24,25 +24,21 @@ def find_model_dir(model_name: str) -> Optional[str]:
         full_path = os.path.join(MODELS_BASE_DIR, entry)
         if not os.path.isdir(full_path):
             continue
-        # Accept any folder name that contains the safe name (legacy: ends with _safe)
         if entry.endswith('_' + safe) or safe in entry:
             return entry
     return None
 
 def get_model_container_path(model_name: str) -> Optional[str]:
-    """Return the path to the .rbm container, supporting both flat and folder structures."""
+    """Return the path to the .rbm container."""
     safe = safe_filename(model_name)
-    # 1. Check flat file in models/ directly
     flat_path = os.path.join(MODELS_BASE_DIR, f"{safe}.rbm")
     if os.path.isfile(flat_path):
         return flat_path
-    # 2. Check inside a subfolder
     folder = find_model_dir(model_name)
     if folder:
         candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
         if os.path.isfile(candidate):
             return candidate
-        # Fallback: any .rbm file inside the folder (first found)
         folder_path = os.path.join(MODELS_BASE_DIR, folder)
         for f in os.listdir(folder_path):
             if f.endswith('.rbm'):
@@ -50,19 +46,15 @@ def get_model_container_path(model_name: str) -> Optional[str]:
     return None
 
 def get_legacy_db_path(model_name: str) -> Optional[str]:
-    """Return the path to a legacy .db file, supporting both flat and folder structures."""
     safe = safe_filename(model_name)
-    # 1. Check flat file in models/ directly
     flat_path = os.path.join(MODELS_BASE_DIR, f"{safe}.db")
     if os.path.isfile(flat_path):
         return flat_path
-    # 2. Check inside a subfolder
     folder = find_model_dir(model_name)
     if folder:
         candidate = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.db")
         if os.path.isfile(candidate):
             return candidate
-        # Fallback: any .db file inside the folder (first found)
         folder_path = os.path.join(MODELS_BASE_DIR, folder)
         for f in os.listdir(folder_path):
             if f.endswith('.db'):
@@ -95,22 +87,11 @@ class BaseLoader(ABC):
 
     @abstractmethod
     def get_connection(self, model_name: str) -> sqlite3.Connection:
-        """Return a read‑only SQLite connection (may be used internally)."""
         pass
 
-    # ----- Group matching (core AI logic) -----
+    # Group matching
     @abstractmethod
     def match_groups(self, text: str, topic_weights: Dict[str, int], threshold: int) -> Tuple[Optional[int], Optional[Dict], int]:
-        """
-        Find the best matching group for the input text.
-        Returns (group_id, group_data, score) or (None, None, 0).
-        group_data should contain at least:
-            - id
-            - group_name
-            - topic
-            - questions (list of str)
-            - answers (list of str)
-        """
         pass
 
     @abstractmethod
@@ -121,16 +102,16 @@ class BaseLoader(ABC):
     def get_group_questions(self, group_id: int) -> List[str]:
         pass
 
-    # ----- Follow‑up trees -----
+    # Follow‑up trees – skeleton (id + name only) for memory efficiency
     @abstractmethod
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        """Return list of root nodes for a group's follow‑up tree (each node has id, branch_name, questions, answers)."""
+    def get_root_nodes_skeleton(self, group_id: int) -> List[Dict]:
         pass
 
     @abstractmethod
-    def get_node_children(self, node_id: int) -> List[Dict]:
+    def get_node_children_skeleton(self, node_id: int) -> List[Dict]:
         pass
 
+    # Full data (loaded on demand)
     @abstractmethod
     def get_node_questions(self, node_id: int) -> List[str]:
         pass
@@ -139,12 +120,18 @@ class BaseLoader(ABC):
     def get_node_answers(self, node_id: int) -> List[str]:
         pass
 
+    # Legacy full methods (now using skeletons)
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
+        return self.get_root_nodes_skeleton(group_id)
+
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        return self.get_node_children_skeleton(node_id)
+
     @abstractmethod
     def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
-        """Find best matching node from a list of nodes."""
         pass
 
-    # ----- Session state helpers -----
+    # Session state helpers
     @abstractmethod
     def get_topics(self) -> List[str]:
         pass
@@ -157,7 +144,7 @@ class BaseLoader(ABC):
     def get_variants(self) -> List[Dict]:
         pass
 
-    # ----- Variant synonyms -----
+    # Variant synonyms
     @abstractmethod
     def expand_synonyms(self, words: List[str]) -> set:
         pass

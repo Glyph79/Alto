@@ -34,21 +34,15 @@ class LoaderV0_1a(BaseLoader):
             self._conn = conn
             return conn
 
-        # Create view‑based compatibility database
         conn = sqlite3.connect(temp_db_path)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute(f"ATTACH DATABASE '{legacy_path}' AS original")
 
-        # Groups view with computed question_count and answer_count
         conn.execute("""
             CREATE VIEW groups AS
             SELECT
-                g.id,
-                g.group_name,
-                g.topic_id,
-                g.section_id,
-                g.questions_blob,
-                g.answers_blob,
+                g.id, g.group_name, g.topic_id, g.section_id,
+                g.questions_blob, g.answers_blob,
                 (SELECT COUNT(*) FROM original.questions_fts WHERE group_id = g.id) AS question_count,
                 (SELECT json_array_length(g.answers_blob)) AS answer_count
             FROM original.groups g
@@ -75,6 +69,64 @@ class LoaderV0_1a(BaseLoader):
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
 
+    # ----- Skeleton methods -----
+    def get_root_nodes_skeleton(self, group_id: int) -> List[Dict]:
+        cur = self._conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE group_id = ? AND parent_id IS NULL
+            ORDER BY id
+        """, (group_id,))
+        nodes = []
+        for row in cur:
+            nodes.append({
+                "id": row[0],
+                "branch_name": row[1],
+                "questions": None,
+                "answers": None
+            })
+        return nodes
+
+    def get_node_children_skeleton(self, node_id: int) -> List[Dict]:
+        cur = self._conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE parent_id = ?
+            ORDER BY id
+        """, (node_id,))
+        children = []
+        for row in cur:
+            children.append({
+                "id": row[0],
+                "branch_name": row[1],
+                "questions": None,
+                "answers": None
+            })
+        return children
+
+    # ----- Full data (on demand) -----
+    def get_node_questions(self, node_id: int) -> List[str]:
+        cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        if not row:
+            return []
+        return self._unpack(row[0])
+
+    def get_node_answers(self, node_id: int) -> List[str]:
+        cur = self._conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        if not row:
+            return []
+        return self._unpack(row[0])
+
+    # ----- Legacy full methods (now return skeletons) -----
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
+        return self.get_root_nodes_skeleton(group_id)
+
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        return self.get_node_children_skeleton(node_id)
+
+    # ----- Group methods (unchanged) -----
     def get_group_questions(self, group_id: int) -> List[str]:
         cur = self._conn.execute("SELECT questions_blob FROM groups WHERE id = ?", (group_id,))
         row = cur.fetchone()
@@ -149,52 +201,6 @@ class LoaderV0_1a(BaseLoader):
             return best_group["id"], full_group, best_score
         return None, None, 0
 
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        cur = self._conn.execute("""
-            SELECT id, branch_name, questions_blob, answers_blob
-            FROM followup_nodes
-            WHERE group_id = ? AND parent_id IS NULL
-            ORDER BY id
-        """, (group_id,))
-        nodes = []
-        for row in cur:
-            nodes.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": self._unpack(row[2]),
-                "answers": self._unpack(row[3]),
-                "children": []
-            })
-        return nodes
-
-    def get_node_children(self, node_id: int) -> List[Dict]:
-        cur = self._conn.execute("""
-            SELECT id, branch_name, questions_blob, answers_blob
-            FROM followup_nodes
-            WHERE parent_id = ?
-            ORDER BY id
-        """, (node_id,))
-        children = []
-        for row in cur:
-            children.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": self._unpack(row[2]),
-                "answers": self._unpack(row[3]),
-                "children": []
-            })
-        return children
-
-    def get_node_questions(self, node_id: int) -> List[str]:
-        cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
-
-    def get_node_answers(self, node_id: int) -> List[str]:
-        cur = self._conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
-
     def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
         best_score = 0
         best_node = None
@@ -218,9 +224,7 @@ class LoaderV0_1a(BaseLoader):
         return [row[0] for row in cur]
 
     def get_variants(self) -> List[Dict]:
-        # 0.1a has no variants, return empty list
         return []
 
     def expand_synonyms(self, words: List[str]) -> set:
-        # 0.1a has no variant words, return original words
         return set(words)

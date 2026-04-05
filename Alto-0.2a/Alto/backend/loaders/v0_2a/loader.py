@@ -7,7 +7,7 @@ import re
 import zlib
 from fuzzywuzzy import fuzz
 from typing import List, Dict, Optional, Tuple, Set
-from ..base import BaseLoader, CACHE_ROOT, get_model_container_path   # MODELS_BASE_DIR removed
+from ..base import BaseLoader, CACHE_ROOT, get_model_container_path
 
 class LoaderV0_2a(BaseLoader):
     VERSION = "0.2a"
@@ -47,7 +47,64 @@ class LoaderV0_2a(BaseLoader):
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
 
-    # ----- Implementation of abstract methods -----
+    # ----- Skeleton methods -----
+    def get_root_nodes_skeleton(self, group_id: int) -> List[Dict]:
+        cur = self._conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE group_id = ? AND parent_id IS NULL
+            ORDER BY id
+        """, (group_id,))
+        nodes = []
+        for row in cur:
+            nodes.append({
+                "id": row[0],
+                "branch_name": row[1],
+                "questions": None,
+                "answers": None
+            })
+        return nodes
+
+    def get_node_children_skeleton(self, node_id: int) -> List[Dict]:
+        cur = self._conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE parent_id = ?
+            ORDER BY id
+        """, (node_id,))
+        children = []
+        for row in cur:
+            children.append({
+                "id": row[0],
+                "branch_name": row[1],
+                "questions": None,
+                "answers": None
+            })
+        return children
+
+    # ----- Full data (on demand) -----
+    def get_node_questions(self, node_id: int) -> List[str]:
+        cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        if not row:
+            return []
+        return self._unpack(row[0])
+
+    def get_node_answers(self, node_id: int) -> List[str]:
+        cur = self._conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        if not row:
+            return []
+        return self._unpack(row[0])
+
+    # ----- Legacy full methods (now return skeletons) -----
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
+        return self.get_root_nodes_skeleton(group_id)
+
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        return self.get_node_children_skeleton(node_id)
+
+    # ----- Group methods (unchanged) -----
     def get_group_questions(self, group_id: int) -> List[str]:
         cur = self._conn.execute("""
             SELECT q.text FROM group_questions gq
@@ -140,52 +197,6 @@ class LoaderV0_2a(BaseLoader):
             full_group = self.get_group_data(best_group["id"])
             return best_group["id"], full_group, best_score
         return None, None, 0
-
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        cur = self._conn.execute("""
-            SELECT id, branch_name, questions_blob, answers_blob
-            FROM followup_nodes
-            WHERE group_id = ? AND parent_id IS NULL
-            ORDER BY id
-        """, (group_id,))
-        nodes = []
-        for row in cur:
-            nodes.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": self._unpack(row[2]),
-                "answers": self._unpack(row[3]),
-                "children": []
-            })
-        return nodes
-
-    def get_node_children(self, node_id: int) -> List[Dict]:
-        cur = self._conn.execute("""
-            SELECT id, branch_name, questions_blob, answers_blob
-            FROM followup_nodes
-            WHERE parent_id = ?
-            ORDER BY id
-        """, (node_id,))
-        children = []
-        for row in cur:
-            children.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": self._unpack(row[2]),
-                "answers": self._unpack(row[3]),
-                "children": []
-            })
-        return children
-
-    def get_node_questions(self, node_id: int) -> List[str]:
-        cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
-
-    def get_node_answers(self, node_id: int) -> List[str]:
-        cur = self._conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
 
     def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
         best_score = 0
