@@ -84,25 +84,20 @@ function renderVariantsGrid() {
         window.variantsManager.grid = container.querySelector('.grid') || container;
     }
 
-    document.querySelectorAll('.variant-card').forEach(card => {
+    // Event delegation – single listener for all variant cards
+    container.addEventListener('click', (e) => {
+        const card = e.target.closest('.variant-card');
+        if (!card) return;
         const idx = parseInt(card.dataset.index);
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.card-actions')) return;
-            editVariant(window.variants[idx].id);
-        });
-    });
-
-    document.querySelectorAll('.edit-variant').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            editVariant(parseInt(btn.dataset.id));
-        });
-    });
-    document.querySelectorAll('.delete-variant').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteVariant(parseInt(btn.dataset.id));
-        });
+        const variantId = window.variants[idx]?.id;
+        if (!variantId) return;
+        if (e.target.closest('.edit-variant')) {
+            editVariant(variantId);
+        } else if (e.target.closest('.delete-variant')) {
+            deleteVariant(variantId);
+        } else {
+            editVariant(variantId);
+        }
     });
 
     variantCards = Array.from(document.querySelectorAll('.variant-card')).map(card => ({

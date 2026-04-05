@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
         'topic_boost_max': '20',
         'scan_interval': '5',
         'threshold': '70',
+        'debug': 'False',
     }
 }
 

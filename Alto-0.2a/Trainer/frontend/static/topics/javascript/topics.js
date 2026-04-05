@@ -108,24 +108,18 @@ function renderTopicsGrid() {
         window.topicsManager.grid = container.querySelector('.grid') || container;
     }
 
-    document.querySelectorAll('.topic-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.card-actions')) return;
-            editTopic(card.dataset.topic);
-        });
-    });
-
-    document.querySelectorAll('.edit-topic').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            editTopic(btn.dataset.topic);
-        });
-    });
-    document.querySelectorAll('.delete-topic').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteTopic(btn.dataset.topic);
-        });
+    // Event delegation – single listener for all topic cards
+    container.addEventListener('click', (e) => {
+        const card = e.target.closest('.topic-card');
+        if (!card) return;
+        const topic = card.dataset.topic;
+        if (e.target.closest('.edit-topic')) {
+            editTopic(topic);
+        } else if (e.target.closest('.delete-topic')) {
+            deleteTopic(topic);
+        } else {
+            editTopic(topic);
+        }
     });
 
     topicCards = Array.from(document.querySelectorAll('.topic-card')).map(card => ({

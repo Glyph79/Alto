@@ -1,20 +1,7 @@
 // Unified search, filter, and sort manager for all tabs.
 window.SearchManager = class SearchManager {
-    /**
-     * @param {Object} options
-     * @param {string} options.containerId - ID of the container that holds the grid.
-     * @param {Array} options.cardArray - Array of { element, item }.
-     * @param {string} options.searchInputId - ID of the search input.
-     * @param {Array} options.searchFields - Fields of item to search (used if no customSearchFn).
-     * @param {Function} options.customSearchFn - Optional custom search function (item, term) => boolean.
-     * @param {Object} options.filterSelectors - Map of select element ID -> filter function (item, value) => boolean.
-     * @param {Object} options.sortSelectors - Map of sort value -> compare function (a, b) => number.
-     * @param {string} options.defaultSort - Initial sort value.
-     * @param {Function} options.onUpdate - Optional callback after update.
-     */
     constructor(options) {
         this.container = document.getElementById(options.containerId);
-        // The grid inside container is expected to have class "grid"
         this.grid = this.container.querySelector('.grid') || this.container;
         this.cardArray = options.cardArray || [];
         this.searchInput = options.searchInputId ? document.getElementById(options.searchInputId) : null;
@@ -24,6 +11,8 @@ window.SearchManager = class SearchManager {
         this.sortSelectors = options.sortSelectors || {};
         this.defaultSort = options.defaultSort || null;
         this.onUpdate = options.onUpdate || null;
+        this.debounceTimer = null;
+        this.debounceDelay = 300;
 
         this.currentFilters = {};
         this.currentSort = this.defaultSort;
@@ -32,7 +21,6 @@ window.SearchManager = class SearchManager {
     }
 
     _init() {
-        // Read initial values from filter dropdowns and attach listeners
         for (let [id, filterFn] of Object.entries(this.filterSelectors)) {
             const el = document.getElementById(id);
             if (el) {
@@ -46,12 +34,13 @@ window.SearchManager = class SearchManager {
             }
         }
 
-        // Search input listener
         if (this.searchInput) {
-            this.searchInput.addEventListener('input', () => this.update());
+            this.searchInput.addEventListener('input', () => {
+                if (this.debounceTimer) clearTimeout(this.debounceTimer);
+                this.debounceTimer = setTimeout(() => this.update(), this.debounceDelay);
+            });
         }
 
-        // Sort dropdown listener (assume only one)
         for (let [id, sortFn] of Object.entries(this.sortSelectors)) {
             const el = document.getElementById(id);
             if (el) {
@@ -60,22 +49,17 @@ window.SearchManager = class SearchManager {
                     this.currentSort = el.value;
                     this.update();
                 });
-                break; // only one sort dropdown per manager
+                break;
             }
         }
 
         this.update();
     }
 
-    /**
-     * Update the card display based on current filters and sort.
-     */
     update() {
         const searchTerm = this.searchInput ? this.searchInput.value.toLowerCase() : '';
 
-        // Combined filter function
         const filterFn = (item) => {
-            // Search
             if (searchTerm) {
                 if (this.customSearchFn) {
                     if (!this.customSearchFn(item, searchTerm)) return false;
@@ -92,7 +76,6 @@ window.SearchManager = class SearchManager {
                 }
             }
 
-            // Apply each filter selector
             for (let [id, filterFn] of Object.entries(this.filterSelectors)) {
                 const value = this.currentFilters[id];
                 if (!filterFn(item, value)) return false;
@@ -100,30 +83,21 @@ window.SearchManager = class SearchManager {
             return true;
         };
 
-        // Sort function
         let sortFn = null;
         if (this.currentSort && this.sortSelectors[this.currentSort]) {
             sortFn = this.sortSelectors[this.currentSort];
         }
 
-        // Use the global filterCards utility (from ui.js) to reorder and hide
         window.filterCards(this.cardArray, filterFn, sortFn, this.grid);
 
         if (this.onUpdate) this.onUpdate();
     }
 
-    /**
-     * Replace the card array (e.g., after loading new data) and refresh.
-     * @param {Array} newCardArray
-     */
     setCardArray(newCardArray) {
         this.cardArray = newCardArray;
         this.update();
     }
 
-    /**
-     * Manually trigger an update (e.g., after external changes to items).
-     */
     refresh() {
         this.update();
     }

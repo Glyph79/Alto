@@ -58,24 +58,18 @@ function renderSectionsGrid() {
         window.sectionsManager.grid = container.querySelector('.grid') || container;
     }
 
-    document.querySelectorAll('.section-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.card-actions')) return;
-            editSection(card.dataset.section);
-        });
-    });
-
-    document.querySelectorAll('.edit-section').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            editSection(btn.dataset.section);
-        });
-    });
-    document.querySelectorAll('.delete-section').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteSection(btn.dataset.section);
-        });
+    // Event delegation – single listener for all section cards
+    container.addEventListener('click', (e) => {
+        const card = e.target.closest('.section-card');
+        if (!card) return;
+        const section = card.dataset.section;
+        if (e.target.closest('.edit-section')) {
+            editSection(section);
+        } else if (e.target.closest('.delete-section')) {
+            deleteSection(section);
+        } else {
+            editSection(section);
+        }
     });
 
     sectionCards = Array.from(document.querySelectorAll('.section-card')).map(card => ({

@@ -82,26 +82,17 @@ function renderGroups() {
         index: parseInt(card.dataset.index)
     }));
 
-    // Attach event listeners without inline onclick
-    groupCards.forEach(card => {
-        const index = card.index;
-        card.element.addEventListener('click', (e) => {
-            if (e.target.closest('.card-actions')) return;
+    // Event delegation – single listener for all card actions
+    container.addEventListener('click', (e) => {
+        const card = e.target.closest('.group-card');
+        if (!card) return;
+        const index = parseInt(card.dataset.index);
+        if (e.target.closest('.edit-group')) {
             openGroupModal(index);
-        });
-        const editBtn = card.element.querySelector('.edit-group');
-        if (editBtn) {
-            editBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openGroupModal(index);
-            });
-        }
-        const deleteBtn = card.element.querySelector('.delete-group');
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                deleteGroup(index);
-            });
+        } else if (e.target.closest('.delete-group')) {
+            deleteGroup(index);
+        } else {
+            openGroupModal(index);
         }
     });
 

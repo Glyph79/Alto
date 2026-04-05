@@ -2,9 +2,9 @@ import time
 import re
 from collections import OrderedDict
 from ..config import config
-from ..loaders import get_loader
 
-DEBUG = True
+# DEBUG controlled by config
+DEBUG = config.getboolean('ai', 'debug', fallback=False)
 
 def debug_print(*args, **kwargs):
     if DEBUG:
