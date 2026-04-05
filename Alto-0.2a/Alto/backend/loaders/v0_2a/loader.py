@@ -5,7 +5,7 @@ import sqlite3
 import msgpack
 import re
 import zlib
-from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz
 from typing import List, Dict, Optional, Tuple, Set
 from ..base import BaseLoader, CACHE_ROOT, get_model_container_path
 
@@ -13,12 +13,15 @@ class LoaderV0_2a(BaseLoader):
     VERSION = "0.2a"
 
     def __init__(self):
-        self._conn = None
+        self._connections = {}   # model_name -> connection
 
     def get_version(self) -> str:
         return self.VERSION
 
     def get_connection(self, model_name: str) -> sqlite3.Connection:
+        if model_name in self._connections:
+            return self._connections[model_name]
+
         container_path = get_model_container_path(model_name)
         if not container_path or not os.path.isfile(container_path):
             raise FileNotFoundError(f"Model '{model_name}' not found (.rbm container missing)")
@@ -38,7 +41,7 @@ class LoaderV0_2a(BaseLoader):
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
         conn.execute("PRAGMA query_only = 1")
         conn.row_factory = sqlite3.Row
-        self._conn = conn
+        self._connections[model_name] = conn
         return conn
 
     def _unpack(self, data: bytes) -> list:

@@ -20,7 +20,7 @@ DEFAULT_CONFIG = {
     'session': {
         'hot_timeout': '5',
         'cold_timeout': '10',
-        'cleanup_interval': '1',
+        'cleanup_interval': '5',
         'max_active_trees': '3',
     },
     'ai': {

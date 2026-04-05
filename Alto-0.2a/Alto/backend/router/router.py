@@ -3,7 +3,7 @@ import re
 import sqlite3
 import json
 import os
-from fuzzywuzzy import fuzz
+from rapidfuzz import fuzz
 from ..config import config
 
 ROUTER_THRESHOLD = config.getint('router', 'threshold')

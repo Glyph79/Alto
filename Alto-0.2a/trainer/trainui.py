@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from quart import Quart, request, jsonify, send_file, send_from_directory, Response
 import asyncio
 import json
@@ -58,15 +59,20 @@ async def send_command(command, **kwargs):
         line = json.dumps(request_data, separators=(',', ':')) + "\n"
         trainer_stdin.write(line.encode())
         await trainer_stdin.drain()
-        response_line = await trainer_stdout.readline()
-        if not response_line:
+        try:
+            response_line = await asyncio.wait_for(trainer_stdout.readline(), timeout=30.0)
+        except asyncio.TimeoutError:
+            # Trainer not responding – restart it
             await stop_trainer()
             await start_trainer()
             trainer_stdin.write(line.encode())
             await trainer_stdin.drain()
-            response_line = await trainer_stdout.readline()
-            if not response_line:
-                return {"error": "Trainer process unavailable"}
+            try:
+                response_line = await asyncio.wait_for(trainer_stdout.readline(), timeout=30.0)
+            except asyncio.TimeoutError:
+                return {"error": "Trainer process timed out after restart"}
+        if not response_line:
+            return {"error": "Trainer process unavailable"}
         try:
             return json.loads(response_line.decode())
         except json.JSONDecodeError:

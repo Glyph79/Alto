@@ -6,20 +6,23 @@ import gc
 from typing import Dict, Tuple, Optional
 from ..config import config
 
-HOT_TIMEOUT = config.getint('session', 'hot_timeout')
-COLD_TIMEOUT = config.getint('session', 'cold_timeout')
-CLEANUP_INTERVAL = config.getint('session', 'cleanup_interval')
-SESSIONS_DIR = config.get('DEFAULT', 'sessions_dir')
+# Read timeouts as minutes, convert to seconds
+HOT_TIMEOUT_MIN = config.getint('session', 'hot_timeout')
+COLD_TIMEOUT_MIN = config.getint('session', 'cold_timeout')
+CLEANUP_INTERVAL_MIN = config.getint('session', 'cleanup_interval')
 
+HOT_TIMEOUT = HOT_TIMEOUT_MIN * 60
+COLD_TIMEOUT = COLD_TIMEOUT_MIN * 60
+CLEANUP_INTERVAL = CLEANUP_INTERVAL_MIN * 60
+
+SESSIONS_DIR = config.get('DEFAULT', 'sessions_dir')
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 _hot: Dict[str, Tuple[dict, float]] = {}
 _lock = threading.Lock()
 
-
 def _cold_path(session_id: str) -> str:
     return os.path.join(SESSIONS_DIR, f"{session_id}.json")
-
 
 def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
     with _lock:
@@ -31,6 +34,7 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
                 state["active_trees"] = {}
             if "topics" not in state:
                 state["topics"] = {}
+            # Migrate old format (group_id, path) to active_trees
             if "group_id" in state and state["group_id"] is not None:
                 gid = state["group_id"]
                 path = state.get("path", [])
@@ -74,7 +78,6 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
         _hot[session_id] = (new_state, now)
         return new_state
 
-
 def save_session(session_id: str, state: dict) -> None:
     with _lock:
         now = time.time()
@@ -84,9 +87,7 @@ def save_session(session_id: str, state: dict) -> None:
             state["topics"] = {}
         _hot[session_id] = (state, now)
 
-
 def _cleanup():
-    gc_counter = 0
     while True:
         time.sleep(CLEANUP_INTERVAL)
         now = time.time()
@@ -125,11 +126,8 @@ def _cleanup():
         except Exception:
             pass
 
-        gc_counter += 1
-        if gc_counter >= 10:
-            gc.collect()
-            gc_counter = 0
-
+        # Run garbage collection every cleanup cycle (every minute for testing)
+        gc.collect()
 
 _cleaner_thread = threading.Thread(target=_cleanup, daemon=True)
 _cleaner_thread.start()
