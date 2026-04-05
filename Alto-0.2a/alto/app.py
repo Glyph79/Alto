@@ -1,10 +1,11 @@
 import os
-from quart import Quart, request, Response, send_from_directory, redirect, url_for
+from quart import Quart, request, Response, send_from_directory, redirect
 import uuid
 import json
 from backend.layer.layer import process_message
 from backend.auth.auth import register_user, authenticate_user, user_exists
 from backend.config import config
+from backend.engine.ai_engine import RuleBot   # moved import to top
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
@@ -95,8 +96,6 @@ async def chat():
 
 @app.route('/api/network')
 async def network_data():
-    from backend.engine.ai_engine import RuleBot
-    from backend.config import config
     import sqlite3
 
     model_name = config.get('DEFAULT', 'default_model')
@@ -140,11 +139,9 @@ async def network_data():
         LEFT JOIN sections s ON g.section_id = s.id
         ORDER BY g.id
     """)
-    groups = []
     for row in cur:
         group_id = f"group_{row['id']}"
         add_node(group_id, row['group_name'], 'group', row['topic'], row['section'])
-        groups.append((row['id'], group_id))
 
     cur = conn.execute("""
         SELECT id, group_id, parent_id, branch_name
@@ -160,7 +157,7 @@ async def network_data():
         add_node(node_id, row['branch_name'] or 'Unnamed', node_type)
         followup_nodes[row['id']] = (node_id, group_id, parent_id)
 
-    for fn_id, (node_id, group_id, parent_id) in followup_nodes.items():
+    for (node_id, group_id, parent_id) in followup_nodes.values():
         if parent_id is None:
             links.append({"source": group_id, "target": node_id})
         else:
@@ -213,8 +210,6 @@ else:
     @app.route('/network')
     async def network_page():
         return Response(BLANK_HTML, status=200, mimetype='text/html')
-
-    # Static routes are not registered – they would 404, but no HTML pages request them.
 
 if __name__ == '__main__':
     app.run(debug=True)

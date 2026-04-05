@@ -1,7 +1,7 @@
 import os
 import sys
 from .base import (
-    MODELS_BASE_DIR, get_model_container_path, get_legacy_db_path,
+    get_model_container_path, get_legacy_db_path,
     read_manifest, get_db_alto_version
 )
 from .v0_1a.loader import LoaderV0_1a

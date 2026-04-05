@@ -6,7 +6,7 @@ import tempfile
 import hashlib
 import sqlite3
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Tuple
 
 MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
 CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")

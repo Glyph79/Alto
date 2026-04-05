@@ -1,5 +1,4 @@
 import os
-import sys
 import hashlib
 import sqlite3
 import msgpack

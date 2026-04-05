@@ -18,7 +18,6 @@ _hot_heap: list = []
 _cold_heap: list = []
 
 _lock = threading.Lock()
-_stop = False
 
 def _cold_path(session_id: str) -> str:
     return os.path.join(SESSIONS_DIR, f"{session_id}.json")
@@ -99,7 +98,7 @@ def save_session(session_id: str, state: dict) -> None:
             heapq.heappush(_hot_heap, (now, session_id))
 
 def _cleanup():
-    while not _stop:
+    while True:
         time.sleep(CLEANUP_INTERVAL)
         now = time.time()
 
@@ -143,7 +142,3 @@ def _cleanup():
 
 _cleaner_thread = threading.Thread(target=_cleanup, daemon=True)
 _cleaner_thread.start()
-
-def stop_cleaner():
-    global _stop
-    _stop = True

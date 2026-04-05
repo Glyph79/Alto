@@ -7,7 +7,7 @@ import re
 import zlib
 from fuzzywuzzy import fuzz
 from typing import List, Dict, Optional, Tuple, Set
-from ..base import BaseLoader, MODELS_BASE_DIR, CACHE_ROOT, get_model_container_path
+from ..base import BaseLoader, CACHE_ROOT, get_model_container_path   # MODELS_BASE_DIR removed
 
 class LoaderV0_2a(BaseLoader):
     VERSION = "0.2a"
@@ -94,9 +94,7 @@ class LoaderV0_2a(BaseLoader):
         if not expanded:
             return None, None, 0
 
-        # Build FTS query: each word as a phrase to avoid over-matching
         match = ' OR '.join(f'"{w}"' for w in expanded)
-        # Step 1: get question IDs that match
         cur = self._conn.execute(
             "SELECT rowid FROM questions_fts WHERE questions_fts MATCH ?", (match,)
         )
@@ -104,7 +102,6 @@ class LoaderV0_2a(BaseLoader):
         if not qids:
             return None, None, 0
 
-        # Step 2: get distinct group IDs from group_questions
         placeholders = ','.join(['?'] * len(qids))
         cur = self._conn.execute(f"""
             SELECT DISTINCT group_id FROM group_questions
@@ -114,7 +111,6 @@ class LoaderV0_2a(BaseLoader):
         if not gids:
             return None, None, 0
 
-        # Step 3: load group metadata
         placeholders2 = ','.join(['?'] * len(gids))
         cur = self._conn.execute(f"""
             SELECT g.id, g.group_name, COALESCE(t.name, '') as topic
@@ -124,7 +120,6 @@ class LoaderV0_2a(BaseLoader):
         """, gids)
         groups = [dict(row) for row in cur]
 
-        # Step 4: fuzzy scoring with topic boosts
         best_score = 0
         best_group = None
         text_low = text.lower()
