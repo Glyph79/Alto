@@ -1,4 +1,5 @@
 import os
+import gc
 from quart import Quart, request, Response, send_from_directory, redirect
 import uuid
 import json
@@ -12,6 +13,12 @@ SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
 FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 
 app = Quart(__name__, static_folder=None)
+
+# Force garbage collection after every request to break cycles
+@app.after_request
+async def cleanup(response):
+    gc.collect()
+    return response
 
 # ---------- API endpoints (always available) ----------
 @app.route('/api/register', methods=['POST'])
@@ -196,7 +203,6 @@ if SERVE_WEBUI:
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static', 'network'), filename)
 
 else:
-    # Return minimal valid HTML5 document (empty body) to avoid quirks mode
     BLANK_HTML = '<!DOCTYPE html><html><head><title></title></head><body></body></html>'
 
     @app.route('/')
@@ -211,13 +217,5 @@ else:
     async def network_page():
         return Response(BLANK_HTML, status=200, mimetype='text/html')
 
-# ---------- Run with Hypercorn (production server) ----------
 if __name__ == '__main__':
-    import asyncio
-    from hypercorn.config import Config
-    from hypercorn.asyncio import serve
-
-    port = config.getint('DEFAULT', 'port', fallback=5000)
-    cfg = Config()
-    cfg.bind = [f"127.0.0.1:{port}"]
-    asyncio.run(serve(app, cfg))
+    app.run(debug=True)

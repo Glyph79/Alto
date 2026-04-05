@@ -4,9 +4,16 @@ import json
 import os
 import sys
 import tempfile
-from backend.config import config   # changed from train.config to backend.config
+import gc                         # <-- added for garbage collection
+from backend.config import config
 
 app = Quart(__name__, static_folder=None)
+
+# Force garbage collection after each request to break reference cycles
+@app.after_request
+async def cleanup(response):
+    gc.collect()
+    return response
 
 # Read the flag from config
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
@@ -20,6 +27,7 @@ trainer_process = None
 trainer_stdin = None
 trainer_stdout = None
 _trainer_lock = asyncio.Lock()
+
 
 async def log_trainer_stderr():
     global trainer_process
@@ -402,7 +410,6 @@ if SERVE_WEBUI:
     async def serve_static(filename):
         return await send_from_directory(os.path.join(FRONTEND_DIR, 'static'), filename)
 else:
-    # Return blank HTML (standards mode) for all page routes
     BLANK_HTML = '<!DOCTYPE html><html><head><title></title></head><body></body></html>'
 
     @app.route('/')
@@ -411,8 +418,7 @@ else:
 
     @app.route('/static/<path:filename>')
     async def serve_static(filename):
-        # No static files served when web UI is disabled
-        return Response('', status=204)   # No Content
+        return Response('', status=204)
 
 
 # Startup/shutdown
