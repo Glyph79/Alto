@@ -6,8 +6,6 @@ let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
 
-window.currentNodeAnimation = null;
-
 window.openTreeModalForGroup = async function(groupIndex) {
     window._pendingGroupIndex = groupIndex;
     const initialTree = [];
@@ -53,7 +51,7 @@ window.openTreeModal = function(treeData, options = {}) {
 
 function showTreeLoadingIndicator() {
     const container = document.getElementById('treeContainer');
-    if (container) {
+    if (container && !document.getElementById('treeLoadingIndicator')) {
         const loadingDiv = document.createElement('div');
         loadingDiv.id = 'treeLoadingIndicator';
         loadingDiv.className = 'tree-loading';
@@ -159,7 +157,7 @@ function renderTreeNodes(nodes, level) {
         html += `<div class="tree-node">`;
         html += `<div class="tree-node-header" data-node-id="${node.id}">`;
         html += `<span class="expand-icon">${expandIcon}</span>`;
-        html += `<span class="name">${node.branch_name || 'Unnamed'}</span>`;
+        html += `<span class="name">${escapeHtml(node.branch_name || 'Unnamed')}</span>`;
         html += `<span class="node-actions"></span>`;
         html += `</div>`;
         if (hasChildren) {
@@ -183,12 +181,6 @@ function selectNode(nodeId) {
 }
 
 async function showNodeQAPanel(nodeId) {
-    if (window.currentNodeAnimation) {
-        clearTimeout(window.currentNodeAnimation.timeout);
-        clearInterval(window.currentNodeAnimation.interval);
-        window.currentNodeAnimation = null;
-    }
-
     const node = nodeMap.get(nodeId);
     if (!node) return;
 
@@ -218,11 +210,9 @@ async function showNodeQAPanel(nodeId) {
 
     const qList = document.getElementById('treeQuestionsList');
     const aList = document.getElementById('treeAnswersList');
-    // Clear any old content
     qList.innerHTML = '';
     aList.innerHTML = '';
 
-    // Show inline loading indicators
     const qLoading = window.showInlineLoading(qList, "Loading questions");
     const aLoading = window.showInlineLoading(aList, "Loading answers");
 
@@ -238,7 +228,6 @@ async function showNodeQAPanel(nodeId) {
         node.answers = details.answers;
         nodeDetailsCache.set(nodeId, details);
         renderNodeQAPanel(node);
-        // Re‑enable buttons
         if (addQuestionBtn) addQuestionBtn.disabled = false;
         if (addAnswerBtn) addAnswerBtn.disabled = false;
     } catch (err) {
@@ -250,7 +239,6 @@ async function showNodeQAPanel(nodeId) {
         window.showInlineListRetry(aList, 'answers', async () => {
             await showNodeQAPanel(nodeId);
         });
-        // Keep add buttons disabled until retry succeeds
     }
 }
 
@@ -259,7 +247,7 @@ function renderNodeQAPanel(node) {
     qList.innerHTML = '';
     (node.questions || []).forEach((q, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${q}</span> <span><button onclick="editTreeNodeQuestion(${i})">✎</button><button onclick="deleteTreeNodeQuestion(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button onclick="editTreeNodeQuestion(${i})">✎</button><button onclick="deleteTreeNodeQuestion(${i})">🗑</button></span>`;
         qList.appendChild(li);
     });
 
@@ -267,7 +255,7 @@ function renderNodeQAPanel(node) {
     aList.innerHTML = '';
     (node.answers || []).forEach((a, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${a}</span> <span><button onclick="editTreeNodeAnswer(${i})">✎</button><button onclick="deleteTreeNodeAnswer(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button onclick="editTreeNodeAnswer(${i})">✎</button><button onclick="deleteTreeNodeAnswer(${i})">🗑</button></span>`;
         aList.appendChild(li);
     });
 }
@@ -465,6 +453,17 @@ document.getElementById('treeModalCancelBtn').onclick = () => {
     }
 };
 
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+
+// Inject styles once
 if (!document.querySelector('#tree-styles')) {
     const style = document.createElement('style');
     style.id = 'tree-styles';

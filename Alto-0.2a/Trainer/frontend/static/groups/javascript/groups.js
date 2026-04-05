@@ -52,16 +52,16 @@ function renderGroups() {
         const qCount = g.question_count || 0;
         const aCount = g.answer_count || 0;
         html += `
-            <div class="group-card" data-index="${idx}" data-name="${g.group_name || ''}" data-desc="${g.group_description || ''}">
+            <div class="group-card" data-index="${idx}" data-name="${escapeHtml(g.group_name || '')}" data-desc="${escapeHtml(g.group_description || '')}">
                 <div class="header">
-                    <span class="section-badge">${section}</span>
+                    <span class="section-badge">${escapeHtml(section)}</span>
                     <div class="card-actions">
-                        <button class="edit-group" title="Edit">✎</button>
-                        <button class="delete-group" title="Delete">🗑</button>
+                        <button class="edit-group" data-index="${idx}" title="Edit">✎</button>
+                        <button class="delete-group" data-index="${idx}" title="Delete">🗑</button>
                     </div>
                 </div>
-                <h4>${g.group_name || 'Unnamed'}</h4>
-                <div class="description">${g.group_description || ''}</div>
+                <h4>${escapeHtml(g.group_name || 'Unnamed')}</h4>
+                <div class="description">${escapeHtml(g.group_description || '')}</div>
                 <div class="stats">
                     <span>❓ ${qCount} question${qCount !== 1 ? 's' : ''}</span>
                     <span>💬 ${aCount} answer${aCount !== 1 ? 's' : ''}</span>
@@ -82,20 +82,27 @@ function renderGroups() {
         index: parseInt(card.dataset.index)
     }));
 
+    // Attach event listeners without inline onclick
     groupCards.forEach(card => {
         const index = card.index;
         card.element.addEventListener('click', (e) => {
             if (e.target.closest('.card-actions')) return;
             openGroupModal(index);
         });
-        card.element.querySelector('.edit-group').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openGroupModal(index);
-        });
-        card.element.querySelector('.delete-group').addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteGroup(index);
-        });
+        const editBtn = card.element.querySelector('.edit-group');
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openGroupModal(index);
+            });
+        }
+        const deleteBtn = card.element.querySelector('.delete-group');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteGroup(index);
+            });
+        }
     });
 
     if (!window.groupsManager) {
@@ -241,7 +248,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
     const modal = document.getElementById('groupModal');
     const content = modal.querySelector('.modal-content');
-    // Build modal without any static loading text inside the lists
     content.innerHTML = `
         <h2>${isNew ? 'Create Group' : 'Edit Group'}</h2>
         <div class="form-row">
@@ -296,7 +302,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
     const qList = document.getElementById('modalQuestionsList');
     const aList = document.getElementById('modalAnswersList');
 
-    // Show inline loading indicators (no static text)
     currentGroupFetchCleanup = window.showInlineLoading(qList, "Loading questions");
     const answersLoading = window.showInlineLoading(aList, "Loading answers");
 
@@ -317,7 +322,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
             const topicSelect = document.getElementById('modalGroupTopic');
             let topicOptions = '<option value="">(No Topic)</option>';
             if (window.topicsList && window.topicsList.length) {
-                topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+                topicOptions += window.topicsList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
             } else {
                 topicOptions += '<option value="general">general</option>';
             }
@@ -326,7 +331,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
             const sectionSelect = document.getElementById('modalGroupSection');
             let sectionOptions = '<option value="">(Uncategorized)</option>';
-            sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+            sectionOptions += window.sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
             sectionSelect.innerHTML = sectionOptions;
             sectionSelect.value = '';
 
@@ -344,7 +349,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
             const topicSelect = document.getElementById('modalGroupTopic');
             let topicOptions = '<option value="">(No Topic)</option>';
             if (window.topicsList && window.topicsList.length) {
-                topicOptions += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+                topicOptions += window.topicsList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
             } else {
                 topicOptions += '<option value="general">general</option>';
             }
@@ -353,14 +358,13 @@ window.openGroupModal = async function(index, onSaveCallback) {
 
             const sectionSelect = document.getElementById('modalGroupSection');
             let sectionOptions = '<option value="">(Uncategorized)</option>';
-            sectionOptions += window.sections.map(s => `<option value="${s}">${s}</option>`).join('');
+            sectionOptions += window.sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
             sectionSelect.innerHTML = sectionOptions;
             sectionSelect.value = modalGroupCopy.section || '';
 
             refreshModalLists();
             window._groupModalOnSave = onSaveCallback;
         }
-        // Success – remove loading indicators and enable buttons
         if (currentGroupFetchCleanup) currentGroupFetchCleanup.clear();
         answersLoading.clear();
         window.enableButtonsInContainer(modalContentDiv);
@@ -373,7 +377,6 @@ window.openGroupModal = async function(index, onSaveCallback) {
         window.showInlineListRetry(aList, 'answers', async () => {
             await openGroupModal(index, onSaveCallback);
         });
-        // Buttons remain disabled – they will be re‑enabled only on retry success
     } finally {
         if (currentGroupFetchCleanup && !currentGroupFetchCleanup.interval) {
             currentGroupFetchCleanup.clear();
@@ -386,7 +389,7 @@ window.refreshGroupModalTopicDropdown = function() {
     if (document.getElementById('groupModal').classList.contains('visible') && modalGroupCopy) {
         const topicSelect = document.getElementById('modalGroupTopic');
         let options = '<option value="">(No Topic)</option>';
-        options += window.topicsList.map(t => `<option value="${t}">${t}</option>`).join('');
+        options += window.topicsList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
         topicSelect.innerHTML = options;
         if (window.topicsList.includes(modalGroupCopy.topic)) {
             topicSelect.value = modalGroupCopy.topic;
@@ -402,20 +405,32 @@ function refreshModalLists() {
     qList.innerHTML = '';
     (modalGroupCopy.questions || []).forEach((q, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${q}</span> <span><button onclick="editQuestion(${i})">✎</button><button onclick="deleteQuestion(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button class="edit-question" data-idx="${i}">✎</button><button class="delete-question" data-idx="${i}">🗑</button></span>`;
         qList.appendChild(li);
+    });
+    qList.querySelectorAll('.edit-question').forEach(btn => {
+        btn.addEventListener('click', () => editQuestion(parseInt(btn.dataset.idx)));
+    });
+    qList.querySelectorAll('.delete-question').forEach(btn => {
+        btn.addEventListener('click', () => deleteQuestion(parseInt(btn.dataset.idx)));
     });
 
     const aList = document.getElementById('modalAnswersList');
     aList.innerHTML = '';
     (modalGroupCopy.answers || []).forEach((a, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${a}</span> <span><button onclick="editAnswer(${i})">✎</button><button onclick="deleteAnswer(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button class="edit-answer" data-idx="${i}">✎</button><button class="delete-answer" data-idx="${i}">🗑</button></span>`;
         aList.appendChild(li);
+    });
+    aList.querySelectorAll('.edit-answer').forEach(btn => {
+        btn.addEventListener('click', () => editAnswer(parseInt(btn.dataset.idx)));
+    });
+    aList.querySelectorAll('.delete-answer').forEach(btn => {
+        btn.addEventListener('click', () => deleteAnswer(parseInt(btn.dataset.idx)));
     });
 }
 
-window.editQuestion = (qIdx) => {
+function editQuestion(qIdx) {
     window.showSimpleModal('Edit Question', [{ name: 'text', label: 'Question', value: modalGroupCopy.questions[qIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Question cannot be empty.';
@@ -425,16 +440,16 @@ window.editQuestion = (qIdx) => {
         modalGroupCopy.questions[qIdx] = vals.text;
         refreshModalLists();
     }, 'Save');
-};
+}
 
-window.deleteQuestion = (qIdx) => {
+function deleteQuestion(qIdx) {
     window.showConfirmModal('Delete this question?', () => {
         modalGroupCopy.questions.splice(qIdx, 1);
         refreshModalLists();
     });
-};
+}
 
-window.editAnswer = (aIdx) => {
+function editAnswer(aIdx) {
     window.showSimpleModal('Edit Answer', [{ name: 'text', label: 'Answer', value: modalGroupCopy.answers[aIdx] }], (vals, errorDiv) => {
         if (!vals.text) {
             errorDiv.textContent = 'Answer cannot be empty.';
@@ -444,14 +459,14 @@ window.editAnswer = (aIdx) => {
         modalGroupCopy.answers[aIdx] = vals.text;
         refreshModalLists();
     }, 'Save');
-};
+}
 
-window.deleteAnswer = (aIdx) => {
+function deleteAnswer(aIdx) {
     window.showConfirmModal('Delete this answer?', () => {
         modalGroupCopy.answers.splice(aIdx, 1);
         refreshModalLists();
     });
-};
+}
 
 async function createNewGroup() {
     if (!window.currentModel) {

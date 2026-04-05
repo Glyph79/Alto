@@ -84,15 +84,15 @@ function renderTopicsGrid() {
         const count = groupCounts[topic] || 0;
         const hue = (topic.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
         html += `
-            <div class="topic-card" data-topic="${topic}" data-count="${count}">
+            <div class="topic-card" data-topic="${escapeHtml(topic)}" data-count="${count}">
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 4px;">
                         <span class="topic-color-dot" style="background-color: hsl(${hue}, 70%, 60%);"></span>
-                        <span class="topic-name">${topic}</span>
+                        <span class="topic-name">${escapeHtml(topic)}</span>
                     </div>
                     <div class="card-actions">
-                        <button class="edit-topic" data-topic="${topic}" title="Edit">✎</button>
-                        <button class="delete-topic" data-topic="${topic}" title="Delete">🗑</button>
+                        <button class="edit-topic" data-topic="${escapeHtml(topic)}" title="Edit">✎</button>
+                        <button class="delete-topic" data-topic="${escapeHtml(topic)}" title="Delete">🗑</button>
                     </div>
                 </div>
                 <div class="stats">
@@ -219,14 +219,14 @@ async function editTopic(topicName) {
         <h2>${isNoTopic ? 'View Topic' : 'Edit Topic'}</h2>
         <div class="form-row">
             <label>Topic Name</label>
-            <input type="text" id="editTopicName" value="${topicName}" ${isNoTopic ? 'disabled' : ''}>
+            <input type="text" id="editTopicName" value="${escapeHtml(topicName)}" ${isNoTopic ? 'disabled' : ''}>
         </div>
         ${!isNoTopic ? `
         <div class="form-row">
             <label>Section</label>
             <select id="editTopicSection">
                 <option value="">(Uncategorized)</option>
-                ${window.sections.map(s => `<option value="${s}">${s}</option>`).join('')}
+                ${window.sections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
             </select>
         </div>
         ` : ''}
@@ -270,10 +270,10 @@ async function editTopic(topicName) {
             groupsUsing.forEach((g) => {
                 groupsHtml += `
                     <li class="group-usage-item" data-group-id="${g.id}">
-                        <span class="group-name">${g.group_name || 'Unnamed'}</span>
+                        <span class="group-name">${escapeHtml(g.group_name || 'Unnamed')}</span>
                         <div class="group-usage-actions">
-                            <button class="edit-group-from-topic" title="Edit Group">✎</button>
-                            <button class="delete-group-from-topic" title="Delete Group">🗑</button>
+                            <button class="edit-group-from-topic" data-group-id="${g.id}" title="Edit Group">✎</button>
+                            <button class="delete-group-from-topic" data-group-id="${g.id}" title="Delete Group">🗑</button>
                         </div>
                     </li>
                 `;
@@ -331,8 +331,7 @@ async function editTopic(topicName) {
         document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                const li = e.target.closest('.group-usage-item');
-                const groupId = li.dataset.groupId;
+                const groupId = parseInt(btn.dataset.groupId);
                 if (groupId) {
                     if (!window.groups || window.groups.length === 0) await window.loadGroupsAndSections();
                     const index = window.groups.findIndex(g => g.id == groupId);
@@ -349,8 +348,7 @@ async function editTopic(topicName) {
         document.querySelectorAll('.delete-group-from-topic').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                const li = e.target.closest('.group-usage-item');
-                const groupId = li.dataset.groupId;
+                const groupId = parseInt(btn.dataset.groupId);
                 if (groupId) {
                     window.showConfirmModal('Delete this group?', async () => {
                         if (!window.groups || window.groups.length === 0) await window.loadGroupsAndSections();
@@ -396,13 +394,13 @@ function deleteTopic(topic) {
 
     const otherTopics = window.topicsList.filter(t => t !== topic);
     let reassignOptions = '<option value="">(No Topic)</option>';
-    reassignOptions += otherTopics.map(t => `<option value="${t}">${t}</option>`).join('');
+    reassignOptions += otherTopics.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
 
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
         <h2>Delete Topic</h2>
-        <p style="margin: 20px 0; color: #ccc;">${message}</p>
+        <p style="margin: 20px 0; color: #ccc;">${escapeHtml(message)}</p>
         ${groupsUsing > 0 ? `
         <div style="margin: 20px 0;">
             <label>

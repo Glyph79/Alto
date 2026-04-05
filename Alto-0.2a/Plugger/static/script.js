@@ -45,7 +45,7 @@ async function apiDelete(url) {
 }
 
 // ------------------------------------------------------------------
-// Custom modal helpers
+// Custom modal helpers (using global escapeHtml from retry.js)
 // ------------------------------------------------------------------
 function showAlertModal(title, message, onClose) {
     const modal = document.getElementById('simpleModal');
@@ -164,8 +164,8 @@ function renderPlugins() {
                 <div class="header">
                     <span class="version">v${escapeHtml(p.version)}</span>
                     <div class="card-actions">
-                        <button class="edit-plugin" title="Edit">✎</button>
-                        <button class="delete-plugin" title="Delete">🗑</button>
+                        <button class="edit-plugin" data-name="${escapeHtml(p.name)}" title="Edit">✎</button>
+                        <button class="delete-plugin" data-name="${escapeHtml(p.name)}" title="Delete">🗑</button>
                     </div>
                 </div>
                 <h4>${escapeHtml(p.name)}</h4>
@@ -182,24 +182,18 @@ function renderPlugins() {
             if (e.target.closest('.card-actions')) return;
             openPluginModal(name);
         });
-        card.querySelector('.edit-plugin').addEventListener('click', (e) => {
+    });
+    document.querySelectorAll('.edit-plugin').forEach(btn => {
+        btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openPluginModal(name);
-        });
-        card.querySelector('.delete-plugin').addEventListener('click', (e) => {
-            e.stopPropagation();
-            deletePlugin(name);
+            openPluginModal(btn.dataset.name);
         });
     });
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
+    document.querySelectorAll('.delete-plugin').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deletePlugin(btn.dataset.name);
+        });
     });
 }
 
@@ -251,30 +245,36 @@ async function openPluginModal(name) {
 }
 
 // ------------------------------------------------------------------
-// Questions list management
+// Questions list management (no inline onclick)
 // ------------------------------------------------------------------
 function renderQuestionsList() {
     const list = document.getElementById('questionsList');
     list.innerHTML = '';
     (pluginCopy.triggers || []).forEach((trigger, idx) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(trigger)}</span> <span><button onclick="editQuestion(${idx})">✎</button><button onclick="deleteQuestion(${idx})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(trigger)}</span> <span><button class="edit-question" data-idx="${idx}">✎</button><button class="delete-question" data-idx="${idx}">🗑</button></span>`;
         list.appendChild(li);
     });
+    list.querySelectorAll('.edit-question').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            const current = pluginCopy.triggers[idx];
+            showTextInputModal('Edit Question', current, (newVal) => {
+                pluginCopy.triggers[idx] = newVal;
+                renderQuestionsList();
+            });
+        });
+    });
+    list.querySelectorAll('.delete-question').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            showConfirmModal('Delete this question?', () => {
+                pluginCopy.triggers.splice(idx, 1);
+                renderQuestionsList();
+            });
+        });
+    });
 }
-window.editQuestion = (idx) => {
-    const current = pluginCopy.triggers[idx];
-    showTextInputModal('Edit Question', current, (newVal) => {
-        pluginCopy.triggers[idx] = newVal;
-        renderQuestionsList();
-    });
-};
-window.deleteQuestion = (idx) => {
-    showConfirmModal('Delete this question?', () => {
-        pluginCopy.triggers.splice(idx, 1);
-        renderQuestionsList();
-    });
-};
 document.getElementById('addQuestionBtn').onclick = () => {
     showTextInputModal('Add Question', '', (newVal) => {
         if (!pluginCopy.triggers) pluginCopy.triggers = [];
@@ -284,7 +284,7 @@ document.getElementById('addQuestionBtn').onclick = () => {
 };
 
 // ------------------------------------------------------------------
-// Static answers list management (root)
+// Static answers list management (no inline onclick)
 // ------------------------------------------------------------------
 function renderAnswersList() {
     const list = document.getElementById('answersList');
@@ -292,23 +292,29 @@ function renderAnswersList() {
     const answers = pluginCopy.response?.answers || [];
     answers.forEach((ans, idx) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(ans)}</span> <span><button onclick="editAnswer(${idx})">✎</button><button onclick="deleteAnswer(${idx})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(ans)}</span> <span><button class="edit-answer" data-idx="${idx}">✎</button><button class="delete-answer" data-idx="${idx}">🗑</button></span>`;
         list.appendChild(li);
     });
+    list.querySelectorAll('.edit-answer').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            const current = pluginCopy.response.answers[idx];
+            showTextInputModal('Edit Answer', current, (newVal) => {
+                pluginCopy.response.answers[idx] = newVal;
+                renderAnswersList();
+            });
+        });
+    });
+    list.querySelectorAll('.delete-answer').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            showConfirmModal('Delete this answer?', () => {
+                pluginCopy.response.answers.splice(idx, 1);
+                renderAnswersList();
+            });
+        });
+    });
 }
-window.editAnswer = (idx) => {
-    const current = pluginCopy.response.answers[idx];
-    showTextInputModal('Edit Answer', current, (newVal) => {
-        pluginCopy.response.answers[idx] = newVal;
-        renderAnswersList();
-    });
-};
-window.deleteAnswer = (idx) => {
-    showConfirmModal('Delete this answer?', () => {
-        pluginCopy.response.answers.splice(idx, 1);
-        renderAnswersList();
-    });
-};
 document.getElementById('addAnswerBtn').onclick = () => {
     showTextInputModal('Add Answer', '', (newVal) => {
         if (!pluginCopy.response) pluginCopy.response = { type: 'static', answers: [] };
@@ -319,7 +325,7 @@ document.getElementById('addAnswerBtn').onclick = () => {
 };
 
 // ------------------------------------------------------------------
-// API fields population (root) – now with conditional templates
+// API fields (conditional templates) – no inline onclick
 // ------------------------------------------------------------------
 function renderApiFields() {
     const resp = pluginCopy.response || { type: 'static' };
@@ -341,10 +347,10 @@ function renderConditionalTemplates() {
                 <div class="conditional-header">
                     <span class="condition">${escapeHtml(item.condition) || '(always)'}</span>
                     <div class="card-actions">
-                        <button class="move-up" title="Move Up" ${idx === 0 ? 'disabled' : ''}>↑</button>
-                        <button class="move-down" title="Move Down" ${idx === templates.length-1 ? 'disabled' : ''}>↓</button>
-                        <button class="edit-conditional" title="Edit">✎</button>
-                        <button class="delete-conditional" title="Delete">🗑</button>
+                        <button class="move-up" data-idx="${idx}" title="Move Up" ${idx === 0 ? 'disabled' : ''}>↑</button>
+                        <button class="move-down" data-idx="${idx}" title="Move Down" ${idx === templates.length-1 ? 'disabled' : ''}>↓</button>
+                        <button class="edit-conditional" data-idx="${idx}" title="Edit">✎</button>
+                        <button class="delete-conditional" data-idx="${idx}" title="Delete">🗑</button>
                     </div>
                 </div>
                 <div class="template-preview">${escapeHtml(item.template)}</div>
@@ -354,12 +360,11 @@ function renderConditionalTemplates() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Add event listeners
+    // Attach listeners
     container.querySelectorAll('.move-up').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const card = btn.closest('.conditional-card');
-            const idx = parseInt(card.dataset.index);
+            const idx = parseInt(btn.dataset.idx);
             if (idx > 0) {
                 const arr = pluginCopy.response.conditionalTemplates;
                 [arr[idx-1], arr[idx]] = [arr[idx], arr[idx-1]];
@@ -370,8 +375,7 @@ function renderConditionalTemplates() {
     container.querySelectorAll('.move-down').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const card = btn.closest('.conditional-card');
-            const idx = parseInt(card.dataset.index);
+            const idx = parseInt(btn.dataset.idx);
             const arr = pluginCopy.response.conditionalTemplates;
             if (idx < arr.length-1) {
                 [arr[idx], arr[idx+1]] = [arr[idx+1], arr[idx]];
@@ -382,16 +386,14 @@ function renderConditionalTemplates() {
     container.querySelectorAll('.edit-conditional').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const card = btn.closest('.conditional-card');
-            const idx = parseInt(card.dataset.index);
+            const idx = parseInt(btn.dataset.idx);
             editConditionalTemplate(idx);
         });
     });
     container.querySelectorAll('.delete-conditional').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const card = btn.closest('.conditional-card');
-            const idx = parseInt(card.dataset.index);
+            const idx = parseInt(btn.dataset.idx);
             showConfirmModal('Delete this conditional template?', () => {
                 pluginCopy.response.conditionalTemplates.splice(idx, 1);
                 renderConditionalTemplates();
@@ -402,7 +404,6 @@ function renderConditionalTemplates() {
 
 function editConditionalTemplate(idx) {
     const item = pluginCopy.response.conditionalTemplates[idx];
-    // Create a simple modal with two fields
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
@@ -437,7 +438,6 @@ function editConditionalTemplate(idx) {
 }
 
 document.getElementById('addConditionalTemplateBtn').onclick = () => {
-    // Open a modal to add new conditional template
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
@@ -480,7 +480,7 @@ function getApiFields() {
 }
 
 // ------------------------------------------------------------------
-// Response type toggle (root)
+// Response type toggle
 // ------------------------------------------------------------------
 function toggleResponseSections(type) {
     const staticDiv = document.getElementById('staticResponseSection');
@@ -505,7 +505,7 @@ document.querySelectorAll('input[name="responseType"]').forEach(radio => {
 });
 
 // ------------------------------------------------------------------
-// Mappings management
+// Mappings management (no inline onclick)
 // ------------------------------------------------------------------
 function renderMappingsList() {
     const container = document.getElementById('mappingsList');
@@ -523,8 +523,8 @@ function renderMappingsList() {
                 <div class="header">
                     <strong>${escapeHtml(tableName)}</strong>
                     <div class="card-actions">
-                        <button class="edit-mapping" title="Edit">✎</button>
-                        <button class="delete-mapping" title="Delete">🗑</button>
+                        <button class="edit-mapping" data-table="${escapeHtml(tableName)}" title="Edit">✎</button>
+                        <button class="delete-mapping" data-table="${escapeHtml(tableName)}" title="Delete">🗑</button>
                     </div>
                 </div>
                 <div class="mapping-details">
@@ -537,19 +537,17 @@ function renderMappingsList() {
     html += '</div>';
     container.innerHTML = html;
 
-    document.querySelectorAll('.edit-mapping').forEach(btn => {
-        const card = btn.closest('.mapping-card');
-        const tableName = card.dataset.table;
+    container.querySelectorAll('.edit-mapping').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
+            const tableName = btn.dataset.table;
             openMappingEditor(tableName);
         });
     });
-    document.querySelectorAll('.delete-mapping').forEach(btn => {
-        const card = btn.closest('.mapping-card');
-        const tableName = card.dataset.table;
+    container.querySelectorAll('.delete-mapping').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
+            const tableName = btn.dataset.table;
             showConfirmModal(`Delete mapping table "${tableName}"?`, () => {
                 delete pluginCopy.mappings[tableName];
                 renderMappingsList();
@@ -689,24 +687,23 @@ document.getElementById('addMappingBtn').onclick = () => {
 };
 
 // ------------------------------------------------------------------
-// Tree editor (nodes have static answers only)
+// Tree editor (fixed – no inline onclick, clean loading)
 // ------------------------------------------------------------------
 let currentTree = [];
 let nodeMap = new Map();
-let nodeDetailsCache = new Map(); // nodeId -> { questions, answers }
+let nodeDetailsCache = new Map();
 let nextNodeId = 0;
 let selectedNodeId = null;
 let treeUnsaved = false;
 
 function openTreeEditor() {
-    // Copy the current tree from pluginCopy
     currentTree = JSON.parse(JSON.stringify(pluginCopy.tree || []));
     nodeMap.clear();
     nodeDetailsCache.clear();
     nextNodeId = 0;
     function buildMap(nodes) {
         nodes.forEach(node => {
-            node.dbId = node.id;          // preserve real DB id (undefined for new nodes)
+            node.dbId = node.id;
             node.id = `node_${nextNodeId++}`;
             nodeMap.set(node.id, node);
             if (node.children) buildMap(node.children);
@@ -800,39 +797,90 @@ function showNodeQAPanel(nodeId) {
     const node = nodeMap.get(nodeId);
     if (!node) return;
 
-    // Load from cache or use node's own data
-    let fullNode = nodeDetailsCache.get(nodeId);
-    if (!fullNode) {
-        fullNode = {
-            questions: node.questions || [],
-            answers: node.answers || []
-        };
-        nodeDetailsCache.set(nodeId, fullNode);
-    }
-
     document.getElementById('nodeQAPanel').style.display = 'block';
     document.getElementById('noNodeSelected').style.display = 'none';
 
-    renderNodeQAPanel(fullNode);
+    if (!node.dbId) {
+        node.questions = node.questions || [];
+        node.answers = node.answers || [];
+        renderNodeQAPanel(node);
+        return;
+    }
+
+    if (nodeDetailsCache.has(nodeId)) {
+        const details = nodeDetailsCache.get(nodeId);
+        node.questions = details.questions;
+        node.answers = details.answers;
+        renderNodeQAPanel(node);
+        return;
+    }
+
+    const addQuestionBtn = document.getElementById('treeAddQuestionBtn');
+    const addAnswerBtn = document.getElementById('treeAddAnswerBtn');
+    if (addQuestionBtn) addQuestionBtn.disabled = true;
+    if (addAnswerBtn) addAnswerBtn.disabled = true;
+
+    const qList = document.getElementById('treeQuestionsList');
+    const aList = document.getElementById('treeAnswersList');
+    qList.innerHTML = '';
+    aList.innerHTML = '';
+
+    const qLoading = window.showInlineLoading(qList, "Loading questions");
+    const aLoading = window.showInlineLoading(aList, "Loading answers");
+
+    (async () => {
+        try {
+            const details = await window.retryOperation(async () => {
+                return await apiGet(`/api/plugins/${encodeURIComponent(currentPluginName)}/node/${node.dbId}`);
+            });
+            qLoading.clear();
+            aLoading.clear();
+            node.questions = details.questions;
+            node.answers = details.answers;
+            nodeDetailsCache.set(nodeId, details);
+            renderNodeQAPanel(node);
+            if (addQuestionBtn) addQuestionBtn.disabled = false;
+            if (addAnswerBtn) addAnswerBtn.disabled = false;
+        } catch (err) {
+            qLoading.clear();
+            aLoading.clear();
+            window.showInlineListRetry(qList, 'questions', async () => {
+                await showNodeQAPanel(nodeId);
+            });
+            window.showInlineListRetry(aList, 'answers', async () => {
+                await showNodeQAPanel(nodeId);
+            });
+        }
+    })();
 }
 
-function renderNodeQAPanel(fullNode) {
-    // Questions list
+function renderNodeQAPanel(node) {
     const qList = document.getElementById('treeQuestionsList');
     qList.innerHTML = '';
-    (fullNode.questions || []).forEach((q, i) => {
+    (node.questions || []).forEach((q, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button onclick="editTreeNodeQuestion(${i})">✎</button><button onclick="deleteTreeNodeQuestion(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button class="edit-tree-question" data-idx="${i}">✎</button><button class="delete-tree-question" data-idx="${i}">🗑</button></span>`;
         qList.appendChild(li);
     });
+    qList.querySelectorAll('.edit-tree-question').forEach(btn => {
+        btn.addEventListener('click', () => editTreeNodeQuestion(parseInt(btn.dataset.idx)));
+    });
+    qList.querySelectorAll('.delete-tree-question').forEach(btn => {
+        btn.addEventListener('click', () => deleteTreeNodeQuestion(parseInt(btn.dataset.idx)));
+    });
 
-    // Answers list
     const aList = document.getElementById('treeAnswersList');
     aList.innerHTML = '';
-    (fullNode.answers || []).forEach((a, i) => {
+    (node.answers || []).forEach((a, i) => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button onclick="editTreeNodeAnswer(${i})">✎</button><button onclick="deleteTreeNodeAnswer(${i})">🗑</button></span>`;
+        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button class="edit-tree-answer" data-idx="${i}">✎</button><button class="delete-tree-answer" data-idx="${i}">🗑</button></span>`;
         aList.appendChild(li);
+    });
+    aList.querySelectorAll('.edit-tree-answer').forEach(btn => {
+        btn.addEventListener('click', () => editTreeNodeAnswer(parseInt(btn.dataset.idx)));
+    });
+    aList.querySelectorAll('.delete-tree-answer').forEach(btn => {
+        btn.addEventListener('click', () => deleteTreeNodeAnswer(parseInt(btn.dataset.idx)));
     });
 }
 
@@ -845,12 +893,7 @@ function updateToolbarButtons() {
 
 // Tree toolbar handlers
 document.getElementById('addRootBtn').onclick = () => {
-    const newNode = {
-        branch_name: 'New Root',
-        questions: [],
-        answers: [],
-        children: []
-    };
+    const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [] };
     newNode.id = `node_${nextNodeId++}`;
     nodeMap.set(newNode.id, newNode);
     currentTree.push(newNode);
@@ -864,12 +907,7 @@ document.getElementById('addChildBtn').onclick = () => {
     const parentNode = nodeMap.get(selectedNodeId);
     if (!parentNode) return;
     if (!parentNode.children) parentNode.children = [];
-    const newNode = {
-        branch_name: 'New Branch',
-        questions: [],
-        answers: [],
-        children: []
-    };
+    const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [] };
     newNode.id = `node_${nextNodeId++}`;
     nodeMap.set(newNode.id, newNode);
     parentNode.children.push(newNode);
@@ -911,8 +949,7 @@ document.getElementById('deleteNodeBtn').onclick = () => {
     });
 };
 
-// Node Q&A editing
-window.editTreeNodeQuestion = (qIdx) => {
+function editTreeNodeQuestion(qIdx) {
     const node = nodeMap.get(selectedNodeId);
     const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: node.questions || [], answers: node.answers || [] };
     showTextInputModal('Edit Question', fullNode.questions[qIdx], (newVal) => {
@@ -921,9 +958,9 @@ window.editTreeNodeQuestion = (qIdx) => {
         treeUnsaved = true;
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
-window.deleteTreeNodeQuestion = (qIdx) => {
+function deleteTreeNodeQuestion(qIdx) {
     showConfirmModal('Delete this question?', () => {
         const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
         fullNode.questions.splice(qIdx, 1);
@@ -931,9 +968,9 @@ window.deleteTreeNodeQuestion = (qIdx) => {
         treeUnsaved = true;
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
-window.editTreeNodeAnswer = (aIdx) => {
+function editTreeNodeAnswer(aIdx) {
     const node = nodeMap.get(selectedNodeId);
     const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: node.questions || [], answers: node.answers || [] };
     showTextInputModal('Edit Answer', fullNode.answers[aIdx], (newVal) => {
@@ -942,9 +979,9 @@ window.editTreeNodeAnswer = (aIdx) => {
         treeUnsaved = true;
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
-window.deleteTreeNodeAnswer = (aIdx) => {
+function deleteTreeNodeAnswer(aIdx) {
     showConfirmModal('Delete this answer?', () => {
         const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
         fullNode.answers.splice(aIdx, 1);
@@ -952,7 +989,7 @@ window.deleteTreeNodeAnswer = (aIdx) => {
         treeUnsaved = true;
         showNodeQAPanel(selectedNodeId);
     });
-};
+}
 
 document.getElementById('treeAddQuestionBtn').onclick = () => {
     if (!selectedNodeId) return;
@@ -978,7 +1015,6 @@ document.getElementById('treeAddAnswerBtn').onclick = () => {
     });
 };
 
-// Tree modal save/cancel
 document.getElementById('treeModalSaveBtn').onclick = () => {
     function buildFullTree(nodes) {
         return nodes.map(node => {

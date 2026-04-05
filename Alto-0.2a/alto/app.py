@@ -1,5 +1,4 @@
 import os
-import gc
 from quart import Quart, request, Response, send_from_directory, redirect
 import uuid
 import json
@@ -14,11 +13,7 @@ FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 
 app = Quart(__name__, static_folder=None)
 
-# Force garbage collection after every request to break cycles
-@app.after_request
-async def cleanup(response):
-    gc.collect()
-    return response
+# No per‑request GC – session.py already runs periodic GC in a background thread
 
 # ---------- API endpoints (always available) ----------
 @app.route('/api/register', methods=['POST'])

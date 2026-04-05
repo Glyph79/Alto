@@ -19,7 +19,6 @@ class AltoLayer:
             for char in final_response:
                 yield char
                 await asyncio.sleep(STREAM_DELAY)
-                await asyncio.sleep(0)          # force event loop to flush socket
         else:
             words = final_response.split()
             for i, word in enumerate(words):
@@ -28,7 +27,6 @@ class AltoLayer:
                 else:
                     yield word
                 await asyncio.sleep(STREAM_DELAY)
-                await asyncio.sleep(0)
 
 alto_layer = AltoLayer()
 process_message = alto_layer.process_message

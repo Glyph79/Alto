@@ -23,12 +23,14 @@ class SessionTree:
         self._load_roots()
 
     def _load_roots(self):
-        self._roots = self.loader.get_root_nodes_skeleton(self.group_id)
+        # Changed from get_root_nodes_skeleton to get_root_nodes
+        self._roots = self.loader.get_root_nodes(self.group_id)
         for node in self._roots:
             self._nodes[node["id"]] = node
 
     def _load_children(self, node_id):
-        children = self.loader.get_node_children_skeleton(node_id)
+        # Changed from get_node_children_skeleton to get_node_children
+        children = self.loader.get_node_children(node_id)
         if node_id in self._nodes:
             self._nodes[node_id]["children"] = children
         for child in children:
@@ -69,7 +71,6 @@ class SessionTree:
 
     def candidates(self, path):
         if not path:
-            # Ensure questions are loaded for all roots before returning
             for root in self._roots:
                 self._ensure_questions(root["id"])
             return self._roots

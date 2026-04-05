@@ -1,6 +1,5 @@
-// retry.js – universal retry, inline loading, and error display
+// retry.js – universal retry and inline loading (no dead code)
 
-// ----- Configuration (adjust globally) -----
 window.RETRY_CONFIG = {
     maxAttempts: 3,
     baseDelayMs: 200,
@@ -12,9 +11,6 @@ function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Retry an async operation with exponential backoff.
- */
 window.retryOperation = async function(operation, options = {}) {
     const config = { ...window.RETRY_CONFIG, ...options };
     let lastError;
@@ -31,10 +27,6 @@ window.retryOperation = async function(operation, options = {}) {
     throw lastError;
 };
 
-/**
- * Show a simple inline loading indicator inside a list or container.
- * Returns an object with a `clear()` method to remove it.
- */
 window.showInlineLoading = function(container, text = "Loading", delayMs = null) {
     const delayTime = delayMs !== null ? delayMs : window.RETRY_CONFIG.loadingDelayMs;
     let timeout = null;
@@ -65,14 +57,9 @@ window.showInlineLoading = function(container, text = "Loading", delayMs = null)
     return { clear };
 };
 
-/**
- * Disable all action buttons inside a container, but NEVER disable cancel/close buttons.
- */
 window.disableButtonsInContainer = function(container) {
-    // Select all buttons that are NOT cancel/close
     const buttons = container.querySelectorAll('button, .add-btn, .save, #modalSaveBtn, #modalAddQuestionBtn, #modalAddAnswerBtn, #modalEditFollowupsBtn, #treeAddQuestionBtn, #treeAddAnswerBtn, #addRootBtn, #addChildBtn, #editNodeBtn, #deleteNodeBtn');
     buttons.forEach(btn => {
-        // Skip any button that is clearly a cancel or close action
         if (btn.classList.contains('cancel') || btn.id === 'modalCancelBtn' || btn.id === 'treeModalCancelBtn' || btn.id === 'editTopicCancelBtn' || btn.id === 'deleteCancelBtn') {
             return;
         }
@@ -81,9 +68,6 @@ window.disableButtonsInContainer = function(container) {
     });
 };
 
-/**
- * Re‑enable buttons that were previously disabled.
- */
 window.enableButtonsInContainer = function(container) {
     const buttons = container.querySelectorAll('button, .add-btn, .save, #modalSaveBtn, #modalAddQuestionBtn, #modalAddAnswerBtn, #modalEditFollowupsBtn, #treeAddQuestionBtn, #treeAddAnswerBtn, #addRootBtn, #addChildBtn, #editNodeBtn, #deleteNodeBtn');
     buttons.forEach(btn => {
@@ -94,9 +78,6 @@ window.enableButtonsInContainer = function(container) {
     });
 };
 
-/**
- * Show an inline retry button inside a list (replaces loading text).
- */
 window.showInlineListRetry = function(listElement, itemType, retryCallback) {
     listElement.innerHTML = '';
     const li = document.createElement('li');
@@ -122,19 +103,11 @@ window.showInlineListRetry = function(listElement, itemType, retryCallback) {
     listElement.appendChild(li);
 };
 
-// ----- Full‑size error prompt (only for tree editor) -----
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
-}
-
+// Only used by tree editor error display
 window.showRetryError = function(container, message, retryCallback) {
-    window.clearRetryError(container);
+    const existing = container.querySelector('.retry-error');
+    if (existing) existing.remove();
+
     const errorDiv = document.createElement('div');
     errorDiv.className = 'retry-error';
     errorDiv.innerHTML = `
@@ -161,39 +134,17 @@ window.showRetryError = function(container, message, retryCallback) {
     return errorDiv;
 };
 
-window.showSimpleRetry = function(container, message, retryCallback) {
-    window.clearRetryError(container);
-    const wrapper = document.createElement('div');
-    wrapper.className = 'simple-retry';
-    wrapper.innerHTML = `
-        <span class="simple-retry-message">⚠️ ${escapeHtml(message)}</span>
-        <button class="simple-retry-btn">Retry</button>
-    `;
-    const btn = wrapper.querySelector('.simple-retry-btn');
-    btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        btn.disabled = true;
-        btn.textContent = '...';
-        try {
-            await retryCallback();
-            wrapper.remove();
-        } catch (err) {
-            btn.disabled = false;
-            btn.textContent = 'Retry';
-            const msgSpan = wrapper.querySelector('.simple-retry-message');
-            msgSpan.textContent = `⚠️ Failed: ${err.message}`;
-        }
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
     });
-    container.appendChild(wrapper);
-    return wrapper;
-};
+}
 
-window.clearRetryError = function(container) {
-    const existing = container.querySelector('.retry-error, .simple-retry');
-    if (existing) existing.remove();
-};
-
-// Inject styles once
+// Inject required styles once
 if (!document.querySelector('#retry-styles')) {
     const style = document.createElement('style');
     style.id = 'retry-styles';
@@ -224,32 +175,6 @@ if (!document.querySelector('#retry-styles')) {
         }
         .retry-error .retry-btn:hover { background: #5a52d5; }
         .retry-error .retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        .simple-retry {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            background: #2d2d5a;
-            border: 1px solid #ffaa66;
-            border-radius: 6px;
-            padding: 8px 16px;
-            margin: 16px;
-            font-size: 0.85rem;
-            color: #ffe0e0;
-        }
-        .simple-retry-message { color: #ffaa66; }
-        .simple-retry-btn {
-            background: #6c63ff;
-            color: white;
-            border: none;
-            padding: 4px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-        .simple-retry-btn:hover { background: #5a52d5; }
-        .simple-retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .inline-loading {
             display: flex;

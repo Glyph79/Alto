@@ -69,8 +69,8 @@ class LoaderV0_1a(BaseLoader):
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
 
-    # ----- Skeleton methods -----
-    def get_root_nodes_skeleton(self, group_id: int) -> List[Dict]:
+    # Unified skeleton methods
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
         cur = self._conn.execute("""
             SELECT id, branch_name
             FROM followup_nodes
@@ -87,7 +87,7 @@ class LoaderV0_1a(BaseLoader):
             })
         return nodes
 
-    def get_node_children_skeleton(self, node_id: int) -> List[Dict]:
+    def get_node_children(self, node_id: int) -> List[Dict]:
         cur = self._conn.execute("""
             SELECT id, branch_name
             FROM followup_nodes
@@ -104,7 +104,7 @@ class LoaderV0_1a(BaseLoader):
             })
         return children
 
-    # ----- Full data (on demand) -----
+    # Full data (on demand)
     def get_node_questions(self, node_id: int) -> List[str]:
         cur = self._conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
         row = cur.fetchone()
@@ -119,14 +119,7 @@ class LoaderV0_1a(BaseLoader):
             return []
         return self._unpack(row[0])
 
-    # ----- Legacy full methods (now return skeletons) -----
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        return self.get_root_nodes_skeleton(group_id)
-
-    def get_node_children(self, node_id: int) -> List[Dict]:
-        return self.get_node_children_skeleton(node_id)
-
-    # ----- Group methods (unchanged) -----
+    # Group methods
     def get_group_questions(self, group_id: int) -> List[str]:
         cur = self._conn.execute("SELECT questions_blob FROM groups WHERE id = ?", (group_id,))
         row = cur.fetchone()

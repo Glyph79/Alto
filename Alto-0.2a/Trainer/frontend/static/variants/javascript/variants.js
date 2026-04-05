@@ -64,13 +64,13 @@ function renderVariantsGrid() {
         html += `
             <div class="variant-card" data-index="${idx}">
                 <div class="header">
-                    <span class="section-badge">${section}</span>
+                    <span class="section-badge">${escapeHtml(section)}</span>
                     <div class="card-actions">
-                        <button class="edit-variant" title="Edit">✎</button>
-                        <button class="delete-variant" title="Delete">🗑</button>
+                        <button class="edit-variant" data-id="${v.id}" title="Edit">✎</button>
+                        <button class="delete-variant" data-id="${v.id}" title="Delete">🗑</button>
                     </div>
                 </div>
-                <h4 class="variant-name">${v.name || 'Unnamed'}</h4>
+                <h4 class="variant-name">${escapeHtml(v.name || 'Unnamed')}</h4>
                 <div class="stats">
                     <span>📝 ${wordCount} word${wordCount !== 1 ? 's' : ''}</span>
                 </div>
@@ -90,13 +90,18 @@ function renderVariantsGrid() {
             if (e.target.closest('.card-actions')) return;
             editVariant(window.variants[idx].id);
         });
-        card.querySelector('.edit-variant').addEventListener('click', (e) => {
+    });
+
+    document.querySelectorAll('.edit-variant').forEach(btn => {
+        btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            editVariant(window.variants[idx].id);
+            editVariant(parseInt(btn.dataset.id));
         });
-        card.querySelector('.delete-variant').addEventListener('click', (e) => {
+    });
+    document.querySelectorAll('.delete-variant').forEach(btn => {
+        btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            deleteVariant(window.variants[idx].id);
+            deleteVariant(parseInt(btn.dataset.id));
         });
     });
 
@@ -172,13 +177,19 @@ function renderVariantWordsList() {
     currentVariantWords.forEach((word, idx) => {
         const li = document.createElement('li');
         li.innerHTML = `
-            <span>${word}</span>
+            <span>${escapeHtml(word)}</span>
             <span>
-                <button onclick="editVariantWord(${idx})">✎</button>
-                <button onclick="deleteVariantWord(${idx})">🗑</button>
+                <button class="edit-word" data-idx="${idx}">✎</button>
+                <button class="delete-word" data-idx="${idx}">🗑</button>
             </span>
         `;
         list.appendChild(li);
+    });
+    list.querySelectorAll('.edit-word').forEach(btn => {
+        btn.addEventListener('click', () => editVariantWord(parseInt(btn.dataset.idx)));
+    });
+    list.querySelectorAll('.delete-word').forEach(btn => {
+        btn.addEventListener('click', () => deleteVariantWord(parseInt(btn.dataset.idx)));
     });
 }
 
@@ -195,7 +206,7 @@ function addVariantWord() {
     }, 'Add');
 }
 
-window.editVariantWord = function(idx) {
+function editVariantWord(idx) {
     const oldWord = currentVariantWords[idx];
     window.showSimpleModal('Edit Word', [{ name: 'word', label: 'Word', value: oldWord }], (vals, errorDiv) => {
         const newWord = vals.word.trim();
@@ -207,14 +218,14 @@ window.editVariantWord = function(idx) {
         currentVariantWords[idx] = newWord;
         renderVariantWordsList();
     }, 'Save');
-};
+}
 
-window.deleteVariantWord = function(idx) {
+function deleteVariantWord(idx) {
     window.showConfirmModal('Delete this word?', () => {
         currentVariantWords.splice(idx, 1);
         renderVariantWordsList();
     });
-};
+}
 
 async function saveVariantModal() {
     const name = document.getElementById('variantName').value.trim();

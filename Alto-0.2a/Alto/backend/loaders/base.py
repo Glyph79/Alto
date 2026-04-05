@@ -16,7 +16,6 @@ def safe_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name)
 
 def find_model_dir(model_name: str) -> Optional[str]:
-    """Find the folder containing the model, if any."""
     safe = safe_filename(model_name)
     if not os.path.exists(MODELS_BASE_DIR):
         return None
@@ -29,7 +28,6 @@ def find_model_dir(model_name: str) -> Optional[str]:
     return None
 
 def get_model_container_path(model_name: str) -> Optional[str]:
-    """Return the path to the .rbm container."""
     safe = safe_filename(model_name)
     flat_path = os.path.join(MODELS_BASE_DIR, f"{safe}.rbm")
     if os.path.isfile(flat_path):
@@ -102,13 +100,15 @@ class BaseLoader(ABC):
     def get_group_questions(self, group_id: int) -> List[str]:
         pass
 
-    # Follow‑up trees – skeleton (id + name only) for memory efficiency
+    # Follow‑up trees – unified methods (return skeleton by default)
     @abstractmethod
-    def get_root_nodes_skeleton(self, group_id: int) -> List[Dict]:
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
+        """Return root nodes for a group (id + branch_name only, questions/answers None)."""
         pass
 
     @abstractmethod
-    def get_node_children_skeleton(self, node_id: int) -> List[Dict]:
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        """Return children of a node (id + branch_name only)."""
         pass
 
     # Full data (loaded on demand)
@@ -119,13 +119,6 @@ class BaseLoader(ABC):
     @abstractmethod
     def get_node_answers(self, node_id: int) -> List[str]:
         pass
-
-    # Legacy full methods (now using skeletons)
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        return self.get_root_nodes_skeleton(group_id)
-
-    def get_node_children(self, node_id: int) -> List[Dict]:
-        return self.get_node_children_skeleton(node_id)
 
     @abstractmethod
     def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:

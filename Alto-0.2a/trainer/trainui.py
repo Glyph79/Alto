@@ -4,16 +4,11 @@ import json
 import os
 import sys
 import tempfile
-import gc                         # <-- added for garbage collection
 from backend.config import config
 
 app = Quart(__name__, static_folder=None)
 
-# Force garbage collection after each request to break reference cycles
-@app.after_request
-async def cleanup(response):
-    gc.collect()
-    return response
+# No per‑request GC – model cache and subprocess handle their own memory
 
 # Read the flag from config
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)

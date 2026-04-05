@@ -1,6 +1,5 @@
 // ========== Sections State ==========
 let sectionCards = [];
-let sectionsSort = 'name-asc';
 
 window.loadSections = async function() {
     if (!window.currentModel) return;
@@ -35,15 +34,15 @@ function renderSectionsGrid() {
         const count = counts[section] || 0;
         const hue = (section.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
         html += `
-            <div class="section-card" data-section="${section}" data-count="${count}">
+            <div class="section-card" data-section="${escapeHtml(section)}" data-count="${count}">
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 4px;">
                         <span class="section-color-dot" style="background-color: hsl(${hue}, 70%, 60%);"></span>
-                        <span class="section-name">${section}</span>
+                        <span class="section-name">${escapeHtml(section)}</span>
                     </div>
                     <div class="card-actions">
-                        <button class="edit-section" data-section="${section}" title="Edit">✎</button>
-                        ${section !== 'Uncategorized' ? `<button class="delete-section" data-section="${section}" title="Delete">🗑</button>` : ''}
+                        <button class="edit-section" data-section="${escapeHtml(section)}" title="Edit">✎</button>
+                        ${section !== 'Uncategorized' ? `<button class="delete-section" data-section="${escapeHtml(section)}" title="Delete">🗑</button>` : ''}
                     </div>
                 </div>
                 <div class="stats">
@@ -143,10 +142,10 @@ async function editSection(sectionName) {
         groupsInSection.forEach((g) => {
             groupsHtml += `
                 <li class="section-group-item" data-group-id="${g.id}">
-                    <span class="group-name">${g.group_name || 'Unnamed'}</span>
+                    <span class="group-name">${escapeHtml(g.group_name || 'Unnamed')}</span>
                     <div class="section-group-actions">
-                        <button class="edit-group-from-section" title="Edit Group">✎</button>
-                        <button class="delete-group-from-section" title="Delete Group">🗑</button>
+                        <button class="edit-group-from-section" data-group-id="${g.id}" title="Edit Group">✎</button>
+                        <button class="delete-group-from-section" data-group-id="${g.id}" title="Delete Group">🗑</button>
                     </div>
                 </li>
             `;
@@ -158,7 +157,7 @@ async function editSection(sectionName) {
         <h2>${isUncategorized ? 'View Section' : 'Edit Section'}</h2>
         <div class="form-row">
             <label>Section Name</label>
-            <input type="text" id="editSectionName" value="${sectionName}" ${isUncategorized ? 'disabled' : ''}>
+            <input type="text" id="editSectionName" value="${escapeHtml(sectionName)}" ${isUncategorized ? 'disabled' : ''}>
         </div>
         <div class="form-row">
             <label>Groups in this section</label>
@@ -171,11 +170,11 @@ async function editSection(sectionName) {
     `;
     window.pushModal('simpleModal');
 
+    // Attach group action listeners
     document.querySelectorAll('.edit-group-from-section').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const li = e.target.closest('.section-group-item');
-            const groupId = li.dataset.groupId;
+            const groupId = parseInt(btn.dataset.groupId);
             if (groupId) {
                 const index = window.groups.findIndex(g => g.id == groupId);
                 if (index !== -1) {
@@ -191,8 +190,7 @@ async function editSection(sectionName) {
     document.querySelectorAll('.delete-group-from-section').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            const li = e.target.closest('.section-group-item');
-            const groupId = li.dataset.groupId;
+            const groupId = parseInt(btn.dataset.groupId);
             if (groupId) {
                 window.showConfirmModal('Delete this group?', async () => {
                     const index = window.groups.findIndex(g => g.id == groupId);
@@ -276,7 +274,7 @@ async function deleteSection(section) {
     const content = document.getElementById('simpleModalContent');
     content.innerHTML = `
         <h2>Delete Section</h2>
-        <p class="delete-message">${message}</p>
+        <p class="delete-message">${escapeHtml(message)}</p>
         ${groupsUsing > 0 ? `
         <div class="delete-section-options">
             ${hasOtherSections ? `
@@ -284,7 +282,7 @@ async function deleteSection(section) {
                 <input type="radio" name="deleteAction" value="move" id="moveRadio" checked>
                 <label for="moveRadio">Move groups to:</label>
                 <select id="moveTarget" class="compact-select">
-                    ${otherSections.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    ${otherSections.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
                 </select>
             </div>
             ` : ''}
