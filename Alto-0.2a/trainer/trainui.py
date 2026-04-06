@@ -9,8 +9,6 @@ from backend.config import config
 
 app = Quart(__name__, static_folder=None)
 
-# No per‑request GC – model cache and subprocess handle their own memory
-
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -62,7 +60,6 @@ async def send_command(command, **kwargs):
         try:
             response_line = await asyncio.wait_for(trainer_stdout.readline(), timeout=30.0)
         except asyncio.TimeoutError:
-            # Trainer not responding – restart it
             await stop_trainer()
             await start_trainer()
             trainer_stdin.write(line.encode())
@@ -320,6 +317,51 @@ async def delete_variant(name, variant_id):
     if "error" in result:
         return jsonify(result), 400
     return jsonify({"status": "ok"})
+
+# Fallback endpoints
+@app.route('/api/models/<name>/fallbacks', methods=['GET'])
+async def list_fallbacks(name):
+    result = await send_command("list-fallbacks", name=name)
+    if "error" in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+@app.route('/api/models/<name>/fallbacks', methods=['POST'])
+async def create_fallback(name):
+    data = await request.get_json()
+    result = await send_command("create-fallback", name=name, data=json.dumps(data))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok", "id": result.get("id")})
+
+@app.route('/api/models/<name>/fallbacks/<int:fallback_id>', methods=['GET'])
+async def get_fallback(name, fallback_id):
+    result = await send_command("get-fallback", name=name, fallback_id=fallback_id)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+@app.route('/api/models/<name>/fallbacks/<int:fallback_id>', methods=['PUT'])
+async def update_fallback(name, fallback_id):
+    data = await request.get_json()
+    result = await send_command("update-fallback", name=name, fallback_id=fallback_id, data=json.dumps(data))
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok"})
+
+@app.route('/api/models/<name>/fallbacks/<int:fallback_id>', methods=['DELETE'])
+async def delete_fallback(name, fallback_id):
+    result = await send_command("delete-fallback", name=name, fallback_id=fallback_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"status": "ok"})
+
+@app.route('/api/models/<name>/fallbacks/<int:fallback_id>/groups', methods=['GET'])
+async def get_fallback_groups(name, fallback_id):
+    result = await send_command("get-fallback-groups", name=name, fallback_id=fallback_id)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
 
 # Import/Export
 @app.route('/api/models/import', methods=['POST'])

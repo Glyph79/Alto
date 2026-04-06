@@ -187,6 +187,38 @@ async function showNodeQAPanel(nodeId) {
     document.getElementById('nodeQAPanel').style.display = 'block';
     document.getElementById('noNodeSelected').style.display = 'none';
 
+    // Ensure fallback selector exists
+    let fbSelect = document.getElementById('nodeFallbackSelect');
+    if (!fbSelect) {
+        const panel = document.getElementById('nodeQAPanel');
+        const fbRow = document.createElement('div');
+        fbRow.className = 'form-row';
+        fbRow.innerHTML = `
+            <label>Fallback</label>
+            <select id="nodeFallbackSelect">
+                <option value="">(None)</option>
+            </select>
+        `;
+        const answersSection = panel.querySelector('.qa-section:last-child');
+        answersSection.insertAdjacentElement('afterend', fbRow);
+        fbSelect = document.getElementById('nodeFallbackSelect');
+        fbSelect.addEventListener('change', (e) => {
+            if (selectedNodeId) {
+                const currNode = nodeMap.get(selectedNodeId);
+                currNode.fallback = e.target.value;
+                treeUnsaved = true;
+            }
+        });
+    }
+
+    // Populate fallback dropdown
+    let options = '<option value="">(None)</option>';
+    (window.fallbacks || []).forEach(fb => {
+        options += `<option value="${escapeHtml(fb.name)}">${escapeHtml(fb.name)}</option>`;
+    });
+    fbSelect.innerHTML = options;
+    fbSelect.value = node.fallback || '';
+
     if (!node.dbId) {
         node.questions = node.questions || [];
         node.answers = node.answers || [];
@@ -279,7 +311,7 @@ function updateToolbarButtons() {
 }
 
 document.getElementById('addRootBtn').onclick = () => {
-    const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [] };
+    const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [], fallback: '' };
     newNode.id = `node_${nextNodeId++}`;
     nodeMap.set(newNode.id, newNode);
     currentTree.push(newNode);
@@ -293,7 +325,7 @@ document.getElementById('addChildBtn').onclick = () => {
     const parentNode = nodeMap.get(selectedNodeId);
     if (!parentNode) return;
     if (!parentNode.children) parentNode.children = [];
-    const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [] };
+    const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [], fallback: '' };
     newNode.id = `node_${nextNodeId++}`;
     nodeMap.set(newNode.id, newNode);
     parentNode.children.push(newNode);
@@ -356,6 +388,7 @@ function editTreeNodeQuestion(qIdx) {
 }
 
 function deleteTreeNodeQuestion(qIdx) {
+    const node = nodeMap.get(selectedNodeId);
     window.showConfirmModal('Delete this question?', () => {
         node.questions.splice(qIdx, 1);
         treeUnsaved = true;
@@ -380,6 +413,7 @@ function editTreeNodeAnswer(aIdx) {
 }
 
 function deleteTreeNodeAnswer(aIdx) {
+    const node = nodeMap.get(selectedNodeId);
     window.showConfirmModal('Delete this answer?', () => {
         node.answers.splice(aIdx, 1);
         treeUnsaved = true;
@@ -431,6 +465,7 @@ document.getElementById('treeModalSaveBtn').onclick = async () => {
                 branch_name: node.branch_name,
                 questions: details.questions || [],
                 answers: details.answers || [],
+                fallback: node.fallback || '',
                 children: buildFullTree(node.children || [])
             };
         });
@@ -461,7 +496,25 @@ document.getElementById('treeModalCancelBtn').onclick = () => {
     }
 };
 
-// Inject styles once
+window.refreshTreeModalFallbackDropdown = function() {
+    const select = document.getElementById('nodeFallbackSelect');
+    if (!select) return;
+    let options = '<option value="">(None)</option>';
+    (window.fallbacks || []).forEach(fb => {
+        options += `<option value="${escapeHtml(fb.name)}">${escapeHtml(fb.name)}</option>`;
+    });
+    select.innerHTML = options;
+    if (selectedNodeId) {
+        const node = nodeMap.get(selectedNodeId);
+        if (node && node.fallback) {
+            select.value = node.fallback;
+        } else {
+            select.value = '';
+        }
+    }
+};
+
+// Inject tree styles
 if (!document.querySelector('#tree-styles')) {
     const style = document.createElement('style');
     style.id = 'tree-styles';

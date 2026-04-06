@@ -1,12 +1,12 @@
 import json
 from typing import Dict
 from ..model import get_model
-from .utils import (
+from ..schema.followups import (
     load_followup_tree_skeleton,
     load_followup_tree_full,
-    unpack_array,
     merge_followup_trees
 )
+from ..utils.msgpack_helpers import unpack_array
 
 def cmd_add_group(name: str, data: str, **kwargs) -> Dict:
     try:
@@ -92,15 +92,22 @@ def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
         cur = model.conn.execute(
-            "SELECT questions_blob, answers_blob FROM followup_nodes WHERE id = ? AND group_id = ?",
+            "SELECT questions_blob, answers_blob, fallback_id FROM followup_nodes WHERE id = ? AND group_id = ?",
             (node_id, group_id)
         )
         row = cur.fetchone()
         if not row:
             return {"error": "Node not found"}
+        fallback_name = ""
+        if row[2]:
+            fb_cur = model.conn.execute("SELECT name FROM fallbacks WHERE id = ?", (row[2],))
+            fb_row = fb_cur.fetchone()
+            if fb_row:
+                fallback_name = fb_row[0]
         return {
             "questions": unpack_array(row[0]),
-            "answers": unpack_array(row[1])
+            "answers": unpack_array(row[1]),
+            "fallback": fallback_name
         }
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}

@@ -82,7 +82,6 @@ function renderGroups() {
         index: parseInt(card.dataset.index)
     }));
 
-    // Event delegation – single listener for all card actions
     container.addEventListener('click', (e) => {
         const card = e.target.closest('.group-card');
         if (!card) return;
@@ -128,6 +127,7 @@ async function deleteGroup(index, callback) {
     window.showConfirmModal('Are you sure you want to delete this group?', async () => {
         try {
             await window.apiDelete(`/api/models/${window.currentModel}/groups/${index}`);
+            resetGroupsFilters();
             await window.loadGroupsAndSections();
             if (callback) callback();
         } catch (err) {
@@ -192,6 +192,7 @@ function attachGroupModalHandlers() {
         modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
         modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
         modalGroupCopy.section = document.getElementById('modalGroupSection').value;
+        modalGroupCopy.fallback = document.getElementById('modalGroupFallback').value;
 
         try {
             if (window.selectedGroupIndex === null) {
@@ -199,6 +200,7 @@ function attachGroupModalHandlers() {
             } else {
                 await window.apiPut(`/api/models/${window.currentModel}/groups/${window.selectedGroupIndex}`, modalGroupCopy);
             }
+            resetGroupsFilters();
             await window.loadGroupsAndSections();
             if (typeof window.loadTopics === 'function') await window.loadTopics();
             if (typeof window.loadSections === 'function') await window.loadSections();
@@ -233,6 +235,21 @@ function attachGroupModalHandlers() {
     };
 }
 
+window.refreshGroupModalFallbackDropdown = function() {
+    const select = document.getElementById('modalGroupFallback');
+    if (!select) return;
+    let options = '<option value="">(None)</option>';
+    (window.fallbacks || []).forEach(fb => {
+        options += `<option value="${escapeHtml(fb.name)}">${escapeHtml(fb.name)}</option>`;
+    });
+    select.innerHTML = options;
+    if (modalGroupCopy && modalGroupCopy.fallback) {
+        select.value = modalGroupCopy.fallback;
+    } else {
+        select.value = '';
+    }
+};
+
 window.openGroupModal = async function(index, onSaveCallback) {
     window.selectedGroupIndex = index;
     const isNew = (index === null);
@@ -258,6 +275,12 @@ window.openGroupModal = async function(index, onSaveCallback) {
                 <label>Section</label>
                 <select id="modalGroupSection"><option value="">Loading...</option></select>
             </div>
+        </div>
+        <div class="form-row">
+            <label>Fallback (custom default response)</label>
+            <select id="modalGroupFallback">
+                <option value="">(None)</option>
+            </select>
         </div>
 
         <div class="qa-section">
@@ -304,6 +327,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
                 group_description: '',
                 topic: '',
                 section: '',
+                fallback: '',
                 questions: [],
                 answers: []
             };
@@ -326,6 +350,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
             sectionSelect.innerHTML = sectionOptions;
             sectionSelect.value = '';
 
+            window.refreshGroupModalFallbackDropdown();
             refreshModalLists();
             window._groupModalOnSave = onSaveCallback;
         } else {
@@ -353,6 +378,7 @@ window.openGroupModal = async function(index, onSaveCallback) {
             sectionSelect.innerHTML = sectionOptions;
             sectionSelect.value = modalGroupCopy.section || '';
 
+            window.refreshGroupModalFallbackDropdown();
             refreshModalLists();
             window._groupModalOnSave = onSaveCallback;
         }
@@ -466,6 +492,19 @@ async function createNewGroup() {
         return;
     }
     await window.openGroupModal(null);
+}
+
+// Helper: reset groups filters
+function resetGroupsFilters() {
+    const search = document.getElementById('groupSearch');
+    if (search) search.value = '';
+    const sectionFilter = document.getElementById('sectionFilter');
+    if (sectionFilter) sectionFilter.value = 'All Sections';
+    const sort = document.getElementById('groupSort');
+    if (sort) sort.value = 'name-asc';
+    if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+    if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 document.getElementById('addGroupBtn').onclick = createNewGroup;

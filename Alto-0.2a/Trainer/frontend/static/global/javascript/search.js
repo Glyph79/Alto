@@ -17,6 +17,10 @@ window.SearchManager = class SearchManager {
         this.currentFilters = {};
         this.currentSort = this.defaultSort;
 
+        // Store bound event handlers for cleanup
+        this._boundInputHandler = null;
+        this._boundChangeHandlers = {};
+
         this._init();
     }
 
@@ -25,30 +29,35 @@ window.SearchManager = class SearchManager {
             const el = document.getElementById(id);
             if (el) {
                 this.currentFilters[id] = el.value;
-                el.addEventListener('change', () => {
+                const handler = () => {
                     this.currentFilters[id] = el.value;
                     this.update();
-                });
+                };
+                el.addEventListener('change', handler);
+                this._boundChangeHandlers[id] = handler;
             } else {
                 console.warn(`Filter element with id "${id}" not found.`);
             }
         }
 
         if (this.searchInput) {
-            this.searchInput.addEventListener('input', () => {
+            this._boundInputHandler = () => {
                 if (this.debounceTimer) clearTimeout(this.debounceTimer);
                 this.debounceTimer = setTimeout(() => this.update(), this.debounceDelay);
-            });
+            };
+            this.searchInput.addEventListener('input', this._boundInputHandler);
         }
 
         for (let [id, sortFn] of Object.entries(this.sortSelectors)) {
             const el = document.getElementById(id);
             if (el) {
                 this.currentSort = el.value;
-                el.addEventListener('change', () => {
+                const handler = () => {
                     this.currentSort = el.value;
                     this.update();
-                });
+                };
+                el.addEventListener('change', handler);
+                this._boundChangeHandlers[id] = handler;
                 break;
             }
         }
@@ -100,5 +109,23 @@ window.SearchManager = class SearchManager {
 
     refresh() {
         this.update();
+    }
+
+    destroy() {
+        // Remove event listeners
+        if (this.searchInput && this._boundInputHandler) {
+            this.searchInput.removeEventListener('input', this._boundInputHandler);
+        }
+        for (let [id, handler] of Object.entries(this._boundChangeHandlers)) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.removeEventListener('change', handler);
+            }
+        }
+        // Clear references
+        this.cardArray = [];
+        this.grid = null;
+        this.searchInput = null;
+        this.container = null;
     }
 };

@@ -80,6 +80,10 @@ function renderSectionsGrid() {
         }
     }));
 
+    document.getElementById('sectionSearch').disabled = false;
+    document.getElementById('sectionSort').disabled = false;
+    document.getElementById('addSectionBtn').disabled = false;
+
     if (!window.sectionsManager) {
         window.sectionsManager = new window.SearchManager({
             containerId: 'sectionsGridContainer',
@@ -115,6 +119,7 @@ function addSection() {
         }
         try {
             await window.apiPost(`/api/models/${window.currentModel}/sections`, { section: name });
+            resetSectionsFilters();
             await window.loadSections();
         } catch (err) {
             errorDiv.textContent = err.message;
@@ -235,12 +240,14 @@ async function editSection(sectionName) {
             }
             try {
                 await window.apiPut(`/api/models/${window.currentModel}/sections/${sectionName}`, { new_name: newName });
+                resetSectionsFilters();
                 await window.loadSections();
                 window.popModal();
             } catch (err) {
                 const modalContent = document.querySelector('#simpleModal .modal-content');
                 window.showSimpleRetry(modalContent, `Failed to rename section: ${err.message}`, async () => {
                     await window.apiPut(`/api/models/${window.currentModel}/sections/${sectionName}`, { new_name: newName });
+                    resetSectionsFilters();
                     await window.loadSections();
                     window.popModal();
                 });
@@ -309,6 +316,7 @@ async function deleteSection(section) {
             let url = `/api/models/${window.currentModel}/sections/${section}?action=${action}`;
             if (target !== null) url += `&target=${target}`;
             await window.apiDelete(url);
+            resetSectionsFilters();
             await window.loadSections();
             window.popModal();
         } catch (err) {
@@ -318,6 +326,15 @@ async function deleteSection(section) {
             });
         }
     };
+}
+
+function resetSectionsFilters() {
+    const search = document.getElementById('sectionSearch');
+    if (search) search.value = '';
+    const sort = document.getElementById('sectionSort');
+    if (sort) sort.value = 'name-asc';
+    if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+    if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 document.getElementById('addSectionBtn').addEventListener('click', addSection);

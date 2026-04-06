@@ -196,6 +196,7 @@ function addTopic() {
         }
         try {
             await window.apiPost(`/api/models/${window.currentModel}/topics`, { topic: name });
+            resetTopicsFilters();
             await window.loadTopics();
         } catch (err) {
             errorDiv.textContent = err.message;
@@ -299,12 +300,14 @@ async function editTopic(topicName) {
                     await window.retryOperation(async () => {
                         await window.apiPut(`/api/models/${window.currentModel}/topics/${topicName}`, { new_name: newName });
                     });
+                    resetTopicsFilters();
                     await window.loadTopics();
                     window.popModal();
                 } catch (err) {
                     const modalContent = document.querySelector('#simpleModal .modal-content');
                     window.showSimpleRetry(modalContent, `Failed to rename topic: ${err.message}`, async () => {
                         await window.apiPut(`/api/models/${window.currentModel}/topics/${topicName}`, { new_name: newName });
+                        resetTopicsFilters();
                         await window.loadTopics();
                         window.popModal();
                     });
@@ -430,6 +433,7 @@ function deleteTopic(topic) {
                 let url = `/api/models/${window.currentModel}/topics/${topic}?action=${action}`;
                 if (target !== null) url += `&target=${target}`;
                 await window.apiDelete(url);
+                resetTopicsFilters();
                 await window.loadTopics();
                 window.popModal();
             } catch (err) {
@@ -441,6 +445,7 @@ function deleteTopic(topic) {
         } else {
             try {
                 await window.apiDelete(`/api/models/${window.currentModel}/topics/${topic}?action=reassign&target=`);
+                resetTopicsFilters();
                 await window.loadTopics();
                 window.popModal();
             } catch (err) {
@@ -451,6 +456,21 @@ function deleteTopic(topic) {
             }
         }
     };
+}
+
+function resetTopicsFilters() {
+    const search = document.getElementById('topicSearch');
+    if (search) search.value = '';
+    const sectionFilter = document.getElementById('topicSectionFilter');
+    if (sectionFilter) sectionFilter.value = 'All Sections';
+    const usageFilter = document.getElementById('topicFilter');
+    if (usageFilter) usageFilter.value = 'all';
+    const sort = document.getElementById('topicSort');
+    if (sort) sort.value = 'name-asc';
+    if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+    if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    if (usageFilter) usageFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 document.getElementById('addTopicBtn').addEventListener('click', addTopic);

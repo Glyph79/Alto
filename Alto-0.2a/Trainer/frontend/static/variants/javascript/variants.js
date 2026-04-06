@@ -242,6 +242,7 @@ async function saveVariantModal() {
         if (window._variantModalOnSave) {
             await window._variantModalOnSave(data);
         }
+        resetVariantsFilters();
         closeVariantModal();
         await window.loadVariants();
     } catch (err) {
@@ -270,6 +271,7 @@ function deleteVariant(id) {
     window.showConfirmModal('Delete this variant group?', async () => {
         try {
             await window.apiDelete(`/api/models/${window.currentModel}/variants/${id}`);
+            resetVariantsFilters();
             await window.loadVariants();
         } catch (err) {
             const container = document.getElementById('variantsGridContainer');
@@ -278,6 +280,18 @@ function deleteVariant(id) {
             });
         }
     });
+}
+
+function resetVariantsFilters() {
+    const search = document.getElementById('variantSearch');
+    if (search) search.value = '';
+    const sectionFilter = document.getElementById('variantSectionFilter');
+    if (sectionFilter) sectionFilter.value = 'All Sections';
+    const sort = document.getElementById('variantSort');
+    if (sort) sort.value = 'name-asc';
+    if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
+    if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 document.getElementById('addVariantBtn').addEventListener('click', addVariant);

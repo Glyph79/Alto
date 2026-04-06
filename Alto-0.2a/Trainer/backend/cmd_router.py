@@ -18,6 +18,10 @@ from .topics.commands import (
 from .variants.commands import (
     cmd_get_variants, cmd_add_variant, cmd_update_variant, cmd_delete_variant
 )
+from .fallbacks.commands import (
+    cmd_list_fallbacks, cmd_create_fallback, cmd_get_fallback,
+    cmd_update_fallback, cmd_delete_fallback, cmd_get_fallback_groups
+)
 
 COMMANDS = {
     "list-models":      cmd_list_models,
@@ -49,4 +53,10 @@ COMMANDS = {
     "add-variant":      cmd_add_variant,
     "update-variant":   cmd_update_variant,
     "delete-variant":   cmd_delete_variant,
+    "list-fallbacks":   cmd_list_fallbacks,
+    "create-fallback":  cmd_create_fallback,
+    "get-fallback":     cmd_get_fallback,
+    "update-fallback":  cmd_update_fallback,
+    "delete-fallback":  cmd_delete_fallback,
+    "get-fallback-groups": cmd_get_fallback_groups,
 }
