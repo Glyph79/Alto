@@ -2,6 +2,7 @@ import time
 import re
 from collections import OrderedDict
 from ..config import config
+from ..loaders import get_loader
 
 # DEBUG controlled by config
 DEBUG = config.getboolean('ai', 'debug', fallback=False)

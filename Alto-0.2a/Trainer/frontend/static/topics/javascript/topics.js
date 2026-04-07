@@ -1,10 +1,6 @@
-// ========== Topics State ==========
+// topics.js - using GridRenderer
+let topicsGrid = null;
 window.topicsList = [];
-let topicCards = [];
-let topicsSectionFilter = 'All Sections';
-let currentTopicFetchCleanup = null;
-
-const NO_TOPIC = '(No Topic)';
 
 window.loadTopics = async function() {
     if (!window.currentModel) return;
@@ -16,24 +12,11 @@ window.loadTopics = async function() {
         }
         populateTopicSectionFilter();
     } catch (err) {
-        console.error('Error loading topics:', err);
         const container = document.getElementById('topicsGridContainer');
         window.showSimpleRetry(container, `Error loading topics: ${err.message}`, async () => {
             await window.loadTopics();
         });
     }
-};
-
-window.clearTopics = function() {
-    window.topicsList = [];
-    const container = document.getElementById('topicsGridContainer');
-    if (container) container.innerHTML = '';
-    document.getElementById('topicSearch').disabled = true;
-    document.getElementById('topicSectionFilter').disabled = true;
-    document.getElementById('topicFilter').disabled = true;
-    document.getElementById('topicSort').disabled = true;
-    document.getElementById('addTopicBtn').disabled = true;
-    if (window.topicsManager) window.topicsManager.setCardArray([]);
 };
 
 function populateTopicSectionFilter() {
@@ -45,13 +28,9 @@ function populateTopicSectionFilter() {
         opt.textContent = s;
         select.appendChild(opt);
     });
-    select.value = topicsSectionFilter;
 }
 
 function renderTopicsGrid() {
-    const container = document.getElementById('topicsGridContainer');
-    if (!container) return;
-
     const groupCounts = {};
     if (window.groups && window.groups.length) {
         window.groups.forEach(g => {
@@ -61,125 +40,103 @@ function renderTopicsGrid() {
     }
     const noTopicCount = window.groups ? window.groups.filter(g => !g.topic).length : 0;
 
-    let html = '<div class="topics-grid grid">';
-
-    html += `
-        <div class="topic-card" data-topic="${NO_TOPIC}" data-count="${noTopicCount}" data-is-no-topic="true">
-            <div class="header">
-                <div style="display: flex; align-items: center; gap: 4px;">
-                    <span class="topic-color-dot" style="background-color: #888;"></span>
-                    <span class="topic-name">${NO_TOPIC}</span>
-                </div>
-                <div class="card-actions">
-                    <button class="edit-topic" data-topic="${NO_TOPIC}" title="Edit">✎</button>
-                </div>
-            </div>
-            <div class="stats">
-                <span>📊 ${noTopicCount} group${noTopicCount !== 1 ? 's' : ''}</span>
-            </div>
-        </div>
-    `;
-
+    let topicItems = [];
+    // Add the special "(No Topic)" pseudo-item
+    topicItems.push({
+        topic: '(No Topic)',
+        count: noTopicCount,
+        isNoTopic: true
+    });
     window.topicsList.forEach(topic => {
-        const count = groupCounts[topic] || 0;
-        const hue = (topic.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
-        html += `
-            <div class="topic-card" data-topic="${escapeHtml(topic)}" data-count="${count}">
-                <div class="header">
-                    <div style="display: flex; align-items: center; gap: 4px;">
-                        <span class="topic-color-dot" style="background-color: hsl(${hue}, 70%, 60%);"></span>
-                        <span class="topic-name">${escapeHtml(topic)}</span>
-                    </div>
-                    <div class="card-actions">
-                        <button class="edit-topic" data-topic="${escapeHtml(topic)}" title="Edit">✎</button>
-                        <button class="delete-topic" data-topic="${escapeHtml(topic)}" title="Delete">🗑</button>
-                    </div>
-                </div>
-                <div class="stats">
-                    <span>📊 ${count} group${count !== 1 ? 's' : ''}</span>
-                </div>
-            </div>
-        `;
+        topicItems.push({
+            topic: topic,
+            count: groupCounts[topic] || 0,
+            isNoTopic: false
+        });
     });
-    html += '</div>';
-    container.innerHTML = html;
 
-    if (window.topicsManager) {
-        window.topicsManager.grid = container.querySelector('.grid') || container;
+    if (!topicsGrid) {
+        topicsGrid = new GridRenderer({
+            containerId: 'topicsGridContainer',
+            items: topicItems,
+            renderItem: (item, idx) => {
+                const hue = item.isNoTopic ? 0 : (item.topic.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
+                return `
+                    <div class="topic-card" data-card-index="${idx}" data-topic="${escapeHtml(item.topic)}">
+                        <div class="header">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="topic-color-dot" style="background-color: ${item.isNoTopic ? '#888' : `hsl(${hue}, 70%, 60%)`};"></span>
+                                <span class="topic-name">${escapeHtml(item.topic)}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="card-edit" data-topic="${escapeHtml(item.topic)}" title="Edit">✎</button>
+                                ${!item.isNoTopic ? `<button class="card-delete" data-topic="${escapeHtml(item.topic)}" title="Delete">🗑</button>` : ''}
+                            </div>
+                        </div>
+                        <div class="stats">
+                            <span>📊 ${item.count} group${item.count !== 1 ? 's' : ''}</span>
+                        </div>
+                    </div>
+                `;
+            },
+            options: {
+                searchInputId: 'topicSearch',
+                searchFields: ['topic'],
+                filterSelectors: {
+                    'topicSectionFilter': (item, value) => {
+                        if (value === 'All Sections') return true;
+                        if (item.isNoTopic) return true;
+                        const groupsForTopic = window.groups.filter(g => g.topic === item.topic);
+                        if (groupsForTopic.length === 0) return false;
+                        const sections = new Set(groupsForTopic.map(g => g.section).filter(s => s));
+                        return sections.has(value);
+                    },
+                    'topicFilter': (item, value) => {
+                        if (value === 'all') return true;
+                        if (value === 'used') return item.count > 0;
+                        if (value === 'unused') return item.count === 0;
+                        return true;
+                    }
+                },
+                sortSelectors: {
+                    'name-asc': (a, b) => {
+                        if (a.isNoTopic) return -1;
+                        if (b.isNoTopic) return 1;
+                        return a.topic.localeCompare(b.topic);
+                    },
+                    'name-desc': (a, b) => {
+                        if (a.isNoTopic) return -1;
+                        if (b.isNoTopic) return 1;
+                        return b.topic.localeCompare(a.topic);
+                    },
+                    'usage-desc': (a, b) => b.count - a.count,
+                    'usage-asc': (a, b) => a.count - b.count
+                },
+                defaultSort: 'name-asc',
+                emptyStateHtml: '<div class="empty-state">No topics found.</div>',
+                onCardClick: (item) => editTopic(item.topic),
+                onCardEdit: (item) => editTopic(item.topic),
+                onCardDelete: (item) => deleteTopic(item.topic)
+            }
+        });
+    } else {
+        topicsGrid.setItems(topicItems);
     }
-
-    // Event delegation – single listener for all topic cards
-    container.addEventListener('click', (e) => {
-        const card = e.target.closest('.topic-card');
-        if (!card) return;
-        const topic = card.dataset.topic;
-        if (e.target.closest('.edit-topic')) {
-            editTopic(topic);
-        } else if (e.target.closest('.delete-topic')) {
-            deleteTopic(topic);
-        } else {
-            editTopic(topic);
-        }
-    });
-
-    topicCards = Array.from(document.querySelectorAll('.topic-card')).map(card => ({
-        element: card,
-        item: {
-            topic: card.dataset.topic,
-            count: parseInt(card.dataset.count, 10),
-            isNoTopic: card.dataset.isNoTopic === 'true'
-        }
-    }));
 
     document.getElementById('topicSearch').disabled = false;
     document.getElementById('topicSectionFilter').disabled = false;
     document.getElementById('topicFilter').disabled = false;
     document.getElementById('topicSort').disabled = false;
     document.getElementById('addTopicBtn').disabled = false;
-
-    if (!window.topicsManager) {
-        window.topicsManager = new window.SearchManager({
-            containerId: 'topicsGridContainer',
-            cardArray: topicCards,
-            searchInputId: 'topicSearch',
-            searchFields: ['topic'],
-            filterSelectors: {
-                'topicSectionFilter': (item, value) => {
-                    if (value === 'All Sections') return true;
-                    if (item.isNoTopic) return true;
-                    if (!window.groups) return true;
-                    const groupsForTopic = window.groups.filter(g => g.topic === item.topic);
-                    if (groupsForTopic.length === 0) return false;
-                    const sections = new Set(groupsForTopic.map(g => g.section).filter(s => s));
-                    return sections.has(value);
-                },
-                'topicFilter': (item, value) => {
-                    if (value === 'all') return true;
-                    if (value === 'used') return item.count > 0;
-                    if (value === 'unused') return item.count === 0;
-                    return true;
-                }
-            },
-            sortSelectors: {
-                'name-asc': (a, b) => {
-                    if (a.isNoTopic) return -1;
-                    if (b.isNoTopic) return 1;
-                    return a.topic.localeCompare(b.topic);
-                },
-                'name-desc': (a, b) => {
-                    if (a.isNoTopic) return -1;
-                    if (b.isNoTopic) return 1;
-                    return b.topic.localeCompare(a.topic);
-                },
-                'usage-desc': (a, b) => b.count - a.count,
-                'usage-asc': (a, b) => a.count - b.count
-            },
-            defaultSort: 'name-asc'
-        });
-    } else {
-        window.topicsManager.setCardArray(topicCards);
-    }
 }
+
+window.clearTopics = function() {
+    if (topicsGrid) topicsGrid.destroy();
+    topicsGrid = null;
+    window.topicsList = [];
+    const container = document.getElementById('topicsGridContainer');
+    if (container) container.innerHTML = '';
+};
 
 function addTopic() {
     window.showSimpleModal('Add Topic', [{ name: 'topic', label: 'Topic Name', value: '' }], async (vals, errorDiv) => {
@@ -189,7 +146,7 @@ function addTopic() {
             errorDiv.style.display = 'block';
             return;
         }
-        if (name.toLowerCase() === 'null' || name === NO_TOPIC) {
+        if (name.toLowerCase() === 'null' || name === '(No Topic)') {
             errorDiv.textContent = `"${name}" is a reserved name.`;
             errorDiv.style.display = 'block';
             return;
@@ -206,7 +163,7 @@ function addTopic() {
 }
 
 async function editTopic(topicName) {
-    const isNoTopic = topicName === NO_TOPIC;
+    const isNoTopic = topicName === '(No Topic)';
     const modal = document.getElementById('simpleModal');
     const content = document.getElementById('simpleModalContent');
 
@@ -240,8 +197,7 @@ async function editTopic(topicName) {
         document.getElementById('editTopicSaveBtn').disabled = true;
     }
 
-    if (currentTopicFetchCleanup) currentTopicFetchCleanup.clear();
-
+    let currentTopicFetchCleanup = null;
     const groupList = document.getElementById('topicGroupList');
     currentTopicFetchCleanup = window.showInlineLoading(groupList, "Loading groups");
 
@@ -287,7 +243,7 @@ async function editTopic(topicName) {
                     window.showSimpleRetry(modalContent, 'Topic name cannot be empty.', () => {});
                     return;
                 }
-                if (newName.toLowerCase() === 'null' || newName === NO_TOPIC) {
+                if (newName.toLowerCase() === 'null' || newName === '(No Topic)') {
                     const modalContent = document.querySelector('#simpleModal .modal-content');
                     window.showSimpleRetry(modalContent, `"${newName}" is a reserved name.`, () => {});
                     return;
@@ -373,7 +329,7 @@ async function editTopic(topicName) {
 }
 
 function deleteTopic(topic) {
-    if (topic === NO_TOPIC) {
+    if (topic === '(No Topic)') {
         const container = document.getElementById('topicsGridContainer');
         window.showSimpleRetry(container, 'The "(No Topic)" pseudo‑topic cannot be deleted.', () => {});
         return;

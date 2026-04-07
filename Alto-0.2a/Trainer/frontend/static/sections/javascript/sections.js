@@ -1,16 +1,13 @@
-// ========== Sections State ==========
-let sectionCards = [];
+// sections.js - using GridRenderer
+let sectionsGrid = null;
 
 window.loadSections = async function() {
     if (!window.currentModel) return;
-    await window.loadGroupsAndSections();
+    await window.loadGroupsAndSections(); // ensures window.groups is fresh
     renderSectionsGrid();
 };
 
 function renderSectionsGrid() {
-    const container = document.getElementById('sectionsGridContainer');
-    if (!container) return;
-
     const counts = {};
     window.groups.forEach(g => {
         const section = g.section || 'Uncategorized';
@@ -22,86 +19,64 @@ function renderSectionsGrid() {
         sectionsList.push('Uncategorized');
     }
 
-    if (sectionsList.length === 0) {
-        container.innerHTML = '<div class="empty-state">No sections defined.</div>';
-        sectionCards = [];
-        if (window.sectionsManager) window.sectionsManager.setCardArray([]);
-        return;
-    }
-
-    let html = '<div class="sections-grid grid">';
-    sectionsList.forEach(section => {
-        const count = counts[section] || 0;
-        const hue = (section.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
-        html += `
-            <div class="section-card" data-section="${escapeHtml(section)}" data-count="${count}">
-                <div class="header">
-                    <div style="display: flex; align-items: center; gap: 4px;">
-                        <span class="section-color-dot" style="background-color: hsl(${hue}, 70%, 60%);"></span>
-                        <span class="section-name">${escapeHtml(section)}</span>
-                    </div>
-                    <div class="card-actions">
-                        <button class="edit-section" data-section="${escapeHtml(section)}" title="Edit">✎</button>
-                        ${section !== 'Uncategorized' ? `<button class="delete-section" data-section="${escapeHtml(section)}" title="Delete">🗑</button>` : ''}
-                    </div>
-                </div>
-                <div class="stats">
-                    <span>📁 ${count} group${count !== 1 ? 's' : ''}</span>
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-
-    if (window.sectionsManager) {
-        window.sectionsManager.grid = container.querySelector('.grid') || container;
-    }
-
-    // Event delegation – single listener for all section cards
-    container.addEventListener('click', (e) => {
-        const card = e.target.closest('.section-card');
-        if (!card) return;
-        const section = card.dataset.section;
-        if (e.target.closest('.edit-section')) {
-            editSection(section);
-        } else if (e.target.closest('.delete-section')) {
-            deleteSection(section);
-        } else {
-            editSection(section);
-        }
-    });
-
-    sectionCards = Array.from(document.querySelectorAll('.section-card')).map(card => ({
-        element: card,
-        item: {
-            section: card.dataset.section,
-            count: parseInt(card.dataset.count, 10)
-        }
+    const sectionItems = sectionsList.map(section => ({
+        section: section,
+        count: counts[section] || 0,
+        isUncategorized: section === 'Uncategorized'
     }));
+
+    if (!sectionsGrid) {
+        sectionsGrid = new GridRenderer({
+            containerId: 'sectionsGridContainer',
+            items: sectionItems,
+            renderItem: (item, idx) => {
+                const hue = (item.section.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
+                return `
+                    <div class="section-card" data-card-index="${idx}" data-section="${escapeHtml(item.section)}">
+                        <div class="header">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span class="section-color-dot" style="background-color: hsl(${hue}, 70%, 60%);"></span>
+                                <span class="section-name">${escapeHtml(item.section)}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="card-edit" data-section="${escapeHtml(item.section)}" title="Edit">✎</button>
+                                ${!item.isUncategorized ? `<button class="card-delete" data-section="${escapeHtml(item.section)}" title="Delete">🗑</button>` : ''}
+                            </div>
+                        </div>
+                        <div class="stats">
+                            <span>📁 ${item.count} group${item.count !== 1 ? 's' : ''}</span>
+                        </div>
+                    </div>
+                `;
+            },
+            options: {
+                searchInputId: 'sectionSearch',
+                searchFields: ['section'],
+                sortSelectors: {
+                    'name-asc': (a, b) => a.section.localeCompare(b.section),
+                    'name-desc': (a, b) => b.section.localeCompare(a.section),
+                    'groups-desc': (a, b) => b.count - a.count,
+                    'groups-asc': (a, b) => a.count - b.count
+                },
+                defaultSort: 'name-asc',
+                emptyStateHtml: '<div class="empty-state">No sections defined.</div>',
+                onCardClick: (item) => editSection(item.section),
+                onCardEdit: (item) => editSection(item.section),
+                onCardDelete: (item) => deleteSection(item.section)
+            }
+        });
+    } else {
+        sectionsGrid.setItems(sectionItems);
+    }
 
     document.getElementById('sectionSearch').disabled = false;
     document.getElementById('sectionSort').disabled = false;
     document.getElementById('addSectionBtn').disabled = false;
+}
 
-    if (!window.sectionsManager) {
-        window.sectionsManager = new window.SearchManager({
-            containerId: 'sectionsGridContainer',
-            cardArray: sectionCards,
-            searchInputId: 'sectionSearch',
-            searchFields: ['section'],
-            filterSelectors: {},
-            sortSelectors: {
-                'name-asc': (a, b) => a.section.localeCompare(b.section),
-                'name-desc': (a, b) => b.section.localeCompare(a.section),
-                'groups-desc': (a, b) => b.count - a.count,
-                'groups-asc': (a, b) => a.count - b.count
-            },
-            defaultSort: 'name-asc'
-        });
-    } else {
-        window.sectionsManager.setCardArray(sectionCards);
-    }
+function clearSections() {
+    if (sectionsGrid) sectionsGrid.destroy();
+    sectionsGrid = null;
 }
 
 function addSection() {

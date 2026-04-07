@@ -1,11 +1,7 @@
-// ========== Variants State ==========
+// variants.js - using GridRenderer
+let variantsGrid = null;
 window.variants = [];
-let variantCards = [];
-let currentVariantId = null;
-let currentVariantWords = [];
-let currentVariantName = '';
 
-// ========== Load Variants ==========
 window.loadVariants = async function() {
     if (!window.currentModel) return;
     try {
@@ -16,23 +12,11 @@ window.loadVariants = async function() {
         document.getElementById('variantSort').disabled = false;
         document.getElementById('addVariantBtn').disabled = false;
     } catch (err) {
-        console.error('Error loading variants:', err);
         const container = document.getElementById('variantsGridContainer');
         window.showSimpleRetry(container, `Error loading variants: ${err.message}`, async () => {
             await window.loadVariants();
         });
     }
-};
-
-window.clearVariants = function() {
-    window.variants = [];
-    const container = document.getElementById('variantsGridContainer');
-    if (container) container.innerHTML = '';
-    document.getElementById('variantSearch').disabled = true;
-    document.getElementById('variantSectionFilter').disabled = true;
-    document.getElementById('variantSort').disabled = true;
-    document.getElementById('addVariantBtn').disabled = true;
-    if (window.variantsManager) window.variantsManager.setCardArray([]);
 };
 
 function populateVariantFilters() {
@@ -54,86 +38,65 @@ function populateVariantFilters() {
 }
 
 function renderVariantsGrid() {
-    const container = document.getElementById('variantsGridContainer');
-    if (!container) return;
-
-    let html = '<div class="variants-grid grid">';
-    window.variants.forEach((v, idx) => {
-        const section = v.section || 'Uncategorized';
-        const wordCount = v.words.length;
-        html += `
-            <div class="variant-card" data-index="${idx}">
-                <div class="header">
-                    <span class="section-badge">${escapeHtml(section)}</span>
-                    <div class="card-actions">
-                        <button class="edit-variant" data-id="${v.id}" title="Edit">✎</button>
-                        <button class="delete-variant" data-id="${v.id}" title="Delete">🗑</button>
-                    </div>
-                </div>
-                <h4 class="variant-name">${escapeHtml(v.name || 'Unnamed')}</h4>
-                <div class="stats">
-                    <span>📝 ${wordCount} word${wordCount !== 1 ? 's' : ''}</span>
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-
-    if (window.variantsManager) {
-        window.variantsManager.grid = container.querySelector('.grid') || container;
-    }
-
-    // Event delegation – single listener for all variant cards
-    container.addEventListener('click', (e) => {
-        const card = e.target.closest('.variant-card');
-        if (!card) return;
-        const idx = parseInt(card.dataset.index);
-        const variantId = window.variants[idx]?.id;
-        if (!variantId) return;
-        if (e.target.closest('.edit-variant')) {
-            editVariant(variantId);
-        } else if (e.target.closest('.delete-variant')) {
-            deleteVariant(variantId);
-        } else {
-            editVariant(variantId);
-        }
-    });
-
-    variantCards = Array.from(document.querySelectorAll('.variant-card')).map(card => ({
-        element: card,
-        item: window.variants[parseInt(card.dataset.index)]
-    }));
-
     populateVariantFilters();
 
-    if (!window.variantsManager) {
-        window.variantsManager = new window.SearchManager({
+    if (!variantsGrid) {
+        variantsGrid = new GridRenderer({
             containerId: 'variantsGridContainer',
-            cardArray: variantCards,
-            searchInputId: 'variantSearch',
-            searchFields: ['name', 'words'],
-            filterSelectors: {
-                'variantSectionFilter': (item, value) => {
-                    if (value === 'All Sections') return true;
-                    const itemSection = item.section || 'Uncategorized';
-                    return itemSection === value;
-                }
-            },
-            sortSelectors: {
-                'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
-                'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
-                'section-asc': (a, b) => (a.section || '').localeCompare(b.section || ''),
-                'section-desc': (a, b) => (b.section || '').localeCompare(a.section || ''),
-                'words-desc': (a, b) => b.words.length - a.words.length,
-                'words-asc': (a, b) => a.words.length - b.words.length
-            },
-            defaultSort: 'name-asc'
+            items: window.variants,
+            renderItem: (variant, idx) => `
+                <div class="variant-card" data-card-index="${idx}" data-variant-id="${variant.id}">
+                    <div class="header">
+                        <span class="section-badge">${escapeHtml(variant.section || 'Uncategorized')}</span>
+                        <div class="card-actions">
+                            <button class="card-edit" data-variant-id="${variant.id}" title="Edit">✎</button>
+                            <button class="card-delete" data-variant-id="${variant.id}" title="Delete">🗑</button>
+                        </div>
+                    </div>
+                    <h4 class="variant-name">${escapeHtml(variant.name || 'Unnamed')}</h4>
+                    <div class="stats">
+                        <span>📝 ${variant.words.length} word${variant.words.length !== 1 ? 's' : ''}</span>
+                    </div>
+                </div>
+            `,
+            options: {
+                searchInputId: 'variantSearch',
+                searchFields: ['name', 'words'],
+                filterSelectors: {
+                    'variantSectionFilter': (item, value) => {
+                        if (value === 'All Sections') return true;
+                        const itemSection = item.section || 'Uncategorized';
+                        return itemSection === value;
+                    }
+                },
+                sortSelectors: {
+                    'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
+                    'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
+                    'section-asc': (a, b) => (a.section || '').localeCompare(b.section || ''),
+                    'section-desc': (a, b) => (b.section || '').localeCompare(a.section || ''),
+                    'words-desc': (a, b) => b.words.length - a.words.length,
+                    'words-asc': (a, b) => a.words.length - b.words.length
+                },
+                defaultSort: 'name-asc',
+                emptyStateHtml: '<div class="empty-state">No variants defined.</div>',
+                onCardClick: (item) => editVariant(item.id),
+                onCardEdit: (item) => editVariant(item.id),
+                onCardDelete: (item) => deleteVariant(item.id)
+            }
         });
     } else {
-        window.variantsManager.setCardArray(variantCards);
+        variantsGrid.setItems(window.variants);
     }
 }
+
+window.clearVariants = function() {
+    if (variantsGrid) variantsGrid.destroy();
+    variantsGrid = null;
+    window.variants = [];
+};
+
+let currentVariantId = null;
+let currentVariantWords = [];
 
 function openVariantModal(title, name, section, words, onSave) {
     document.getElementById('variantModalTitle').textContent = title;
