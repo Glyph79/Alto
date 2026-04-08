@@ -4,21 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alto Trainer 0.2a · Full Editor</title>
-    <!-- Global styles -->
-    <link rel="stylesheet" href="/static/global/style/base.css">
-    <link rel="stylesheet" href="/static/global/style/layout.css">
-    <link rel="stylesheet" href="/static/global/style/components.css">
-    <link rel="stylesheet" href="/static/global/style/forms.css">
-    <link rel="stylesheet" href="/static/global/style/buttons.css">
-    <link rel="stylesheet" href="/static/global/style/modals.css">
-
-    <!-- Feature‑specific styles -->
-    <link rel="stylesheet" href="/static/groups/style/groups.css">
-    <link rel="stylesheet" href="/static/groups/style/tree.css">
-    <link rel="stylesheet" href="/static/topics/style/topics.css">
-    <link rel="stylesheet" href="/static/variants/style/variants.css">
-    <link rel="stylesheet" href="/static/sections/style/sections.css">
-    <link rel="stylesheet" href="/static/fallbacks/style/fallbacks.css">
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="/static/styles/core/reset.css">
+    <link rel="stylesheet" href="/static/styles/core/layout.css">
+    <link rel="stylesheet" href="/static/styles/core/components.css">
+    <link rel="stylesheet" href="/static/styles/core/utilities.css">
+    <!-- Feature CSS (minimal overrides) -->
+    <link rel="stylesheet" href="/static/styles/features/groups.css">
+    <link rel="stylesheet" href="/static/styles/features/sections.css">
+    <link rel="stylesheet" href="/static/styles/features/topics.css">
+    <link rel="stylesheet" href="/static/styles/features/variants.css">
+    <link rel="stylesheet" href="/static/styles/features/fallbacks.css">
 </head>
 <body>
     <header>
@@ -36,7 +32,7 @@
 
     <div class="main-container">
         <div class="sidebar">
-            <!-- Groups controls -->
+            <!-- Groups sidebar -->
             <div id="groupsSidebar" class="sidebar-section">
                 <h3>Search</h3>
                 <input type="text" id="groupSearch" placeholder="Search groups..." disabled>
@@ -56,7 +52,7 @@
                 <button id="addGroupBtn" class="primary" disabled>+ Add Group</button>
             </div>
 
-            <!-- Sections controls -->
+            <!-- Sections sidebar -->
             <div id="sectionsSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="sectionSearch" placeholder="Search sections..." disabled>
@@ -70,7 +66,7 @@
                 <button id="addSectionBtn" class="primary" disabled>+ Add Section</button>
             </div>
 
-            <!-- Topics controls -->
+            <!-- Topics sidebar -->
             <div id="topicsSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="topicSearch" placeholder="Search topics..." disabled>
@@ -94,7 +90,7 @@
                 <button id="addTopicBtn" class="primary" disabled>+ Add Topic</button>
             </div>
 
-            <!-- Variants controls -->
+            <!-- Variants sidebar -->
             <div id="variantsSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="variantSearch" placeholder="Search variants..." disabled>
@@ -114,7 +110,7 @@
                 <button id="addVariantBtn" class="primary" disabled>+ Add Variant</button>
             </div>
 
-            <!-- Fallbacks controls -->
+            <!-- Fallbacks sidebar -->
             <div id="fallbacksSidebar" class="sidebar-section" style="display: none;">
                 <h3>Search</h3>
                 <input type="text" id="fallbackSearch" placeholder="Search fallbacks..." disabled>
@@ -132,7 +128,6 @@
         </div>
 
         <div class="content">
-            <!-- Tab bar -->
             <div class="tab-bar">
                 <button id="groupsTab" class="tab active">Groups</button>
                 <button id="sectionsTab" class="tab" disabled>Sections</button>
@@ -154,437 +149,18 @@
                 </div>
             </div>
 
-            <!-- Sections content -->
-            <div id="sectionsContent" style="display: none;">
-                <div id="sectionsGridContainer"></div>
-            </div>
-
-            <!-- Topics content -->
-            <div id="topicsContent" style="display: none;">
-                <div id="topicsGridContainer"></div>
-            </div>
-
-            <!-- Variants content -->
-            <div id="variantsContent" style="display: none;">
-                <div id="variantsGridContainer"></div>
-            </div>
-
-            <!-- Fallbacks content -->
-            <div id="fallbacksContent" style="display: none;">
-                <div id="fallbacksGridContainer"></div>
-            </div>
+            <!-- Other content containers -->
+            <div id="sectionsContent" style="display: none;"><div id="sectionsGridContainer"></div></div>
+            <div id="topicsContent" style="display: none;"><div id="topicsGridContainer"></div></div>
+            <div id="variantsContent" style="display: none;"><div id="variantsGridContainer"></div></div>
+            <div id="fallbacksContent" style="display: none;"><div id="fallbacksGridContainer"></div></div>
         </div>
     </div>
 
-    <!-- Group Modal -->
-    <div id="groupModal" class="modal">
-        <div class="modal-content">
-            <h2>Edit Group</h2>
-            <div class="form-row">
-                <label>Group Name</label>
-                <input type="text" id="modalGroupName">
-            </div>
-            <div class="form-row">
-                <label>Description</label>
-                <input type="text" id="modalGroupDesc">
-            </div>
-            <div class="form-row" style="display: flex; gap: 16px;">
-                <div style="flex:1;">
-                    <label>Topic</label>
-                    <select id="modalGroupTopic">
-                        <!-- populated dynamically -->
-                    </select>
-                </div>
-                <div style="flex:1;">
-                    <label>Section</label>
-                    <select id="modalGroupSection"></select>
-                </div>
-            </div>
-            <div class="form-row">
-                <label>Fallback (custom default response)</label>
-                <select id="modalGroupFallback">
-                    <option value="">(None)</option>
-                </select>
-            </div>
+    <!-- Modal container (all modals will be injected here) -->
+    <div id="modalContainer"></div>
 
-            <div class="qa-section">
-                <h3>Questions</h3>
-                <ul class="qa-list" id="modalQuestionsList"></ul>
-                <button class="add-btn" id="modalAddQuestionBtn">+ Add Question</button>
-            </div>
-
-            <div class="qa-section">
-                <h3>Answers</h3>
-                <ul class="qa-list" id="modalAnswersList"></ul>
-                <button class="add-btn" id="modalAddAnswerBtn">+ Add Answer</button>
-            </div>
-
-            <div style="margin-top:16px;">
-                <button id="modalEditFollowupsBtn" style="background:#a78bfa; color:white; border:none; padding:10px; border-radius:6px; width:100%;">🌳 Edit Follow-up Tree</button>
-            </div>
-
-            <div class="modal-actions">
-                <button class="cancel" id="modalCancelBtn">Cancel</button>
-                <button class="save" id="modalSaveBtn">Save Changes</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Tree Modal -->
-    <div id="treeModal" class="modal">
-        <div class="modal-content tree-modal-content">
-            <h2>Follow-up Tree Editor</h2>
-            <div class="tree-layout">
-                <div class="tree-column">
-                    <div id="nodeQAPanel" style="display: none;" class="qa-panel">
-                        <h3>Node Questions & Answers</h3>
-                        <div class="qa-section">
-                            <h4>Questions</h4>
-                            <ul class="qa-list" id="treeQuestionsList"></ul>
-                            <button class="add-btn" id="treeAddQuestionBtn">+ Add Question</button>
-                        </div>
-                        <div class="qa-section">
-                            <h4>Answers</h4>
-                            <ul class="qa-list" id="treeAnswersList"></ul>
-                            <button class="add-btn" id="treeAddAnswerBtn">+ Add Answer</button>
-                        </div>
-                        <!-- Fallback selector will be injected dynamically -->
-                    </div>
-                    <div id="noNodeSelected" class="no-node-message">
-                        Select a node to edit its questions and answers.
-                    </div>
-                </div>
-                <div class="tree-column">
-                    <div class="tree-toolbar">
-                        <button id="addRootBtn">+ Add Root</button>
-                        <button id="addChildBtn" disabled>+ Add Child</button>
-                        <button id="editNodeBtn" disabled>✎ Edit Name</button>
-                        <button id="deleteNodeBtn" disabled>🗑 Delete</button>
-                    </div>
-                    <div class="tree-container" id="treeContainer"></div>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="treeModalCancelBtn">Cancel</button>
-                <button class="save" id="treeModalSaveBtn">💾 Save Tree</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Simple Modal -->
-    <div id="simpleModal" class="modal">
-        <div class="modal-content" id="simpleModalContent"></div>
-    </div>
-
-    <!-- Variant Modal -->
-    <div id="variantModal" class="modal">
-        <div class="modal-content" style="width: 600px;">
-            <h2 id="variantModalTitle">Add Variant</h2>
-            <div class="form-row">
-                <label>Name</label>
-                <input type="text" id="variantName" placeholder="e.g., Weather synonyms">
-            </div>
-            <div class="form-row">
-                <label>Section</label>
-                <select id="variantSection">
-                    <option value="">(Uncategorized)</option>
-                </select>
-            </div>
-            <div class="qa-section">
-                <h3>Words</h3>
-                <ul class="qa-list" id="variantWordsList"></ul>
-                <button class="add-btn" id="variantAddWordBtn">+ Add Word</button>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="variantCancelBtn">Cancel</button>
-                <button class="save" id="variantSaveBtn">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Fallback Modal -->
-    <div id="fallbackModal" class="modal">
-        <div class="modal-content" style="width: 600px;">
-            <h2 id="fallbackModalTitle">Add Fallback</h2>
-            <div class="form-row">
-                <label>Name</label>
-                <input type="text" id="fallbackName" placeholder="e.g., Default apology">
-            </div>
-            <div class="form-row">
-                <label>Description</label>
-                <input type="text" id="fallbackDescription" placeholder="Optional description">
-            </div>
-            <div class="qa-section">
-                <h3>Answers</h3>
-                <ul class="qa-list" id="fallbackAnswersList"></ul>
-                <button class="add-btn" id="fallbackAddAnswerBtn">+ Add Answer</button>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="fallbackCancelBtn">Cancel</button>
-                <button class="save" id="fallbackSaveBtn">Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- JavaScript files -->
-    <script src="/static/global/javascript/core.js"></script>
-    <script src="/static/global/javascript/display.js"></script>
-    <script src="/static/global/javascript/retry.js"></script>
-    <script src="/static/global/javascript/render.js"></script>
-    <script src="/static/global/javascript/models.js"></script>
-    <script src="/static/global/javascript/ui.js"></script>
-    <script src="/static/global/javascript/search.js"></script>
-    <script src="/static/groups/javascript/groups.js"></script>
-    <script src="/static/groups/javascript/tree.js"></script>
-    <script src="/static/sections/javascript/sections.js"></script>
-    <script src="/static/topics/javascript/topics.js"></script>
-    <script src="/static/variants/javascript/variants.js"></script>
-    <script src="/static/fallbacks/javascript/fallbacks.js"></script>
-
-    <script>
-        // Tab switching and sidebar toggling
-        const groupsTab = document.getElementById('groupsTab');
-        const sectionsTab = document.getElementById('sectionsTab');
-        const topicsTab = document.getElementById('topicsTab');
-        const variantsTab = document.getElementById('variantsTab');
-        const fallbacksTab = document.getElementById('fallbacksTab');
-
-        function setTabsEnabled(enabled) {
-            sectionsTab.disabled = !enabled;
-            topicsTab.disabled = !enabled;
-            variantsTab.disabled = !enabled;
-            fallbacksTab.disabled = !enabled;
-            if (!enabled) {
-                if (sectionsTab.classList.contains('active') ||
-                    topicsTab.classList.contains('active') ||
-                    variantsTab.classList.contains('active') ||
-                    fallbacksTab.classList.contains('active')) {
-                    groupsTab.click();
-                }
-            }
-        }
-
-        function resetGroupsFilters() {
-            const search = document.getElementById('groupSearch');
-            if (search) search.value = '';
-            const sectionFilter = document.getElementById('sectionFilter');
-            if (sectionFilter) sectionFilter.value = 'All Sections';
-            const groupSort = document.getElementById('groupSort');
-            if (groupSort) groupSort.value = 'name-asc';
-            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
-            if (groupSort) groupSort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function resetSectionsFilters() {
-            const search = document.getElementById('sectionSearch');
-            if (search) search.value = '';
-            const sectionSort = document.getElementById('sectionSort');
-            if (sectionSort) sectionSort.value = 'name-asc';
-            if (sectionSort) sectionSort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function resetTopicsFilters() {
-            const search = document.getElementById('topicSearch');
-            if (search) search.value = '';
-            const sectionFilter = document.getElementById('topicSectionFilter');
-            if (sectionFilter) sectionFilter.value = 'All Sections';
-            const usageFilter = document.getElementById('topicFilter');
-            if (usageFilter) usageFilter.value = 'all';
-            const sort = document.getElementById('topicSort');
-            if (sort) sort.value = 'name-asc';
-            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
-            if (usageFilter) usageFilter.dispatchEvent(new Event('change', { bubbles: true }));
-            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function resetVariantsFilters() {
-            const search = document.getElementById('variantSearch');
-            if (search) search.value = '';
-            const sectionFilter = document.getElementById('variantSectionFilter');
-            if (sectionFilter) sectionFilter.value = 'All Sections';
-            const sort = document.getElementById('variantSort');
-            if (sort) sort.value = 'name-asc';
-            if (sectionFilter) sectionFilter.dispatchEvent(new Event('change', { bubbles: true }));
-            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        function resetFallbacksFilters() {
-            const search = document.getElementById('fallbackSearch');
-            if (search) search.value = '';
-            const sort = document.getElementById('fallbackSort');
-            if (sort) sort.value = 'name-asc';
-            if (sort) sort.dispatchEvent(new Event('change', { bubbles: true }));
-            if (search) search.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        groupsTab.addEventListener('click', () => {
-            groupsTab.classList.add('active');
-            sectionsTab.classList.remove('active');
-            topicsTab.classList.remove('active');
-            variantsTab.classList.remove('active');
-            fallbacksTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'block';
-            document.getElementById('sectionsContent').style.display = 'none';
-            document.getElementById('topicsContent').style.display = 'none';
-            document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('fallbacksContent').style.display = 'none';
-            document.getElementById('groupsSidebar').style.display = 'block';
-            document.getElementById('sectionsSidebar').style.display = 'none';
-            document.getElementById('topicsSidebar').style.display = 'none';
-            document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('fallbacksSidebar').style.display = 'none';
-            if (window.currentModel) {
-                resetGroupsFilters();
-                window.loadGroupsAndSections();
-                document.getElementById('groupSearch').disabled = false;
-                document.getElementById('sectionFilter').disabled = false;
-                document.getElementById('groupSort').disabled = false;
-                document.getElementById('addGroupBtn').disabled = false;
-            }
-        });
-
-        sectionsTab.addEventListener('click', () => {
-            if (sectionsTab.disabled) return;
-            sectionsTab.classList.add('active');
-            groupsTab.classList.remove('active');
-            topicsTab.classList.remove('active');
-            variantsTab.classList.remove('active');
-            fallbacksTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'none';
-            document.getElementById('sectionsContent').style.display = 'block';
-            document.getElementById('topicsContent').style.display = 'none';
-            document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('fallbacksContent').style.display = 'none';
-            document.getElementById('groupsSidebar').style.display = 'none';
-            document.getElementById('sectionsSidebar').style.display = 'block';
-            document.getElementById('topicsSidebar').style.display = 'none';
-            document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('fallbacksSidebar').style.display = 'none';
-            if (window.currentModel) {
-                resetSectionsFilters();
-                window.loadSections();
-                document.getElementById('sectionSearch').disabled = false;
-                document.getElementById('sectionSort').disabled = false;
-                document.getElementById('addSectionBtn').disabled = false;
-            }
-        });
-
-        topicsTab.addEventListener('click', () => {
-            if (topicsTab.disabled) return;
-            topicsTab.classList.add('active');
-            groupsTab.classList.remove('active');
-            sectionsTab.classList.remove('active');
-            variantsTab.classList.remove('active');
-            fallbacksTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'none';
-            document.getElementById('sectionsContent').style.display = 'none';
-            document.getElementById('topicsContent').style.display = 'block';
-            document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('fallbacksContent').style.display = 'none';
-            document.getElementById('groupsSidebar').style.display = 'none';
-            document.getElementById('sectionsSidebar').style.display = 'none';
-            document.getElementById('topicsSidebar').style.display = 'block';
-            document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('fallbacksSidebar').style.display = 'none';
-            if (window.currentModel) {
-                resetTopicsFilters();
-                window.loadTopics();
-                document.getElementById('topicSearch').disabled = false;
-                document.getElementById('topicSectionFilter').disabled = false;
-                document.getElementById('topicFilter').disabled = false;
-                document.getElementById('topicSort').disabled = false;
-                document.getElementById('addTopicBtn').disabled = false;
-            }
-        });
-
-        variantsTab.addEventListener('click', () => {
-            if (variantsTab.disabled) return;
-            variantsTab.classList.add('active');
-            groupsTab.classList.remove('active');
-            sectionsTab.classList.remove('active');
-            topicsTab.classList.remove('active');
-            fallbacksTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'none';
-            document.getElementById('sectionsContent').style.display = 'none';
-            document.getElementById('topicsContent').style.display = 'none';
-            document.getElementById('variantsContent').style.display = 'block';
-            document.getElementById('fallbacksContent').style.display = 'none';
-            document.getElementById('groupsSidebar').style.display = 'none';
-            document.getElementById('sectionsSidebar').style.display = 'none';
-            document.getElementById('topicsSidebar').style.display = 'none';
-            document.getElementById('variantsSidebar').style.display = 'block';
-            document.getElementById('fallbacksSidebar').style.display = 'none';
-            if (window.currentModel) {
-                resetVariantsFilters();
-                window.loadVariants();
-                document.getElementById('variantSearch').disabled = false;
-                document.getElementById('variantSectionFilter').disabled = false;
-                document.getElementById('variantSort').disabled = false;
-                document.getElementById('addVariantBtn').disabled = false;
-            }
-        });
-
-        fallbacksTab.addEventListener('click', () => {
-            if (fallbacksTab.disabled) return;
-            fallbacksTab.classList.add('active');
-            groupsTab.classList.remove('active');
-            sectionsTab.classList.remove('active');
-            topicsTab.classList.remove('active');
-            variantsTab.classList.remove('active');
-            document.getElementById('groupsContent').style.display = 'none';
-            document.getElementById('sectionsContent').style.display = 'none';
-            document.getElementById('topicsContent').style.display = 'none';
-            document.getElementById('variantsContent').style.display = 'none';
-            document.getElementById('fallbacksContent').style.display = 'block';
-            document.getElementById('groupsSidebar').style.display = 'none';
-            document.getElementById('sectionsSidebar').style.display = 'none';
-            document.getElementById('topicsSidebar').style.display = 'none';
-            document.getElementById('variantsSidebar').style.display = 'none';
-            document.getElementById('fallbacksSidebar').style.display = 'block';
-            if (window.currentModel) {
-                resetFallbacksFilters();
-                window.loadFallbacks();
-                document.getElementById('fallbackSearch').disabled = false;
-                document.getElementById('fallbackSort').disabled = false;
-                document.getElementById('addFallbackBtn').disabled = false;
-            }
-        });
-
-        // Enable/disable controls based on model selection
-        window.setControlsEnabled = function(enabled) {
-            const modelDependentControls = [
-                document.getElementById('modelSelect'),
-                document.getElementById('editModelBtn'),
-                document.getElementById('deleteModelBtn'),
-                document.getElementById('exportBtn'),
-                document.getElementById('addGroupBtn'),
-                document.getElementById('createFirstGroupBtn'),
-                document.getElementById('sectionFilter'),
-                document.getElementById('sectionSearch'),
-                document.getElementById('sectionSort'),
-                document.getElementById('addSectionBtn'),
-                document.getElementById('topicSearch'),
-                document.getElementById('topicSectionFilter'),
-                document.getElementById('topicFilter'),
-                document.getElementById('topicSort'),
-                document.getElementById('addTopicBtn'),
-                document.getElementById('variantSearch'),
-                document.getElementById('variantSectionFilter'),
-                document.getElementById('variantSort'),
-                document.getElementById('addVariantBtn'),
-                document.getElementById('fallbackSearch'),
-                document.getElementById('fallbackSort'),
-                document.getElementById('addFallbackBtn')
-            ];
-            modelDependentControls.forEach(ctrl => { if (ctrl) ctrl.disabled = !enabled; });
-            document.getElementById('importBtn').disabled = false;
-            document.getElementById('createModelBtn').disabled = false;
-            document.getElementById('createFirstModelBtn').disabled = false;
-        };
-    </script>
+    <!-- Global entry point (ES module) -->
+    <script type="module" src="/static/global.js"></script>
 </body>
 </html>
