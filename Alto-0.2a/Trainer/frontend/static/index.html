@@ -31,100 +31,27 @@
     </header>
 
     <div class="main-container">
+        <!-- Static sidebar – always visible, controls disabled per tab -->
         <div class="sidebar">
-            <!-- Groups sidebar -->
-            <div id="groupsSidebar" class="sidebar-section">
+            <div class="sidebar-section">
                 <h3>Search</h3>
-                <input type="text" id="groupSearch" placeholder="Search groups..." disabled>
-                <h3>Sections</h3>
-                <select id="sectionFilter" disabled>
-                    <option value="All Sections">All Sections</option>
-                </select>
-                <h3>Sort By</h3>
-                <select id="groupSort" disabled>
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="questions-desc">Most questions</option>
-                    <option value="questions-asc">Least questions</option>
-                    <option value="answers-desc">Most answers</option>
-                    <option value="answers-asc">Least answers</option>
-                </select>
-                <button id="addGroupBtn" class="primary" disabled>+ Add Group</button>
+                <input type="text" id="sidebarSearch" placeholder="Search..." autocomplete="off" disabled>
             </div>
-
-            <!-- Sections sidebar -->
-            <div id="sectionsSidebar" class="sidebar-section" style="display: none;">
-                <h3>Search</h3>
-                <input type="text" id="sectionSearch" placeholder="Search sections..." disabled>
-                <h3>Sort By</h3>
-                <select id="sectionSort" disabled>
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="groups-desc">Most groups</option>
-                    <option value="groups-asc">Least groups</option>
-                </select>
-                <button id="addSectionBtn" class="primary" disabled>+ Add Section</button>
-            </div>
-
-            <!-- Topics sidebar -->
-            <div id="topicsSidebar" class="sidebar-section" style="display: none;">
-                <h3>Search</h3>
-                <input type="text" id="topicSearch" placeholder="Search topics..." disabled>
-                <h3>Section Filter</h3>
-                <select id="topicSectionFilter" disabled>
-                    <option value="All Sections">All Sections</option>
-                </select>
-                <h3>Usage</h3>
+            <div class="sidebar-section" id="topicFilterContainer">
+                <h3>Topic</h3>
                 <select id="topicFilter" disabled>
-                    <option value="all">All topics</option>
-                    <option value="used">With groups</option>
-                    <option value="unused">Unused</option>
+                    <option value="">All Topics</option>
                 </select>
+            </div>
+            <div class="sidebar-section">
                 <h3>Sort By</h3>
-                <select id="topicSort" disabled>
+                <select id="sidebarSort" disabled>
                     <option value="name-asc">Name (A-Z)</option>
                     <option value="name-desc">Name (Z-A)</option>
-                    <option value="usage-desc">Most used</option>
-                    <option value="usage-asc">Least used</option>
+                    <!-- Dynamic options will be added via JS per tab -->
                 </select>
-                <button id="addTopicBtn" class="primary" disabled>+ Add Topic</button>
             </div>
-
-            <!-- Variants sidebar -->
-            <div id="variantsSidebar" class="sidebar-section" style="display: none;">
-                <h3>Search</h3>
-                <input type="text" id="variantSearch" placeholder="Search variants..." disabled>
-                <h3>Section Filter</h3>
-                <select id="variantSectionFilter" disabled>
-                    <option value="All Sections">All Sections</option>
-                </select>
-                <h3>Sort By</h3>
-                <select id="variantSort" disabled>
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="section-asc">Section (A-Z)</option>
-                    <option value="section-desc">Section (Z-A)</option>
-                    <option value="words-desc">Most words</option>
-                    <option value="words-asc">Least words</option>
-                </select>
-                <button id="addVariantBtn" class="primary" disabled>+ Add Variant</button>
-            </div>
-
-            <!-- Fallbacks sidebar -->
-            <div id="fallbacksSidebar" class="sidebar-section" style="display: none;">
-                <h3>Search</h3>
-                <input type="text" id="fallbackSearch" placeholder="Search fallbacks..." disabled>
-                <h3>Sort By</h3>
-                <select id="fallbackSort" disabled>
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="usage-desc">Most used</option>
-                    <option value="usage-asc">Least used</option>
-                    <option value="answers-desc">Most answers</option>
-                    <option value="answers-asc">Least answers</option>
-                </select>
-                <button id="addFallbackBtn" class="primary" disabled>+ Add Fallback</button>
-            </div>
+            <button id="sidebarAddBtn" class="primary" disabled>+ Add</button>
         </div>
 
         <div class="content">
@@ -157,10 +84,10 @@
         </div>
     </div>
 
-    <!-- Modal container (all modals will be injected here) -->
+    <!-- Modal container -->
     <div id="modalContainer"></div>
 
-    <!-- Global entry point (ES module) -->
+    <!-- Global entry point -->
     <script type="module" src="/static/global.js"></script>
 </body>
 </html>

@@ -44,13 +44,13 @@ export class ListEditor {
     attachEvents() {
         this.container.querySelectorAll('.edit-item').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const idx = parseInt(btn.dataset.idx);
+                const idx = parseInt(btn.dataset.idx, 10);
                 this.editItem(idx);
             });
         });
         this.container.querySelectorAll('.delete-item').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const idx = parseInt(btn.dataset.idx);
+                const idx = parseInt(btn.dataset.idx, 10);
                 this.deleteItem(idx);
             });
         });

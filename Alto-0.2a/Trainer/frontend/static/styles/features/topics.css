@@ -7,7 +7,6 @@
     margin-right: 6px;
     flex-shrink: 0;
 }
-
 .topic-name {
     font-size: 1rem;
     font-weight: 600;
@@ -16,7 +15,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
 .group-usage-list {
     list-style: none;
     background: #2d2d5a;
@@ -25,37 +23,29 @@
     max-height: 215px;
     overflow-y: auto;
 }
-
 .group-usage-item {
     display: flex;
     align-items: center;
     padding: 8px 12px;
     border-bottom: 1px solid #3d3d7a;
-    transition: background 0.2s;
 }
-
 .group-usage-item:hover {
     background: #3d3d7a;
 }
-
 .group-usage-item .group-name {
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
 .group-usage-actions {
     display: flex;
     gap: 4px;
     opacity: 0.7;
-    transition: opacity 0.2s;
 }
-
 .group-usage-item:hover .group-usage-actions {
     opacity: 1;
 }
-
 .group-usage-actions button {
     background: none;
     border: none;
@@ -64,9 +54,7 @@
     font-size: 1rem;
     padding: 2px 5px;
     border-radius: 4px;
-    transition: all 0.2s;
 }
-
 .group-usage-actions button:hover {
     background: #5a5a9a;
     color: white;

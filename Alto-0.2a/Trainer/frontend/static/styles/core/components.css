@@ -98,17 +98,17 @@ button:disabled {
 .model-bar button:hover:not(:disabled) {
     background: #5a52d5;
 }
-.sidebar button.primary, .add-btn {
+.add-btn {
     background: #00ff88;
     color: black;
     font-weight: bold;
     border: none;
     padding: 10px;
     border-radius: 6px;
-    width: 100%;
     margin-top: 8px;
+    cursor: pointer;
 }
-.sidebar button.primary:hover:not(:disabled), .add-btn:hover {
+.add-btn:hover {
     background: #00cc6a;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0,255,136,0.2);
@@ -223,10 +223,6 @@ input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: #6c63ff;
     box-shadow: 0 0 0 2px rgba(108,99,255,0.3);
-}
-.sidebar input, .sidebar select {
-    width: 100%;
-    margin-bottom: 12px;
 }
 .modal-content .form-row {
     margin-bottom: 20px;

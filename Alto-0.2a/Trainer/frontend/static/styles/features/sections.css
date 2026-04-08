@@ -4,32 +4,9 @@
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 16px;
 }
-
-.section-card {
-    background: #252547;
-    border-radius: 8px;
-    padding: 12px 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid #2d2d5a;
-    display: flex;
-    flex-direction: column;
-}
-
-.section-card:hover {
-    background: #2d2d5a;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    border-color: #6c63ff;
-}
-
 .section-card .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     margin-bottom: 8px;
 }
-
 .section-color-dot {
     width: 12px;
     height: 12px;
@@ -38,7 +15,6 @@
     margin-right: 6px;
     flex-shrink: 0;
 }
-
 .section-name {
     font-size: 1rem;
     font-weight: 600;
@@ -46,20 +22,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
 .delete-message {
     margin: 20px 0;
     color: #ccc;
     font-size: 1rem;
 }
-
 .delete-section-options {
     margin: 24px 0;
     background: #2d2d5a;
     border-radius: 8px;
     padding: 16px;
 }
-
 .option-row {
     display: flex;
     align-items: center;
@@ -67,11 +40,9 @@
     margin-bottom: 16px;
     flex-wrap: wrap;
 }
-
 .option-row:last-child {
     margin-bottom: 0;
 }
-
 .option-row input[type="radio"] {
     width: 18px;
     height: 18px;
@@ -79,14 +50,12 @@
     margin: 0;
     cursor: pointer;
 }
-
 .option-row label {
     color: #e0e0ff;
     cursor: pointer;
     font-size: 0.95rem;
     white-space: nowrap;
 }
-
 .compact-select {
     background: #1e1e32;
     color: white;
@@ -98,20 +67,11 @@
     flex: 1;
     width: auto;
     cursor: pointer;
-    box-sizing: border-box;
 }
-
 .compact-select:hover {
     background: #2d2d5a;
     border-color: #6c63ff;
 }
-
-.compact-select:focus {
-    outline: none;
-    border-color: #6c63ff;
-    box-shadow: 0 0 0 2px rgba(108,99,255,0.3);
-}
-
 .section-group-list {
     list-style: none;
     background: #2d2d5a;
@@ -120,37 +80,29 @@
     max-height: 215px;
     overflow-y: auto;
 }
-
 .section-group-item {
     display: flex;
     align-items: center;
     padding: 8px 12px;
     border-bottom: 1px solid #3d3d7a;
-    transition: background 0.2s;
 }
-
 .section-group-item:hover {
     background: #3d3d7a;
 }
-
 .section-group-item .group-name {
     flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
 .section-group-actions {
     display: flex;
     gap: 4px;
     opacity: 0.7;
-    transition: opacity 0.2s;
 }
-
 .section-group-item:hover .section-group-actions {
     opacity: 1;
 }
-
 .section-group-actions button {
     background: none;
     border: none;
@@ -159,9 +111,7 @@
     font-size: 1rem;
     padding: 2px 5px;
     border-radius: 4px;
-    transition: all 0.2s;
 }
-
 .section-group-actions button:hover {
     background: #5a5a9a;
     color: white;

@@ -1,54 +1,54 @@
 // global/tabs.js - Tab switching logic
-import { state } from '../lib/core/state.js';   // was '../../lib/core/state.js'
-import { dom } from '../lib/core/dom.js';       // was '../../lib/core/dom.js'
-import { events } from '../lib/core/events.js'; // was '../../lib/core/events.js'
+import { state } from '../lib/core/state.js';
+import { dom } from '../lib/core/dom.js';
+import { events } from '../lib/core/events.js';
+import { updateSidebar, resetSidebarFilters } from './sidebar.js';
 
 const tabs = {
-    groups: { tabId: 'groupsTab', contentId: 'groupsContent', sidebarId: 'groupsSidebar' },
-    sections: { tabId: 'sectionsTab', contentId: 'sectionsContent', sidebarId: 'sectionsSidebar' },
-    topics: { tabId: 'topicsTab', contentId: 'topicsContent', sidebarId: 'topicsSidebar' },
-    variants: { tabId: 'variantsTab', contentId: 'variantsContent', sidebarId: 'variantsSidebar' },
-    fallbacks: { tabId: 'fallbacksTab', contentId: 'fallbacksContent', sidebarId: 'fallbacksSidebar' },
+    groups: { tabId: 'groupsTab', contentId: 'groupsContent' },
+    sections: { tabId: 'sectionsTab', contentId: 'sectionsContent' },
+    topics: { tabId: 'topicsTab', contentId: 'topicsContent' },
+    variants: { tabId: 'variantsTab', contentId: 'variantsContent' },
+    fallbacks: { tabId: 'fallbacksTab', contentId: 'fallbacksContent' },
 };
 
-let currentTab = 'groups';
-
-function resetFilters(tabName) {
-    const manager = window.managers?.[tabName];
-    if (manager && typeof manager.resetFilters === 'function') {
-        manager.resetFilters();
-    } else {
-        const searchInput = document.getElementById(`${tabName}Search`);
-        if (searchInput) searchInput.value = '';
-        const sortSelect = document.getElementById(`${tabName}Sort`);
-        if (sortSelect) sortSelect.value = 'name-asc';
-        if (searchInput) searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        if (sortSelect) sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-}
+let currentTab = null;
 
 function switchTo(tabName) {
     if (currentTab === tabName) return;
+    
+    // Hide all content
     Object.values(tabs).forEach(t => {
         const tabEl = dom.$(`#${t.tabId}`);
         const contentEl = dom.$(`#${t.contentId}`);
-        const sidebarEl = dom.$(`#${t.sidebarId}`);
         if (tabEl) tabEl.classList.remove('active');
         if (contentEl) contentEl.style.display = 'none';
-        if (sidebarEl) sidebarEl.style.display = 'none';
     });
+    
+    // Show selected content
     const active = tabs[tabName];
     const activeTabEl = dom.$(`#${active.tabId}`);
     const activeContentEl = dom.$(`#${active.contentId}`);
-    const activeSidebarEl = dom.$(`#${active.sidebarId}`);
     if (activeTabEl) activeTabEl.classList.add('active');
     if (activeContentEl) activeContentEl.style.display = 'block';
-    if (activeSidebarEl) activeSidebarEl.style.display = 'block';
+    
     currentTab = tabName;
+    
+    // Update sidebar for this tab
+    updateSidebar(tabName);
+    
+    // Reset filters if model exists
     if (state.get('currentModel')) {
-        resetFilters(tabName);
-        events.emit('tab:changed', tabName);
+        resetSidebarFilters();
     }
+    
+    // Reload data for this tab's manager if model exists
+    const manager = window.managers?.[tabName];
+    if (manager && state.get('currentModel')) {
+        manager.load();
+    }
+    
+    events.emit('tab:changed', tabName);
 }
 
 function setTabsEnabled(enabled) {
@@ -65,12 +65,19 @@ export function initTabs() {
     dom.on('#topicsTab', 'click', () => switchTo('topics'));
     dom.on('#variantsTab', 'click', () => switchTo('variants'));
     dom.on('#fallbacksTab', 'click', () => switchTo('fallbacks'));
-
+    
     events.on('state:currentModel:changed', ({ newValue }) => {
         setTabsEnabled(!!newValue);
-        if (newValue) resetFilters(currentTab);
+        if (newValue) {
+            const manager = window.managers?.[currentTab];
+            if (manager) manager.load();
+            resetSidebarFilters();
+        } else {
+            // No model: update sidebar to disable controls
+            updateSidebar(currentTab);
+        }
     });
-
+    
     setTabsEnabled(!!state.get('currentModel'));
     switchTo('groups');
 }

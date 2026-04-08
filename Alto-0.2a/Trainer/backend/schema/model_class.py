@@ -25,7 +25,7 @@ from .compression import compress_blob, decompress_blob
 from ..utils.msgpack_helpers import pack_array, unpack_array
 from ..utils.file_helpers import (
     get_model_db_path, find_model_dir, safe_filename, MODELS_BASE_DIR,
-    get_model_container_path, get_model_temp_dir, pack_model, unpack_model
+    get_model_container_path, get_model_temp_dir, pack_model, unpack_model, read_manifest
 )
 
 class Model:
