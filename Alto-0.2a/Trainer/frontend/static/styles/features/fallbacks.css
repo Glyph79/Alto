@@ -1,4 +1,4 @@
-/* fallbacks.css - Complete styles for fallbacks feature */
+/* fallbacks.css – fallback cards */
 .fallbacks-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

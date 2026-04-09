@@ -18,7 +18,6 @@ ALTO_VERSION = "0.1a"
 # Model DB initialization (schema for 0.1a)
 # ----------------------------------------------------------------------
 def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
-    # Model info – includes alto_version
     conn.execute("""
         CREATE TABLE model_info (
             name TEXT PRIMARY KEY,
@@ -30,8 +29,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             updated_at TEXT NOT NULL
         )
     """)
-
-    # Sections table
     conn.execute("""
         CREATE TABLE sections (
             id INTEGER PRIMARY KEY,
@@ -39,8 +36,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             sort_order INTEGER NOT NULL DEFAULT 0
         )
     """)
-
-    # Topics table (with optional section)
     conn.execute("""
         CREATE TABLE topics (
             id INTEGER PRIMARY KEY,
@@ -48,8 +43,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL
         )
     """)
-
-    # Groups table (references topic and section by ID)
     conn.execute("""
         CREATE TABLE groups (
             id INTEGER PRIMARY KEY,
@@ -62,16 +55,12 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             answer_count INTEGER NOT NULL DEFAULT 0
         )
     """)
-
-    # FTS for questions
     conn.execute("""
         CREATE VIRTUAL TABLE questions_fts USING fts5(
             group_id UNINDEXED,
             question
         )
     """)
-
-    # Follow-up nodes
     conn.execute("""
         CREATE TABLE followup_nodes (
             id INTEGER PRIMARY KEY,
@@ -82,8 +71,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             answers_blob BLOB NOT NULL
         )
     """)
-
-    # Variant groups (with name and section_id only)
     conn.execute("""
         CREATE TABLE variant_groups (
             id INTEGER PRIMARY KEY,
@@ -92,8 +79,6 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
             created_at TEXT NOT NULL
         )
     """)
-
-    # Variant words
     conn.execute("""
         CREATE TABLE variant_words (
             word TEXT NOT NULL,
@@ -111,21 +96,17 @@ def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, a
     conn.execute("CREATE INDEX idx_followup_nodes_group_parent ON followup_nodes(group_id, parent_id)")
     conn.execute("CREATE INDEX idx_followup_nodes_parent ON followup_nodes(parent_id)")
 
-    # Insert default sections
+    # Default sections
     default_sections = ["General", "Technical", "Creative"]
     for idx, name in enumerate(default_sections):
         conn.execute("INSERT INTO sections (name, sort_order) VALUES (?, ?)", (name, idx))
 
-    # Insert default topics (each assigned to the "General" section initially)
+    # Default topics
     general_section_id = conn.execute("SELECT id FROM sections WHERE name = 'General'").fetchone()[0]
     default_topics = ["general", "greeting", "programming", "ai", "gaming", "creative", "thanks"]
     for name in default_topics:
-        conn.execute(
-            "INSERT INTO topics (name, section_id) VALUES (?, ?)",
-            (name, general_section_id)
-        )
+        conn.execute("INSERT INTO topics (name, section_id) VALUES (?, ?)", (name, general_section_id))
 
-    # Insert model info with alto_version
     now = datetime.datetime.now().isoformat()
     conn.execute(
         """INSERT INTO model_info
@@ -140,15 +121,10 @@ def get_model_info(conn: sqlite3.Connection) -> Dict[str, Any]:
     row = cur.fetchone()
     if not row:
         raise ValueError("Model info not found")
-
-    # Fetch sections as list of names ordered by sort_order
     cur = conn.execute("SELECT name FROM sections ORDER BY sort_order")
     sections = [r[0] for r in cur]
-
-    # Fetch topics as list of names
     cur = conn.execute("SELECT name FROM topics ORDER BY name")
     topics = [r[0] for r in cur]
-
     return {
         "name": row[0],
         "description": row[1],
@@ -169,7 +145,6 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
         info["author"] = kwargs["author"]
     if "version" in kwargs:
         info["version"] = kwargs["version"]
-    # alto_version is immutable – do not update it
     info["updated_at"] = datetime.datetime.now().isoformat()
     conn.execute(
         """UPDATE model_info
@@ -182,7 +157,7 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
     return info
 
 # ----------------------------------------------------------------------
-# Helper to resolve topic name to ID
+# Helper functions
 # ----------------------------------------------------------------------
 def _get_topic_id(conn: sqlite3.Connection, topic_name: str) -> Optional[int]:
     if not topic_name:
@@ -213,28 +188,16 @@ def _get_section_name(conn: sqlite3.Connection, section_id: Optional[int]) -> st
     return row[0] if row else ""
 
 # ----------------------------------------------------------------------
-# Group operations
+# Group operations (use explicit transactions)
 # ----------------------------------------------------------------------
-def group_from_row_full(row: sqlite3.Row) -> Dict[str, Any]:
-    return {
-        "id": row[0],
-        "group_name": row[1],
-        "topic": _get_topic_name(row[2]),
-        "section": _get_section_name(row[3]),
-        "questions": unpack_array(row[4]),
-        "answers": unpack_array(row[5]),
-    }
-
 def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str, Any]) -> int:
     group_dict.setdefault("group_name", "New Group")
     group_dict.setdefault("questions", [])
     group_dict.setdefault("answers", [])
     topic_name = group_dict.get("topic", "")
     section_name = group_dict.get("section", "")
-
     topic_id = _get_topic_id(conn, topic_name)
     section_id = _get_section_id(conn, section_name)
-
     questions = group_dict["questions"]
     answers = group_dict["answers"]
     questions_blob = pack_array(questions)
@@ -266,10 +229,8 @@ def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, 
     group_dict.setdefault("answers", [])
     topic_name = group_dict.get("topic", "")
     section_name = group_dict.get("section", "")
-
     topic_id = _get_topic_id(conn, topic_name)
     section_id = _get_section_id(conn, section_name)
-
     questions = group_dict["questions"]
     answers = group_dict["answers"]
     questions_blob = pack_array(questions)
@@ -307,7 +268,7 @@ def delete_group(conn: sqlite3.Connection, group_id: int):
         raise
 
 # ----------------------------------------------------------------------
-# Model class
+# Model class – autocommit mode (isolation_level=None)
 # ----------------------------------------------------------------------
 class Model:
     def __init__(self, name: str):
@@ -315,7 +276,8 @@ class Model:
         db_path = get_model_db_path(name)
         if not db_path:
             raise FileNotFoundError(f"Model '{name}' not found")
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        # Use autocommit mode to avoid lingering transactions
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
         self.conn.execute("PRAGMA cache_size = -5000")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.execute("PRAGMA synchronous = NORMAL")
@@ -443,18 +405,15 @@ class Model:
         section_id = _get_section_id(self.conn, name)
         if not section_id:
             raise ValueError(f"Section '{name}' not found")
-
         target_id = None
         if target:
             target_id = _get_section_id(self.conn, target)
             if not target_id:
                 raise ValueError(f"Target section '{target}' not found")
-
         conn = self.conn
         conn.execute("BEGIN IMMEDIATE")
         try:
             if action == "uncategorized":
-                # Set section_id to NULL for groups, topics, variants
                 conn.execute("UPDATE groups SET section_id = NULL WHERE section_id = ?", (section_id,))
                 conn.execute("UPDATE topics SET section_id = NULL WHERE section_id = ?", (section_id,))
                 conn.execute("UPDATE variant_groups SET section_id = NULL WHERE section_id = ?", (section_id,))
@@ -465,7 +424,6 @@ class Model:
                 conn.execute("UPDATE topics SET section_id = ? WHERE section_id = ?", (target_id, section_id))
                 conn.execute("UPDATE variant_groups SET section_id = ? WHERE section_id = ?", (target_id, section_id))
             elif action == "delete":
-                # Delete all groups in this section (cascades to followups, FTS)
                 cur = conn.execute("SELECT id FROM groups WHERE section_id = ?", (section_id,))
                 for row in cur:
                     delete_group(conn, row[0])
@@ -473,8 +431,6 @@ class Model:
                 conn.execute("UPDATE variant_groups SET section_id = NULL WHERE section_id = ?", (section_id,))
             else:
                 raise ValueError(f"Invalid action: {action}")
-
-            # Delete the section itself
             conn.execute("DELETE FROM sections WHERE id = ?", (section_id,))
             conn.commit()
         except Exception:
@@ -502,28 +458,22 @@ class Model:
         topic_id = _get_topic_id(self.conn, name)
         if not topic_id:
             raise ValueError(f"Topic '{name}' not found")
-
         target_id = None
         if target:
             target_id = _get_topic_id(self.conn, target)
             if not target_id:
                 raise ValueError(f"Target topic '{target}' not found")
-
         conn = self.conn
         conn.execute("BEGIN IMMEDIATE")
         try:
             if action == "reassign":
-                # Move groups to target topic (or NULL)
                 conn.execute("UPDATE groups SET topic_id = ? WHERE topic_id = ?", (target_id, topic_id))
             elif action == "delete_groups":
-                # Delete all groups using this topic
                 cur = conn.execute("SELECT id FROM groups WHERE topic_id = ?", (topic_id,))
                 for row in cur:
                     delete_group(conn, row[0])
             else:
                 raise ValueError(f"Invalid action: {action}")
-
-            # Delete the topic itself
             conn.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
             conn.commit()
         except Exception:
@@ -554,7 +504,7 @@ class Model:
             })
         return groups
 
-    # ----- Variant management (with name) -----
+    # ----- Variant management -----
     def get_variants(self) -> List[Dict]:
         self.last_used = time.time()
         cur = self.conn.execute("""
@@ -583,7 +533,20 @@ class Model:
         section_id = _get_section_id(self.conn, section_name) if section_name else None
         now = datetime.datetime.now().isoformat()
         conn = self.conn
-        conn.execute("BEGIN IMMEDIATE")
+        # Verify table exists
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='variant_groups'")
+        if not cur.fetchone():
+            raise RuntimeError("Model database missing variant_groups table – run schema migration")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                break
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+                raise
         try:
             cur = conn.execute(
                 "INSERT INTO variant_groups (name, section_id, created_at) VALUES (?, ?, ?) RETURNING id",
@@ -591,10 +554,7 @@ class Model:
             )
             group_id = cur.fetchone()[0]
             for word in words:
-                conn.execute(
-                    "INSERT INTO variant_words (word, group_id) VALUES (?, ?)",
-                    (word, group_id)
-                )
+                conn.execute("INSERT INTO variant_words (word, group_id) VALUES (?, ?)", (word, group_id))
             conn.commit()
             return group_id
         except Exception:
@@ -605,7 +565,16 @@ class Model:
         self.last_used = time.time()
         section_id = _get_section_id(self.conn, section_name) if section_name else None
         conn = self.conn
-        conn.execute("BEGIN IMMEDIATE")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                break
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+                raise
         try:
             conn.execute(
                 "UPDATE variant_groups SET name = ?, section_id = ? WHERE id = ?",
@@ -613,10 +582,7 @@ class Model:
             )
             conn.execute("DELETE FROM variant_words WHERE group_id = ?", (variant_id,))
             for word in words:
-                conn.execute(
-                    "INSERT INTO variant_words (word, group_id) VALUES (?, ?)",
-                    (word, variant_id)
-                )
+                conn.execute("INSERT INTO variant_words (word, group_id) VALUES (?, ?)", (word, variant_id))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -631,7 +597,7 @@ class Model:
 # Global model cache
 # ----------------------------------------------------------------------
 _model_cache: OrderedDict[str, Model] = OrderedDict()
-MAX_CACHED_MODELS = 3
+MAX_CACHED_MODELS = 10
 
 def get_model(name: str) -> Model:
     global _model_cache

@@ -2,6 +2,7 @@
 import os
 import sqlite3
 import json
+import time
 from typing import List, Dict
 
 ROUTES_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "routes.db")
@@ -90,6 +91,21 @@ def get_route_full(route_id: int) -> Dict:
     finally:
         conn.close()
 
+def _with_retry(func):
+    """Decorator to retry on database lock errors."""
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                    continue
+                raise
+    return wrapper
+
+@_with_retry
 def add_route(module_name: str, variants: List[str]) -> int:
     conn = get_routes_connection()
     try:
@@ -103,6 +119,7 @@ def add_route(module_name: str, variants: List[str]) -> int:
     finally:
         conn.close()
 
+@_with_retry
 def update_route(route_id: int, module_name: str, variants: List[str]):
     conn = get_routes_connection()
     try:
@@ -114,6 +131,7 @@ def update_route(route_id: int, module_name: str, variants: List[str]):
     finally:
         conn.close()
 
+@_with_retry
 def delete_route(route_id: int):
     conn = get_routes_connection()
     try:

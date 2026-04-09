@@ -1,4 +1,4 @@
-/* variants.css - Complete styles for variants feature */
+/* variants.css – variant cards with badge */
 .variants-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

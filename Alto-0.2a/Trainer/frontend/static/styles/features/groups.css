@@ -1,4 +1,4 @@
-/* groups.css - only unique styles */
+/* groups.css – group cards description and tree editor polish */
 .group-card .description {
     color: #b0b0d0;
     font-size: 0.8rem;
@@ -9,6 +9,8 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
 }
+
+/* Tree Editor styles (polished) */
 .tree-layout {
     display: flex;
     gap: 20px;
@@ -36,10 +38,21 @@
     padding: 8px 12px;
     border-radius: 6px;
     cursor: pointer;
+    transition: all 0.2s;
+}
+.tree-toolbar button:hover:not(:disabled) {
+    background: #5a52d5;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(108, 99, 255, 0.2);
+}
+.tree-toolbar button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 .tree-container {
     flex: 1;
     overflow-y: auto;
+    overflow-x: auto;
 }
 .tree-node {
     margin-left: 20px;
@@ -56,13 +69,46 @@
     border-radius: 6px;
     margin-bottom: 4px;
     cursor: pointer;
+    transition: background 0.2s;
+}
+.tree-node-header:hover {
+    background: #3d3d7a;
 }
 .tree-node-header.selected {
     background: #6c63ff;
 }
 .tree-node-header .expand-icon {
     width: 20px;
+    text-align: center;
     cursor: pointer;
+    user-select: none;
+}
+.tree-node-header .name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tree-node-header .node-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0.7;
+}
+.tree-node-header:hover .node-actions {
+    opacity: 1;
+}
+.tree-node-header .node-actions button {
+    background: none;
+    border: none;
+    color: #b0b0d0;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.tree-node-header .node-actions button:hover {
+    background: #5a5a9a;
+    color: white;
 }
 .tree-children {
     margin-left: 24px;
@@ -72,10 +118,20 @@
     flex-direction: column;
     height: 100%;
 }
+.qa-panel .qa-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+.qa-panel .qa-section .qa-list {
+    flex: 1;
+    max-height: none;
+}
 .no-node-message {
     display: flex;
     height: 100%;
     align-items: center;
     justify-content: center;
     color: #aaa;
+    font-style: italic;
 }

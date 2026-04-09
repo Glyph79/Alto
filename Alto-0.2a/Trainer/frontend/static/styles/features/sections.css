@@ -1,4 +1,4 @@
-/* sections.css - Complete styles for sections feature */
+/* sections.css – section cards with color dots and group list */
 .sections-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -67,10 +67,16 @@
     flex: 1;
     width: auto;
     cursor: pointer;
+    transition: all 0.2s;
 }
 .compact-select:hover {
     background: #2d2d5a;
     border-color: #6c63ff;
+}
+.compact-select:focus {
+    outline: none;
+    border-color: #6c63ff;
+    box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.3);
 }
 .section-group-list {
     list-style: none;
@@ -85,6 +91,7 @@
     align-items: center;
     padding: 8px 12px;
     border-bottom: 1px solid #3d3d7a;
+    transition: background 0.2s;
 }
 .section-group-item:hover {
     background: #3d3d7a;
@@ -99,6 +106,7 @@
     display: flex;
     gap: 4px;
     opacity: 0.7;
+    transition: opacity 0.2s;
 }
 .section-group-item:hover .section-group-actions {
     opacity: 1;
@@ -111,6 +119,7 @@
     font-size: 1rem;
     padding: 2px 5px;
     border-radius: 4px;
+    transition: all 0.2s;
 }
 .section-group-actions button:hover {
     background: #5a5a9a;

@@ -1,5 +1,6 @@
 """Commands for managing word variants."""
 import json
+import sqlite3
 from typing import Dict, List
 from train.model import get_model
 
@@ -22,6 +23,8 @@ def cmd_add_variant(name: str, data: str, **kwargs) -> Dict:
         model = get_model(name)
         group_id = model.add_variant(variant_name, section, words)
         return {"status": "ok", "id": group_id}
+    except sqlite3.OperationalError as e:
+        return {"error": f"SQLite error (database locked or timeout): {e}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -37,6 +40,8 @@ def cmd_update_variant(name: str, variant_id: int, data: str, **kwargs) -> Dict:
         model = get_model(name)
         model.update_variant(variant_id, variant_name, section, words)
         return {"status": "ok"}
+    except sqlite3.OperationalError as e:
+        return {"error": f"SQLite error (database locked or timeout): {e}"}
     except Exception as e:
         return {"error": str(e)}
 
