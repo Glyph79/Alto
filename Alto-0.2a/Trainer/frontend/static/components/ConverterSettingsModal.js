@@ -45,21 +45,7 @@ export async function showConverterSettingsModal() {
     formRow1.appendChild(small1);
     content.appendChild(formRow1);
     
-    const formRow2 = document.createElement('div');
-    formRow2.className = 'form-row';
-    const label2 = document.createElement('label');
-    label2.textContent = 'Create missing topics/sections';
-    formRow2.appendChild(label2);
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.id = 'createMissingCheckbox';
-    checkbox.checked = settings.create_missing;
-    formRow2.appendChild(checkbox);
-    const small2 = document.createElement('small');
-    small2.style.cssText = 'color:#888; display: block; margin-top: 4px;';
-    small2.textContent = 'Automatically create topics/sections that don\'t exist when importing a legacy model.';
-    formRow2.appendChild(small2);
-    content.appendChild(formRow2);
+    // "Create missing topics/sections" checkbox removed – always enabled
     
     slider.addEventListener('input', () => {
         valueSpan.textContent = slider.value;
@@ -73,7 +59,7 @@ export async function showConverterSettingsModal() {
             { label: 'Save', variant: 'save', onClick: async () => {
                 const newSettings = {
                     batch_size: parseInt(slider.value, 10),
-                    create_missing: checkbox.checked,
+                    // create_missing is always true, no need to send
                 };
                 await api.post('/api/converter/settings', newSettings);
                 modal.closeAll();

@@ -5,9 +5,10 @@ import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from backend.config import config
-from backend.converter import get_converter_settings, update_converter_settings, convert_legacy_db_file
+from convert.converter import get_converter_settings, update_converter_settings, convert_legacy_db_to_rbm
 from backend.legacy_scanner import scan_legacy_models, convert_legacy_model
 
 app = Quart(__name__, static_folder=None)
@@ -393,7 +394,15 @@ async def import_model():
             tmp.write(content)
             tmp_path = tmp.name
         result = await send_command("import-rbm", file=tmp_path, name=custom_name, overwrite=overwrite)
-        os.unlink(tmp_path)
+        # Retry deletion if file locked
+        for _ in range(5):
+            try:
+                os.unlink(tmp_path)
+                break
+            except PermissionError:
+                time.sleep(0.1)
+        else:
+            print(f"Warning: could not delete temp file {tmp_path}")
         if "error" in result:
             status = 409 if result.get("code") == "CONFLICT" else 500
             return jsonify(result), status
@@ -407,7 +416,7 @@ async def import_model():
             tmp_path = tmp.name
         try:
             models_dir = config.get('DEFAULT', 'models_dir')
-            container_path = convert_legacy_db_file(tmp_path, new_model_name=None, models_dir=models_dir)
+            container_path = convert_legacy_db_to_rbm(Path(tmp_path), new_model_name=None, models_dir=Path(models_dir))
             # Extract the actual model name from the container manifest
             from backend.utils.file_helpers import read_manifest
             manifest = read_manifest(container_path)
@@ -416,7 +425,15 @@ async def import_model():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         finally:
-            os.unlink(tmp_path)
+            # Retry deletion if file locked
+            for _ in range(5):
+                try:
+                    os.unlink(tmp_path)
+                    break
+                except PermissionError:
+                    time.sleep(0.1)
+            else:
+                print(f"Warning: could not delete temp file {tmp_path}")
     
     return jsonify({'error': 'File must be .db or .rbm'}), 400
 
@@ -443,7 +460,7 @@ async def api_set_converter_settings():
     data = await request.get_json()
     update_converter_settings(
         batch_size=data.get('batch_size'),
-        create_missing=data.get('create_missing')
+        # create_missing is ignored; always True
     )
     return jsonify({'status': 'ok'})
 
@@ -463,9 +480,7 @@ async def api_convert_legacy():
 
     try:
         models_dir = config.get('DEFAULT', 'models_dir')
-        # Let converter determine the model name from the DB
-        container_path = convert_legacy_db_file(tmp_path, new_model_name=None, models_dir=models_dir)
-        # Extract the actual model name from the container manifest
+        container_path = convert_legacy_db_to_rbm(Path(tmp_path), new_model_name=None, models_dir=Path(models_dir))
         from backend.utils.file_helpers import read_manifest
         manifest = read_manifest(container_path)
         model_name = manifest["name"] if manifest else Path(tmp_path).stem
@@ -473,7 +488,15 @@ async def api_convert_legacy():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
-        os.unlink(tmp_path)
+        # Retry deletion if file locked
+        for _ in range(5):
+            try:
+                os.unlink(tmp_path)
+                break
+            except PermissionError:
+                time.sleep(0.1)
+        else:
+            print(f"Warning: could not delete temp file {tmp_path}")
 
 # ========== Legacy model scanner and batch conversion ==========
 conversion_status = {

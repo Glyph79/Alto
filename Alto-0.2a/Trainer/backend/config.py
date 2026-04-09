@@ -12,7 +12,7 @@ DEFAULT_CONFIG = {
     },
     'converter': {
         'batch_size': '100',
-        'create_missing': 'False',
+        # 'create_missing' removed – always enabled in converter
     },
     'editor': {
         'auto_save': 'True',
