@@ -5,7 +5,10 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 from backend.config import config
+from backend.converter import get_converter_settings, update_converter_settings, convert_legacy_db_file
+from backend.legacy_scanner import scan_legacy_models, convert_legacy_model
 
 app = Quart(__name__, static_folder=None)
 
@@ -371,7 +374,7 @@ async def get_fallback_groups(name, fallback_id):
         return jsonify(result), 404
     return jsonify(result)
 
-# Import/Export
+# ========== Import/Export (fixed: .db files use converter, no name prompt) ==========
 @app.route('/api/models/import', methods=['POST'])
 async def import_model():
     files = await request.files
@@ -379,29 +382,43 @@ async def import_model():
         return jsonify({'error': 'No file uploaded'}), 400
     file = files['file']
     filename = file.filename.lower()
-    if not (filename.endswith('.db') or filename.endswith('.rbm')):
-        return jsonify({'error': 'File must be .db or .rbm'}), 400
-
-    form = await request.form
-    custom_name = form.get('name', '').strip()
-    overwrite = form.get('overwrite', '').lower() == 'true'
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
-        content = file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
+    
+    # For .rbm files, use the existing import-rbm command
     if filename.endswith('.rbm'):
+        form = await request.form
+        custom_name = form.get('name', '').strip()
+        overwrite = form.get('overwrite', '').lower() == 'true'
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.rbm') as tmp:
+            content = file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
         result = await send_command("import-rbm", file=tmp_path, name=custom_name, overwrite=overwrite)
-    else:
-        result = await send_command("import-db", file=tmp_path, name=custom_name, overwrite=overwrite)
-
-    os.unlink(tmp_path)
-
-    if "error" in result:
-        status = 409 if result.get("code") == "CONFLICT" else 500
-        return jsonify(result), status
-    return jsonify(result)
+        os.unlink(tmp_path)
+        if "error" in result:
+            status = 409 if result.get("code") == "CONFLICT" else 500
+            return jsonify(result), status
+        return jsonify(result)
+    
+    # For .db files, use the converter – read model name from database, don't ask user
+    if filename.endswith('.db'):
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
+            content = file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            models_dir = config.get('DEFAULT', 'models_dir')
+            container_path = convert_legacy_db_file(tmp_path, new_model_name=None, models_dir=models_dir)
+            # Extract the actual model name from the container manifest
+            from backend.utils.file_helpers import read_manifest
+            manifest = read_manifest(container_path)
+            model_name = manifest["name"] if manifest else Path(tmp_path).stem
+            return jsonify({'status': 'ok', 'model': {'name': model_name}, 'path': str(container_path)})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+        finally:
+            os.unlink(tmp_path)
+    
+    return jsonify({'error': 'File must be .db or .rbm'}), 400
 
 @app.route('/api/models/<name>/export', methods=['GET'])
 async def export_model(name):
@@ -415,6 +432,105 @@ async def export_model(name):
         attachment_filename=f'{name}.rbm',
         as_attachment=True
     )
+
+# ========== Converter API routes ==========
+@app.route('/api/converter/settings', methods=['GET'])
+async def api_get_converter_settings():
+    return jsonify(get_converter_settings())
+
+@app.route('/api/converter/settings', methods=['POST'])
+async def api_set_converter_settings():
+    data = await request.get_json()
+    update_converter_settings(
+        batch_size=data.get('batch_size'),
+        create_missing=data.get('create_missing')
+    )
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/convert/legacy', methods=['POST'])
+async def api_convert_legacy():
+    files = await request.files
+    if 'file' not in files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = files['file']
+    if not file.filename.lower().endswith('.db'):
+        return jsonify({'error': 'Only .db files are supported'}), 400
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
+        content = file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        models_dir = config.get('DEFAULT', 'models_dir')
+        # Let converter determine the model name from the DB
+        container_path = convert_legacy_db_file(tmp_path, new_model_name=None, models_dir=models_dir)
+        # Extract the actual model name from the container manifest
+        from backend.utils.file_helpers import read_manifest
+        manifest = read_manifest(container_path)
+        model_name = manifest["name"] if manifest else Path(tmp_path).stem
+        return jsonify({'status': 'ok', 'model_name': model_name, 'path': str(container_path)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        os.unlink(tmp_path)
+
+# ========== Legacy model scanner and batch conversion ==========
+conversion_status = {
+    "running": False,
+    "total": 0,
+    "completed": 0,
+    "failed": [],
+    "backup_dir": None
+}
+
+@app.route('/api/legacy/scan', methods=['GET'])
+async def api_legacy_scan():
+    models_dir = config.get('DEFAULT', 'models_dir')
+    legacy_files = scan_legacy_models(models_dir)
+    return jsonify({"legacy_models": [os.path.basename(f) for f in legacy_files], "paths": legacy_files})
+
+@app.route('/api/legacy/convert', methods=['POST'])
+async def api_legacy_convert():
+    global conversion_status
+    if conversion_status["running"]:
+        return jsonify({"error": "Conversion already in progress"}), 409
+    data = await request.get_json()
+    legacy_paths = data.get("paths", [])
+    backup = data.get("backup", True)
+    models_dir = config.get('DEFAULT', 'models_dir')
+    backup_dir = os.path.join(models_dir, "backup_models") if backup else None
+
+    conversion_status = {
+        "running": True,
+        "total": len(legacy_paths),
+        "completed": 0,
+        "failed": [],
+        "backup_dir": backup_dir
+    }
+
+    async def run_conversion():
+        for db_path in legacy_paths:
+            base_name = os.path.splitext(os.path.basename(db_path))[0]
+            new_name = base_name + "_v2"
+            try:
+                final_name = new_name
+                counter = 1
+                while os.path.exists(os.path.join(models_dir, f"{final_name}.rbm")):
+                    final_name = f"{base_name}_v2_{counter}"
+                    counter += 1
+                convert_legacy_model(db_path, final_name, models_dir, backup_dir)
+                conversion_status["completed"] += 1
+            except Exception as e:
+                conversion_status["failed"].append({"file": db_path, "error": str(e)})
+        conversion_status["running"] = False
+
+    asyncio.create_task(run_conversion())
+    return jsonify({"status": "started", "total": len(legacy_paths)})
+
+@app.route('/api/legacy/status', methods=['GET'])
+async def api_legacy_status():
+    return jsonify(conversion_status)
 
 # ========== Web UI routes (conditional) ==========
 if SERVE_WEBUI:

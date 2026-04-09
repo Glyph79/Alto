@@ -1,4 +1,3 @@
-// global.js - Single entry point for all frontend modules
 import { initTabs } from './global/tabs.js';
 import { initSidebar } from './global/sidebar.js';
 import { ModelManager } from './lib/managers/ModelManager.js';
@@ -8,6 +7,8 @@ import { TopicManager } from './lib/managers/TopicManager.js';
 import { VariantManager } from './lib/managers/VariantManager.js';
 import { FallbackManager } from './lib/managers/FallbackManager.js';
 import GridRenderer from './lib/grid/GridRenderer.js';
+import { showConverterSettingsModal } from './components/ConverterSettingsModal.js';
+import { checkLegacyModels } from './components/LegacyNotification.js';
 
 window.GridRenderer = GridRenderer;
 
@@ -23,13 +24,14 @@ window.managers = {
 initTabs();
 initSidebar();
 
-// Global empty‑state buttons
 document.getElementById('createFirstModelBtn')?.addEventListener('click', () => window.managers.models.createModel());
 document.getElementById('createFirstGroupBtn')?.addEventListener('click', () => window.managers.groups.openCreateModal());
 document.getElementById('createFirstSectionBtn')?.addEventListener('click', () => window.managers.sections.openCreateModal());
 document.getElementById('createFirstTopicBtn')?.addEventListener('click', () => window.managers.topics.openCreateModal());
 document.getElementById('createFirstVariantBtn')?.addEventListener('click', () => window.managers.variants.openCreateModal());
 document.getElementById('createFirstFallbackBtn')?.addEventListener('click', () => window.managers.fallbacks.openCreateModal());
+
+document.getElementById('converterSettingsBtn')?.addEventListener('click', showConverterSettingsModal);
 
 window.disableButtonsInContainer = function(container) {
     if (!container) return;
@@ -52,5 +54,6 @@ window.enableButtonsInContainer = function(container) {
     });
 };
 
-// Load models after everything is set up
-window.managers.models.load();
+window.managers.models.load().then(() => {
+    checkLegacyModels();
+});

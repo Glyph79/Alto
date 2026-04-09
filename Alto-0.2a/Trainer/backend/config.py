@@ -10,6 +10,10 @@ DEFAULT_CONFIG = {
         'recent_models': '',
         'serve_webui': 'True',
     },
+    'converter': {
+        'batch_size': '100',
+        'create_missing': 'False',
+    },
     'editor': {
         'auto_save': 'True',
         'theme': 'dark',
@@ -19,7 +23,6 @@ DEFAULT_CONFIG = {
     }
 }
 
-# Get project root (train/ is one level below project root)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 CONFIG_PATH = os.path.join(RESOURCES_DIR, 'trainer_config.cfg')
@@ -31,7 +34,6 @@ def load_config():
     ensure_resources_dir()
     config = configparser.ConfigParser()
     if not os.path.exists(CONFIG_PATH):
-        # Create new config file with defaults
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():
@@ -43,7 +45,6 @@ def load_config():
         save_config(config)
     else:
         config.read(CONFIG_PATH)
-        # Apply any missing defaults (in memory only)
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():

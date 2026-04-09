@@ -1,4 +1,3 @@
-// lib/managers/ModelManager.js - Model CRUD operations
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
@@ -241,40 +240,58 @@ export class ModelManager {
         if (current) window.open(`/api/models/${current}/export`);
     }
 
-    importModel() {
+    async importModel() {
         const input = dom.createElement('input', { type: 'file', accept: '.db,.rbm' });
         input.onchange = async (e) => {
             const file = e.target.files[0];
+            const isLegacy = file.name.toLowerCase().endsWith('.db');
             const formData = new FormData();
             formData.append('file', file);
-            try {
-                const response = await fetch('/api/models/import', { method: 'POST', body: formData });
-                const result = await response.json();
-                if (response.ok) {
-                    await this.load();
-                    await state.setCurrentModel(result.model.name);
-                    return;
-                }
-                if (response.status === 409 && result.code === 'CONFLICT') {
-                    const action = await this.showConflictDialog(result.existing_name, result.db_name);
-                    if (!action) return;
-                    const newFormData = new FormData();
-                    newFormData.append('file', file);
-                    newFormData.append('name', action.name);
-                    if (action.overwrite) newFormData.append('overwrite', 'true');
-                    const retryResponse = await fetch('/api/models/import', { method: 'POST', body: newFormData });
-                    const retryResult = await retryResponse.json();
-                    if (retryResponse.ok) {
+            
+            if (isLegacy) {
+                const name = await modal.prompt('New model name', '', { placeholder: 'Model name' });
+                if (!name) return;
+                formData.append('name', name);
+                try {
+                    const response = await fetch('/api/convert/legacy', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    if (response.ok) {
                         await this.load();
-                        await state.setCurrentModel(retryResult.model.name);
+                        await state.setCurrentModel(result.model_name);
                     } else {
-                        throw new Error(retryResult.error || 'Import failed');
+                        modal.show({ title: 'Conversion Failed', content: result.error, actions: [{ label: 'OK' }], size: 'small' });
                     }
-                } else {
-                    throw new Error(result.error || 'Import failed');
+                } catch (err) {
+                    modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
                 }
-            } catch (err) {
-                modal.show({ title: 'Import Failed', content: err.message, actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+            } else {
+                try {
+                    const response = await fetch('/api/models/import', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    if (response.ok) {
+                        await this.load();
+                        await state.setCurrentModel(result.model.name);
+                    } else if (response.status === 409 && result.code === 'CONFLICT') {
+                        const action = await this.showConflictDialog(result.existing_name, result.db_name);
+                        if (!action) return;
+                        const newFormData = new FormData();
+                        newFormData.append('file', file);
+                        newFormData.append('name', action.name);
+                        if (action.overwrite) newFormData.append('overwrite', 'true');
+                        const retryResponse = await fetch('/api/models/import', { method: 'POST', body: newFormData });
+                        const retryResult = await retryResponse.json();
+                        if (retryResponse.ok) {
+                            await this.load();
+                            await state.setCurrentModel(retryResult.model.name);
+                        } else {
+                            throw new Error(retryResult.error || 'Import failed');
+                        }
+                    } else {
+                        throw new Error(result.error || 'Import failed');
+                    }
+                } catch (err) {
+                    modal.show({ title: 'Import Failed', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
+                }
             }
         };
         input.click();
