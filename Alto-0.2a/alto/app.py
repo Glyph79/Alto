@@ -5,7 +5,7 @@ import json
 from backend.layer.layer import process_message
 from backend.auth.auth import register_user, authenticate_user, user_exists
 from backend.config import config
-from backend.engine.ai_engine import RuleBot
+from backend.adapters.base import get_adapter   # changed: use adapter directly
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
@@ -95,14 +95,16 @@ async def chat():
         response.set_cookie('user_id', str(user_id), path='/', httponly=False, samesite='Lax', max_age=2592000)
     return response
 
+# ========== Network visualizer endpoint (fixed) ==========
 @app.route('/api/network')
 async def network_data():
     import sqlite3
+    from backend.adapters.base import get_adapter   # use adapter directly
 
     model_name = config.get('DEFAULT', 'default_model')
     try:
-        bot = RuleBot(model=model_name)
-        conn = bot.loader.get_connection(model_name)
+        adapter = get_adapter(model_name)
+        conn = adapter.get_connection(model_name)
     except FileNotFoundError:
         return {
             "nodes": [],
@@ -133,6 +135,7 @@ async def network_data():
             "section": section
         })
 
+    # Groups
     cur = conn.execute("""
         SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, COALESCE(s.name, '') as section
         FROM groups g
@@ -144,6 +147,7 @@ async def network_data():
         group_id = f"group_{row['id']}"
         add_node(group_id, row['group_name'], 'group', row['topic'], row['section'])
 
+    # Follow-up nodes
     cur = conn.execute("""
         SELECT id, group_id, parent_id, branch_name
         FROM followup_nodes
@@ -158,6 +162,7 @@ async def network_data():
         add_node(node_id, row['branch_name'] or 'Unnamed', node_type)
         followup_nodes[row['id']] = (node_id, group_id, parent_id)
 
+    # Links
     for (node_id, group_id, parent_id) in followup_nodes.values():
         if parent_id is None:
             links.append({"source": group_id, "target": node_id})

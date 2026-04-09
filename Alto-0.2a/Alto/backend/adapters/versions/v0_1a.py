@@ -1,17 +1,17 @@
+# Alto/backend/adapters/versions/v0_1a.py
 import os
 import hashlib
 import sqlite3
 import msgpack
 import re
-from rapidfuzz import fuzz
-from typing import List, Dict, Optional, Tuple, Set
-from ..base import BaseLoader, CACHE_ROOT, get_legacy_db_path
+from typing import List, Dict, Set
+from ..base import BaseAdapter, CACHE_ROOT, get_legacy_db_path
 
-class LoaderV0_1a(BaseLoader):
+class AdapterV0_1a(BaseAdapter):
     VERSION = "0.1a"
 
     def __init__(self):
-        self._connections = {}   # model_name -> connection
+        self._connections = {}
         self._current_model = None
 
     def get_version(self) -> str:
@@ -63,7 +63,6 @@ class LoaderV0_1a(BaseLoader):
         return conn
 
     def _get_conn(self, model_name: str = None) -> sqlite3.Connection:
-        """Return connection for the given model or the current one."""
         if model_name is None:
             model_name = self._current_model
         if model_name is None or model_name not in self._connections:
@@ -72,61 +71,6 @@ class LoaderV0_1a(BaseLoader):
 
     def _unpack(self, data: bytes) -> list:
         return msgpack.unpackb(data, raw=False)
-
-    def _norm_word(self, w: str) -> str:
-        return re.sub(r'[^\w\s]', '', w.lower())
-
-    def get_root_nodes(self, group_id: int) -> List[Dict]:
-        conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name
-            FROM followup_nodes
-            WHERE group_id = ? AND parent_id IS NULL
-            ORDER BY id
-        """, (group_id,))
-        nodes = []
-        for row in cur:
-            nodes.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": None,
-                "answers": None
-            })
-        return nodes
-
-    def get_node_children(self, node_id: int) -> List[Dict]:
-        conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name
-            FROM followup_nodes
-            WHERE parent_id = ?
-            ORDER BY id
-        """, (node_id,))
-        children = []
-        for row in cur:
-            children.append({
-                "id": row[0],
-                "branch_name": row[1],
-                "questions": None,
-                "answers": None
-            })
-        return children
-
-    def get_node_questions(self, node_id: int) -> List[str]:
-        conn = self._get_conn()
-        cur = conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        if not row:
-            return []
-        return self._unpack(row[0])
-
-    def get_node_answers(self, node_id: int) -> List[str]:
-        conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
-        row = cur.fetchone()
-        if not row:
-            return []
-        return self._unpack(row[0])
 
     def get_group_questions(self, group_id: int) -> List[str]:
         conn = self._get_conn()
@@ -162,63 +106,37 @@ class LoaderV0_1a(BaseLoader):
             "updated_at": None
         }
 
-    def match_groups(self, text: str, topic_weights: Dict[str, int], threshold: int) -> Tuple[Optional[int], Optional[Dict], int]:
+    def get_root_nodes(self, group_id: int) -> List[Dict]:
         conn = self._get_conn()
-        words = [self._norm_word(w) for w in text.split() if w]
-        expanded = self.expand_synonyms(words)
-        if not expanded:
-            return None, None, 0
+        cur = conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE group_id = ? AND parent_id IS NULL
+            ORDER BY id
+        """, (group_id,))
+        return [{"id": row[0], "branch_name": row[1]} for row in cur]
 
-        match = ' OR '.join(f'"{w}"' for w in expanded)
-        cur = conn.execute(
-            "SELECT DISTINCT group_id FROM questions_fts WHERE questions_fts MATCH ?", (match,)
-        )
-        gids = [row[0] for row in cur]
-        if not gids:
-            return None, None, 0
+    def get_node_children(self, node_id: int) -> List[Dict]:
+        conn = self._get_conn()
+        cur = conn.execute("""
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE parent_id = ?
+            ORDER BY id
+        """, (node_id,))
+        return [{"id": row[0], "branch_name": row[1]} for row in cur]
 
-        placeholders = ','.join(['?'] * len(gids))
-        cur = conn.execute(f"""
-            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic
-            FROM groups g
-            LEFT JOIN topics t ON g.topic_id = t.id
-            WHERE g.id IN ({placeholders})
-        """, gids)
-        groups = [dict(row) for row in cur]
+    def get_node_questions(self, node_id: int) -> List[str]:
+        conn = self._get_conn()
+        cur = conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        return self._unpack(row[0]) if row else []
 
-        best_score = 0
-        best_group = None
-        text_low = text.lower()
-        for grp in groups:
-            questions = self.get_group_questions(grp["id"])
-            base_score = 0
-            for q in questions:
-                score = fuzz.token_set_ratio(text_low, q.lower())
-                if score > base_score:
-                    base_score = score
-            boost = topic_weights.get(grp["topic"], 0)
-            final_score = base_score + boost
-            if final_score > best_score:
-                best_score = final_score
-                best_group = grp
-        if best_score >= threshold:
-            full_group = self.get_group_data(best_group["id"])
-            return best_group["id"], full_group, best_score
-        return None, None, 0
-
-    def match_nodes(self, text: str, nodes: List[Dict], threshold: int) -> Tuple[Optional[Dict], int]:
-        best_score = 0
-        best_node = None
-        text_low = text.lower()
-        for node in nodes:
-            for q in node.get("questions", []):
-                score = fuzz.token_set_ratio(text_low, q.lower())
-                if score > best_score:
-                    best_score = score
-                    best_node = node
-        if best_score >= threshold:
-            return best_node, best_score
-        return None, 0
+    def get_node_answers(self, node_id: int) -> List[str]:
+        conn = self._get_conn()
+        cur = conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        return self._unpack(row[0]) if row else []
 
     def get_topics(self) -> List[str]:
         conn = self._get_conn()
@@ -233,5 +151,5 @@ class LoaderV0_1a(BaseLoader):
     def get_variants(self) -> List[Dict]:
         return []
 
-    def expand_synonyms(self, words: List[str]) -> set:
+    def expand_synonyms(self, words: List[str]) -> Set[str]:
         return set(words)

@@ -1,10 +1,10 @@
+# Alto/backend/engine/ai_engine.py – full conversation orchestrator
 import time
 import re
 from collections import OrderedDict
 from ..config import config
-from ..loaders import get_loader
+from ..adapters.model import Model
 
-# DEBUG controlled by config
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 
 def debug_print(*args, **kwargs):
@@ -14,8 +14,8 @@ def debug_print(*args, **kwargs):
 class SessionTree:
     MAX_LOADED_NODES = 10
 
-    def __init__(self, loader, group_id, path=None):
-        self.loader = loader
+    def __init__(self, matcher, group_id, path=None):
+        self.matcher = matcher          # the pure matcher (Model instance)
         self.group_id = group_id
         self._nodes = {}
         self._roots = []
@@ -24,12 +24,12 @@ class SessionTree:
         self._load_roots()
 
     def _load_roots(self):
-        self._roots = self.loader.get_root_nodes(self.group_id)
+        self._roots = self.matcher.adapter.get_root_nodes(self.group_id)
         for node in self._roots:
             self._nodes[node["id"]] = node
 
     def _load_children(self, node_id):
-        children = self.loader.get_node_children(node_id)
+        children = self.matcher.adapter.get_node_children(node_id)
         if node_id in self._nodes:
             self._nodes[node_id]["children"] = children
         for child in children:
@@ -42,7 +42,7 @@ class SessionTree:
         if node_id in self._loaded_nodes:
             self._loaded_nodes.move_to_end(node_id)
             return
-        questions = self.loader.get_node_questions(node_id)
+        questions = self.matcher.adapter.get_node_questions(node_id)
         node["questions"] = questions
         self._loaded_nodes[node_id] = node
         while len(self._loaded_nodes) > self.MAX_LOADED_NODES:
@@ -56,7 +56,7 @@ class SessionTree:
     def ensure_answers(self, node_id):
         node = self._nodes.get(node_id)
         if node and not node.get("answers_loaded"):
-            answers = self.loader.get_node_answers(node_id)
+            answers = self.matcher.adapter.get_node_answers(node_id)
             node["answers"] = answers
             node["answers_loaded"] = True
             if node_id not in self._loaded_nodes:
@@ -95,31 +95,17 @@ class SessionTree:
     def roots(self):
         return self._roots
 
+
 class RuleBot:
     DEFAULT = "Alto"
-    GROUP_CACHE_SIZE = 3
 
     def __init__(self, model=None, threshold=None):
-        self.loader = None
+        self.model_name = model or self.DEFAULT
         self.threshold = threshold if threshold is not None else config.getint('ai', 'threshold')
         self.fallback = config.get('DEFAULT', 'fallback')
-        self.model_name = model or self.DEFAULT
         debug_print(f"🤖 Initializing RuleBot with model '{self.model_name}', threshold={self.threshold}")
-        self.loader = get_loader(self.model_name)
-        self.loader.get_connection(self.model_name)
-        debug_print(f"✅ Loader {self.loader.get_version()} provided")
-        self._group_cache = OrderedDict()
-
-    def _get_group_data(self, gid):
-        if gid in self._group_cache:
-            self._group_cache.move_to_end(gid)
-            return self._group_cache[gid]
-        data = self.loader.get_group_data(gid)
-        self._group_cache[gid] = data
-        self._group_cache.move_to_end(gid)
-        if len(self._group_cache) > self.GROUP_CACHE_SIZE:
-            self._group_cache.popitem(last=False)
-        return data
+        self.matcher = Model(self.model_name, self.threshold)   # pure matcher
+        debug_print(f"✅ Matcher loaded")
 
     def _update_topics(self, session_topics: dict, selected_topic: str):
         TOPIC_DECAY = config.getint('ai', 'topic_decay')
@@ -162,10 +148,8 @@ class RuleBot:
         if "active_trees" not in state:
             state["active_trees"] = {}
 
-        def norm_word(w):
-            return re.sub(r'[^\w\s]', '', w.lower())
-        words = [norm_word(w) for w in text.split() if w]
-        exp = self.loader.expand_synonyms(words)
+        words = [self.matcher._norm_word(w) for w in text.split() if w]
+        exp = self.matcher.adapter.expand_synonyms(words)
         now = time.time()
         MAX_ACTIVE_TREES = config.getint('session', 'max_active_trees')
 
@@ -174,10 +158,10 @@ class RuleBot:
         for gid, tree_info in list(state["active_trees"].items()):
             path = tree_info["path"]
             debug_print(f"🔄 Checking active tree group {gid}, path {path}")
-            tree = SessionTree(self.loader, gid, path)
+            tree = SessionTree(self.matcher, gid, path)
             candidates = tree.candidates(path)
             debug_print(f"   Candidates: {[c.get('branch_name', 'unnamed') for c in candidates]}")
-            node, score = self.loader.match_nodes(text, candidates, self.threshold)
+            node, score = self.matcher.match_nodes(text, candidates)
             if node and score >= self.threshold:
                 new_path = tree.move_to(node["id"], path)
                 debug_print(f"✅ Matched node in existing tree, new path {new_path}")
@@ -188,16 +172,16 @@ class RuleBot:
         # Step 2: Search groups
         if exp:
             debug_print(f"🔎 Expanded synonyms: {exp}")
-            gid, group_data, score = self.loader.match_groups(text, state["topics"], self.threshold)
+            gid, group_data, score = self.matcher.match_groups(text, state["topics"])
             if group_data:
                 gid = group_data["id"]
                 debug_print(f"✅ Matched group '{group_data['group_name']}' (final score {score} >= threshold {self.threshold})")
                 if group_data["topic"]:
                     self._update_topics(state["topics"], group_data["topic"])
-                tree = SessionTree(self.loader, gid)
+                tree = SessionTree(self.matcher, gid)
                 for root in tree.roots():
                     tree.load_questions_for_node(root["id"])
-                node, root_score = self.loader.match_nodes(text, tree.roots(), self.threshold)
+                node, root_score = self.matcher.match_nodes(text, tree.roots())
                 if node and root_score >= self.threshold:
                     debug_print(f"  ➡️ Also matched root node '{node.get('branch_name', 'unnamed')}' (score {root_score})")
                     tree.ensure_answers(node["id"])
@@ -218,6 +202,7 @@ class RuleBot:
 
         debug_print("❌ No match found, using fallback")
         return self.fallback, state
+
 
 def handle(text, state=None):
     global _bot
