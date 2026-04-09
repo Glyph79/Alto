@@ -19,6 +19,7 @@ export class SectionManager extends BaseManager {
             },
             defaultSort: 'name-asc',
             gridContainerId: 'sectionsGridContainer',
+            emptyStateDivId: 'noSectionsEmptyState',
         });
     }
     

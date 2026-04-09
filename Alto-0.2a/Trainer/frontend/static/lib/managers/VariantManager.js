@@ -23,6 +23,7 @@ export class VariantManager extends BaseManager {
             },
             defaultSort: 'name-asc',
             gridContainerId: 'variantsGridContainer',
+            emptyStateDivId: 'noVariantsEmptyState',
         });
         this.currentVariantId = null;
         this.wordEditor = null;

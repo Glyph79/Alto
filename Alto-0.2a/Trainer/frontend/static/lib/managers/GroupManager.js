@@ -25,6 +25,7 @@ export class GroupManager extends BaseManager {
             },
             defaultSort: 'name-asc',
             gridContainerId: 'groupsGridContainer',
+            emptyStateDivId: 'noGroupsEmptyState',
         });
         this.currentGroupIndex = null;
         this.modalGroupCopy = null;
@@ -81,18 +82,15 @@ export class GroupManager extends BaseManager {
     }
     
     async openEditModal(group, index) {
-        // index is the position in the originalData array
         if (index !== undefined && index !== null) {
             await this.openGroupModal(index);
         } else {
-            // fallback: find index by id
             const foundIndex = this.originalData.findIndex(g => g.id === group.id);
             if (foundIndex !== -1) await this.openGroupModal(foundIndex);
         }
     }
     
     async openGroupModal(index) {
-        // index can be null (for new) or a number (existing)
         this.currentGroupIndex = index;
         const isNew = (index === null);
         
@@ -127,7 +125,6 @@ export class GroupManager extends BaseManager {
             if (window.enableButtonsInContainer) window.enableButtonsInContainer(modalContent);
         } else {
             try {
-                // Ensure index is a valid number
                 const idx = parseInt(index, 10);
                 if (isNaN(idx)) throw new Error('Invalid group index');
                 const fullGroup = await api.get(`${this.getApiPath()}/${idx}/full`);
@@ -308,7 +305,6 @@ export class GroupManager extends BaseManager {
     }
     
     async performDelete(item, index) {
-        // index is the position in the originalData array
         if (index === undefined) {
             index = this.originalData.findIndex(g => g.id === item.id);
         }

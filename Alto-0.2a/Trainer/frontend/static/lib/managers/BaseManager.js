@@ -3,7 +3,6 @@ import { state } from '../core/state.js';
 import events from '../core/events.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
-import { loading } from '../ui/loading.js';
 import { retryUI } from '../ui/retry.js';
 import { dom } from '../core/dom.js';
 
@@ -143,24 +142,26 @@ export class BaseManager {
         }
         const container = document.getElementById(this.config.gridContainerId);
         if (!container) return;
-        // Clear container immediately to remove stale content
-        container.innerHTML = '';
-        const loadSpinner = loading.inline(container, `Loading ${this.feature}...`);
+        
+        // No clearing, no loading spinner – fetch and replace directly
         try {
             const rawData = await this.fetchData();
             this.originalData = this.transformData(rawData);
             this._applyFiltersAndSort();
             this.isLoaded = true;
+            
             if (!this.grid) {
                 this.initGrid(this.config.gridContainerId);
+            } else {
+                // Update existing grid with new data
+                this.grid.setItems(this.displayData);
             }
             this.enableControls(true);
+            this._updateEmptyState();
         } catch (err) {
-            loadSpinner.clear();
+            // Show error inline without destroying existing content
             retryUI.show(container, `Failed to load ${this.feature}: ${err.message}`, () => this.load());
             this.enableControls(false);
-        } finally {
-            loadSpinner.clear();
         }
     }
     
@@ -187,6 +188,7 @@ export class BaseManager {
         const container = document.getElementById(this.config.gridContainerId);
         if (container) container.innerHTML = '';
         this.enableControls(false);
+        this._updateEmptyState();
     }
     
     enableControls(enabled) {
@@ -198,5 +200,22 @@ export class BaseManager {
         this._searchTerm = '';
         this._sortKey = this.config.defaultSort || Object.keys(this.config.sortSelectors)[0];
         this._applyFiltersAndSort();
+    }
+    
+    _updateEmptyState() {
+        const gridContainer = document.getElementById(this.config.gridContainerId);
+        const emptyDiv = document.getElementById(this.config.emptyStateDivId);
+        if (!gridContainer || !emptyDiv) return;
+
+        const hasModel = !!state.get('currentModel');
+        const hasItems = this.originalData && this.originalData.length > 0;
+
+        if (hasModel && !hasItems) {
+            gridContainer.style.display = 'none';
+            emptyDiv.style.display = 'flex';
+        } else {
+            gridContainer.style.display = '';
+            emptyDiv.style.display = 'none';
+        }
     }
 }

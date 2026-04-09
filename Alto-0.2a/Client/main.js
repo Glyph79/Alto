@@ -5,18 +5,14 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const fs = require('fs');
 
 // ===== CONFIGURATION =====
-const DEV_MODE = true;            // Set to false for production
-const SERVER_PORT = 3000;        // Port for the local Express server
-const BACKEND_URL = 'http://127.0.0.1:5000';   // Python backend
+const DEV_MODE = true;
+const SERVER_PORT = 3000;
+const BACKEND_URL = 'http://127.0.0.1:5000';
 
 // ===== INIT =====
-// Remove default menu bar (File, Edit, etc.)
 Menu.setApplicationMenu(null);
 
-// Path to the static files (inside Client folder)
 const staticPath = path.join(__dirname, 'static');
-
-// Create Express app
 const expressApp = express();
 
 // Logging middleware
@@ -25,10 +21,9 @@ expressApp.use((req, res, next) => {
     next();
 });
 
-// ===== Serve static files (only local, no fallback) =====
+// Serve static files
 expressApp.use('/static', (req, res, next) => {
-    const requestedPath = req.path; // e.g., /chat/style/style.css
-    const localFile = path.join(staticPath, requestedPath);
+    const localFile = path.join(staticPath, req.path);
     fs.access(localFile, fs.constants.R_OK, (err) => {
         if (err) {
             if (DEV_MODE) console.error(`File not found: ${localFile}`);
@@ -38,7 +33,7 @@ expressApp.use('/static', (req, res, next) => {
     });
 });
 
-// ===== Serve HTML pages (only local, no fallback) =====
+// Serve HTML pages
 function serveHtmlPage(htmlPath, res) {
     const localFile = path.join(staticPath, htmlPath);
     fs.access(localFile, fs.constants.R_OK, (err) => {
@@ -53,35 +48,49 @@ function serveHtmlPage(htmlPath, res) {
 expressApp.get('/', (req, res) => serveHtmlPage('login/index.html', res));
 expressApp.get('/chat', (req, res) => serveHtmlPage('chat/index.html', res));
 
-// ===== Proxy API and chat POST requests to backend =====
+// ===== Proxy configuration =====
 const backendProxy = createProxyMiddleware({
     target: BACKEND_URL,
     changeOrigin: true,
+    cookieDomainRewrite: '',       // Keep cookies for localhost
     logLevel: DEV_MODE ? 'debug' : 'silent',
     onError: (err, req, res) => {
         console.error('Proxy error:', err);
-        res.status(503).json({ error: 'Backend unavailable' });
+        if (!res.headersSent) {
+            res.status(503).json({ error: 'Backend unavailable' });
+        }
+    },
+    onProxyReq: (proxyReq, req, res) => {
+        // Ensure cookies are forwarded
+        if (req.headers.cookie) {
+            proxyReq.setHeader('cookie', req.headers.cookie);
+        }
     }
 });
-expressApp.use('/api', backendProxy);
-expressApp.use('/chat', backendProxy);   // only POST requests
 
-// ===== Fallback for any other route =====
+expressApp.use('/api', backendProxy);
+expressApp.use('/chat', backendProxy);   // Proxy POST /chat
+
+// Catch-all 404
 expressApp.get('*', (req, res) => {
     if (DEV_MODE) console.log(`No route for ${req.url}, serving 404`);
     res.status(404).send('Not found');
 });
 
-// ===== Start local server =====
+// ===== Start Express server =====
 const server = expressApp.listen(SERVER_PORT, () => {
     console.log(`Local server running at http://localhost:${SERVER_PORT}`);
 });
+
+// Keep server alive – do not close on window close
+server.keepAliveTimeout = 0;
+server.headersTimeout = 0;
 
 // ===== Electron window =====
 let mainWindow;
 
 app.whenReady().then(async () => {
-    // Check if user is already logged in (cookies persist)
+    // Check if user is already logged in using persistent session
     const cookies = await session.defaultSession.cookies.get({ url: `http://localhost:${SERVER_PORT}`, name: 'user_id' });
     const isLoggedIn = cookies.length > 0 && cookies[0].value;
 
@@ -97,6 +106,7 @@ app.whenReady().then(async () => {
             contextIsolation: true,
         },
         menu: null,
+        icon: path.join(__dirname, 'favicon.ico')
     });
 
     mainWindow.loadURL(startUrl);
@@ -110,9 +120,15 @@ app.whenReady().then(async () => {
     });
 });
 
+// Do not quit the app when all windows are closed (keep Express server running)
 app.on('window-all-closed', () => {
+    // On macOS, keep app running until user explicitly quits
     if (process.platform !== 'darwin') {
         app.quit();
     }
+});
+
+// Gracefully close the server when the app is quitting
+app.on('before-quit', () => {
     server.close();
 });

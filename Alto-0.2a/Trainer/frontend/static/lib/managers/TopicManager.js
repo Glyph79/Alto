@@ -20,6 +20,7 @@ export class TopicManager extends BaseManager {
             },
             defaultSort: 'name-asc',
             gridContainerId: 'topicsGridContainer',
+            emptyStateDivId: 'noTopicsEmptyState',
         });
         events.on('groups:updated', () => this.refresh());
     }

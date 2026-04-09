@@ -20,6 +20,14 @@ trainer_stdin = None
 trainer_stdout = None
 _trainer_lock = asyncio.Lock()
 
+# Favicon route
+@app.route('/favicon.ico')
+async def favicon():
+    favicon_path = os.path.join(FRONTEND_DIR, 'static', 'favicon.ico')
+    if not os.path.exists(favicon_path):
+        return Response('', status=204)
+    return await send_from_directory(os.path.join(FRONTEND_DIR, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 async def log_trainer_stderr():
     global trainer_process
     while trainer_process and trainer_process.stderr:

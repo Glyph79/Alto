@@ -13,8 +13,6 @@ FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 
 app = Quart(__name__, static_folder=None)
 
-# No per‑request GC – session.py already runs periodic GC in a background thread
-
 # ---------- API endpoints (always available) ----------
 @app.route('/api/register', methods=['POST'])
 async def register():
@@ -41,8 +39,9 @@ async def login():
         session_id = str(uuid.uuid4())
         response_data = {"message": "Login successful"}
         resp = Response(json.dumps(response_data), status=200, mimetype='application/json')
-        resp.set_cookie('session_id', session_id)
-        resp.set_cookie('user_id', str(user_id))
+        # Set cookies with max_age (30 days) for persistence
+        resp.set_cookie('session_id', session_id, path='/', httponly=False, samesite='Lax', max_age=2592000)
+        resp.set_cookie('user_id', str(user_id), path='/', httponly=False, samesite='Lax', max_age=2592000)
         return resp
     else:
         return {"error": "Invalid credentials"}, 401
@@ -51,8 +50,8 @@ async def login():
 async def logout():
     response_data = {"message": "Logged out"}
     resp = Response(json.dumps(response_data), status=200, mimetype='application/json')
-    resp.set_cookie('session_id', '', expires=0)
-    resp.set_cookie('user_id', '', expires=0)
+    resp.set_cookie('session_id', '', expires=0, path='/')
+    resp.set_cookie('user_id', '', expires=0, path='/')
     return resp
 
 @app.route('/api/check-session', methods=['GET'])
@@ -80,8 +79,8 @@ async def chat():
         if not user_exists(user_id):
             response_data = {"error": "invalid_user"}
             resp = Response(json.dumps(response_data), status=401, mimetype='application/json')
-            resp.set_cookie('session_id', '', expires=0)
-            resp.set_cookie('user_id', '', expires=0)
+            resp.set_cookie('session_id', '', expires=0, path='/')
+            resp.set_cookie('user_id', '', expires=0, path='/')
             return resp
     else:
         user_id = None
@@ -91,9 +90,9 @@ async def chat():
             yield chunk
 
     response = Response(generate(), mimetype='text/plain')
-    response.set_cookie('session_id', session_id)
+    response.set_cookie('session_id', session_id, path='/', httponly=False, samesite='Lax', max_age=2592000)
     if user_id:
-        response.set_cookie('user_id', str(user_id))
+        response.set_cookie('user_id', str(user_id), path='/', httponly=False, samesite='Lax', max_age=2592000)
     return response
 
 @app.route('/api/network')

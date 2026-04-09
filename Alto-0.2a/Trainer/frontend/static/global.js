@@ -23,13 +23,13 @@ window.managers = {
 initTabs();
 initSidebar();
 
-window.managers.models.load();
-
-const createFirstBtn = document.getElementById('createFirstModelBtn');
-if (createFirstBtn) createFirstBtn.onclick = () => window.managers.models.createModel();
-
-const createFirstGroupBtn = document.getElementById('createFirstGroupBtn');
-if (createFirstGroupBtn) createFirstGroupBtn.onclick = () => window.managers.groups.openCreateModal();
+// Global empty‑state buttons
+document.getElementById('createFirstModelBtn')?.addEventListener('click', () => window.managers.models.createModel());
+document.getElementById('createFirstGroupBtn')?.addEventListener('click', () => window.managers.groups.openCreateModal());
+document.getElementById('createFirstSectionBtn')?.addEventListener('click', () => window.managers.sections.openCreateModal());
+document.getElementById('createFirstTopicBtn')?.addEventListener('click', () => window.managers.topics.openCreateModal());
+document.getElementById('createFirstVariantBtn')?.addEventListener('click', () => window.managers.variants.openCreateModal());
+document.getElementById('createFirstFallbackBtn')?.addEventListener('click', () => window.managers.fallbacks.openCreateModal());
 
 window.disableButtonsInContainer = function(container) {
     if (!container) return;
@@ -51,3 +51,6 @@ window.enableButtonsInContainer = function(container) {
         }
     });
 };
+
+// Load models after everything is set up
+window.managers.models.load();

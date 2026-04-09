@@ -23,6 +23,7 @@ export class FallbackManager extends BaseManager {
             },
             defaultSort: 'name-asc',
             gridContainerId: 'fallbacksGridContainer',
+            emptyStateDivId: 'noFallbacksEmptyState',
         });
         this.currentFallbackId = null;
         this.answerEditor = null;

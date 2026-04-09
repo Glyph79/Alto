@@ -48,7 +48,6 @@
                 <select id="sidebarSort" disabled>
                     <option value="name-asc">Name (A-Z)</option>
                     <option value="name-desc">Name (Z-A)</option>
-                    <!-- Dynamic options will be added via JS per tab -->
                 </select>
             </div>
             <button id="sidebarAddBtn" class="primary" disabled>+ Add</button>
@@ -66,21 +65,51 @@
             <!-- Groups content -->
             <div id="groupsContent">
                 <div id="groupsGridContainer"></div>
-                <div id="noModelsEmptyState" class="empty-state" style="display: none;">
-                    <p>No models found. Create your first model to get started.</p>
-                    <button id="createFirstModelBtn">Create Model</button>
-                </div>
                 <div id="noGroupsEmptyState" class="empty-state" style="display: none;">
                     <p>This model has no groups yet.</p>
                     <button id="createFirstGroupBtn">Add First Group</button>
                 </div>
+                <div id="noModelsEmptyState" class="empty-state" style="display: none;">
+                    <p>No models found. Create your first model to get started.</p>
+                    <button id="createFirstModelBtn">Create Model</button>
+                </div>
             </div>
 
-            <!-- Other content containers -->
-            <div id="sectionsContent" style="display: none;"><div id="sectionsGridContainer"></div></div>
-            <div id="topicsContent" style="display: none;"><div id="topicsGridContainer"></div></div>
-            <div id="variantsContent" style="display: none;"><div id="variantsGridContainer"></div></div>
-            <div id="fallbacksContent" style="display: none;"><div id="fallbacksGridContainer"></div></div>
+            <!-- Sections content -->
+            <div id="sectionsContent" style="display: none;">
+                <div id="sectionsGridContainer"></div>
+                <div id="noSectionsEmptyState" class="empty-state" style="display: none;">
+                    <p>This model has no sections yet.</p>
+                    <button id="createFirstSectionBtn">Add First Section</button>
+                </div>
+            </div>
+
+            <!-- Topics content -->
+            <div id="topicsContent" style="display: none;">
+                <div id="topicsGridContainer"></div>
+                <div id="noTopicsEmptyState" class="empty-state" style="display: none;">
+                    <p>This model has no topics yet.</p>
+                    <button id="createFirstTopicBtn">Add First Topic</button>
+                </div>
+            </div>
+
+            <!-- Variants content -->
+            <div id="variantsContent" style="display: none;">
+                <div id="variantsGridContainer"></div>
+                <div id="noVariantsEmptyState" class="empty-state" style="display: none;">
+                    <p>This model has no variants yet.</p>
+                    <button id="createFirstVariantBtn">Add First Variant</button>
+                </div>
+            </div>
+
+            <!-- Fallbacks content -->
+            <div id="fallbacksContent" style="display: none;">
+                <div id="fallbacksGridContainer"></div>
+                <div id="noFallbacksEmptyState" class="empty-state" style="display: none;">
+                    <p>This model has no fallbacks yet.</p>
+                    <button id="createFirstFallbackBtn">Add First Fallback</button>
+                </div>
+            </div>
         </div>
     </div>
 

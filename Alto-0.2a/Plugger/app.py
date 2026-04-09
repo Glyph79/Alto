@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 import os
-from quart import Quart, request, jsonify, send_from_directory
+from quart import Quart, request, jsonify, send_from_directory, Response
 from plugin_manager import list_plugins, create_plugin, get_plugin, update_plugin, delete_plugin
 
-# Absolute path to the directory containing this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Use absolute static_folder for Quart's default static handling
 app = Quart(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
+
+# Favicon route
+@app.route('/favicon.ico')
+async def favicon():
+    favicon_path = os.path.join(BASE_DIR, 'static', 'favicon.ico')
+    if not os.path.exists(favicon_path):
+        return Response('', status=204)
+    return await send_from_directory(os.path.join(BASE_DIR, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 @app.route('/')
 async def index():
