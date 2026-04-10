@@ -10,8 +10,8 @@ const modalContainer = document.getElementById('modalContainer') || (() => {
     return div;
 })();
 
-function createModal(id, title, content, actions, size, closable) {
-    const modalDiv = dom.createElement('div', { id, class: `modal ${size ? `modal-${size}` : ''}` });
+function createModal(id, title, content, actions, size, closable, modalClass) {
+    const modalDiv = dom.createElement('div', { id, class: `modal ${size ? `modal-${size}` : ''} ${modalClass || ''}` });
     const contentDiv = dom.createElement('div', { class: 'modal-content' });
     contentDiv.appendChild(dom.createElement('h2', {}, [title]));
     if (typeof content === 'string') contentDiv.appendChild(dom.createElement('div', { class: 'modal-body' }, [content]));
@@ -21,15 +21,14 @@ function createModal(id, title, content, actions, size, closable) {
     actions.forEach(action => {
         const onClick = action.onClick || (() => {});
         const btn = dom.createElement('button', { class: action.variant || 'secondary' }, [action.label]);
-        btn.addEventListener('click', () => {
-            onClick();
+        btn.addEventListener('click', (e) => {
+            onClick(e);
             if (action.close !== false) modal.close(id);
         });
         actionsDiv.appendChild(btn);
     });
     contentDiv.appendChild(actionsDiv);
     
-    // Only add close button if explicitly requested and no actions
     if (closable === true && actions.length === 0) {
         const closeBtn = dom.createElement('button', { class: 'modal-close' }, ['×']);
         closeBtn.addEventListener('click', () => modal.close(id));
@@ -52,10 +51,10 @@ function updateBackdrops() {
 }
 
 export const modal = {
-    show({ id, title, content, actions = [], size = 'medium', closable = false }) {
+    show({ id, title, content, actions = [], size = 'medium', closable = false, modalClass = '' }) {
         const finalId = id || `modal_${++modalCounter}`;
         if (document.getElementById(finalId)) return finalId;
-        const modalEl = createModal(finalId, title, content, actions, size, closable);
+        const modalEl = createModal(finalId, title, content, actions, size, closable, modalClass);
         modalContainer.appendChild(modalEl);
         modalStack.push(finalId);
         updateBackdrops();

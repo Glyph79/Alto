@@ -211,6 +211,15 @@ button:disabled {
     box-shadow: 0 4px 8px rgba(255, 77, 125, 0.2);
 }
 
+/* Error modal overrides – OK button matches Cancel button color (red) */
+.modal.error-modal .modal-actions .save {
+    background: #ff4d7d;
+    color: white;
+}
+.modal.error-modal .modal-actions .save:hover {
+    background: #e63e6b;
+}
+
 /* Add button (used in QA sections) */
 .add-btn {
     background: #00ff88;
@@ -509,4 +518,74 @@ input::placeholder {
 .close-notification:hover {
     background: #e63e6b;
     transform: translateY(-1px);
+}
+
+/* Error toast container and toasts (optional – kept for backward compatibility, but not used) */
+.error-toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+}
+.error-toast {
+    background: #e74c3c;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 280px;
+    max-width: 400px;
+    pointer-events: auto;
+    animation: slideInRight 0.2s ease;
+    font-size: 0.9rem;
+}
+.error-toast.fade-out {
+    animation: fadeOut 0.3s forwards;
+}
+.toast-message {
+    flex: 1;
+    word-break: break-word;
+}
+.toast-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+.toast-close:hover {
+    opacity: 1;
+}
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+@keyframes fadeOut {
+    to {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+}
+
+/* Error modal styling – white error text, red OK button, no red bar */
+.error-alert-content p {
+    color: white;
+    font-size: 1rem;
+    margin: 16px 0;
 }

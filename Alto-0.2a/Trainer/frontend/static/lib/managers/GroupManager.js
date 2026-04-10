@@ -1,4 +1,3 @@
-// lib/managers/GroupManager.js
 import { BaseManager } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
@@ -8,6 +7,7 @@ import { retryUI } from '../ui/retry.js';
 import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import { TreeEditor } from '../../components/TreeEditor.js';
+import { error } from '../ui/error.js';
 
 export class GroupManager extends BaseManager {
     constructor() {
@@ -57,6 +57,13 @@ export class GroupManager extends BaseManager {
         return raw;
     }
     
+    // Override load to update state.groups
+    async load() {
+        await super.load(); // this sets this.originalData and this.displayData
+        // Update global state with groups for sections/topics to use
+        state.set('groups', this.originalData);
+    }
+    
     renderItem(group, idx) {
         return `
             <div class="group-card" data-card-index="${idx}" data-group-id="${group.id}">
@@ -98,8 +105,8 @@ export class GroupManager extends BaseManager {
             title: isNew ? 'Create Group' : 'Edit Group',
             content: this.buildModalContent(),
             actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => this.closeGroupModal() },
-                { label: 'Save Changes', variant: 'save', onClick: () => this.saveGroup() },
+                { label: 'Cancel', variant: 'cancel', onClick: () => this.closeGroupModal(), close: false },
+                { label: 'Save Changes', variant: 'save', close: false, onClick: () => this.saveGroup() },
             ],
             size: 'medium',
             closable: false,
@@ -271,13 +278,12 @@ export class GroupManager extends BaseManager {
             } else {
                 await api.put(`${this.getApiPath()}/${this.currentGroupIndex}`, this.modalGroupCopy);
             }
-            await this.load();
+            await this.load(); // this will update state.groups
             await window.managers.topics?.load();
             await window.managers.sections?.load();
             this.closeGroupModal();
         } catch (err) {
-            const modalContent = document.querySelector(`#${this.modalId} .modal-content`);
-            retryUI.show(modalContent, `Save failed: ${err.message}`, () => this.saveGroup());
+            error.alert(`Save failed: ${err.message}`);
         }
     }
     
@@ -309,9 +315,13 @@ export class GroupManager extends BaseManager {
             index = this.originalData.findIndex(g => g.id === item.id);
         }
         if (index === -1) return;
-        await api.delete(`${this.getApiPath()}/${index}`);
-        await this.load();
-        await window.managers.topics?.load();
-        await window.managers.sections?.load();
+        try {
+            await api.delete(`${this.getApiPath()}/${index}`);
+            await this.load(); // update state.groups
+            await window.managers.topics?.load();
+            await window.managers.sections?.load();
+        } catch (err) {
+            error.alert(err.message);
+        }
     }
 }

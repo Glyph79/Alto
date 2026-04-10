@@ -3,8 +3,8 @@ import { state } from '../core/state.js';
 import events from '../core/events.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
-import { retryUI } from '../ui/retry.js';
 import { dom } from '../core/dom.js';
+import { error } from '../ui/error.js';
 
 export class BaseManager {
     constructor(featureName, config) {
@@ -143,7 +143,6 @@ export class BaseManager {
         const container = document.getElementById(this.config.gridContainerId);
         if (!container) return;
         
-        // No clearing, no loading spinner – fetch and replace directly
         try {
             const rawData = await this.fetchData();
             this.originalData = this.transformData(rawData);
@@ -153,14 +152,12 @@ export class BaseManager {
             if (!this.grid) {
                 this.initGrid(this.config.gridContainerId);
             } else {
-                // Update existing grid with new data
                 this.grid.setItems(this.displayData);
             }
             this.enableControls(true);
             this._updateEmptyState();
         } catch (err) {
-            // Show error inline without destroying existing content
-            retryUI.show(container, `Failed to load ${this.feature}: ${err.message}`, () => this.load());
+            error.alert(`Failed to load ${this.feature}: ${err.message}`);
             this.enableControls(false);
         }
     }

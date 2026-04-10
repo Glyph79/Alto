@@ -1,9 +1,9 @@
-// lib/managers/SectionManager.js
 import { BaseManager } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
+import { error } from '../ui/error.js';
 
 export class SectionManager extends BaseManager {
     constructor() {
@@ -55,8 +55,8 @@ export class SectionManager extends BaseManager {
                         <span class="section-name">${dom.escapeHtml(item.section)}</span>
                     </div>
                     <div class="card-actions">
-                        <button class="card-edit" data-section="${dom.escapeHtml(item.section)}" title="Edit">✎</button>
-                        ${!item.isUncategorized ? `<button class="card-delete" data-section="${dom.escapeHtml(item.section)}" title="Delete">🗑</button>` : ''}
+                        <button class="card-edit" data-section="${dom.escapeHtml(item.section)}" title="${item.isUncategorized ? 'View Section' : 'Edit Section'}">✎</button>
+                        ${!item.isUncategorized ? `<button class="card-delete" data-section="${dom.escapeHtml(item.section)}" title="Delete Section">🗑</button>` : ''}
                     </div>
                 </div>
                 <div class="stats">
@@ -67,25 +67,51 @@ export class SectionManager extends BaseManager {
     }
     
     async openCreateModal() {
-        const name = await modal.prompt('Add Section', '', { placeholder: 'Section name' });
-        if (!name) return;
-        if (name.toLowerCase() === 'uncategorized') {
-            modal.show({ title: 'Error', content: '"Uncategorized" is a reserved name.', actions: [{ label: 'OK' }], size: 'small' });
-            return;
-        }
-        try {
-            await api.post(this.getApiPath(), { section: name });
-            await this.load();
-        } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
-        }
+        let modalId = null;
+        const content = dom.createElement('div', {});
+        
+        const formRow = dom.createElement('div', { class: 'form-row' });
+        const label = dom.createElement('label', {}, ['Section Name']);
+        const input = dom.createElement('input', { id: 'newSectionName', type: 'text', placeholder: 'Section name', autocomplete: 'off' });
+        formRow.appendChild(label);
+        formRow.appendChild(input);
+        content.appendChild(formRow);
+        
+        modalId = modal.show({
+            title: 'Add Section',
+            content: content,
+            actions: [
+                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                { 
+                    label: 'Create', 
+                    variant: 'save', 
+                    close: false,
+                    onClick: async () => {
+                        const name = document.getElementById('newSectionName').value.trim();
+                        if (!name) {
+                            error.alert('Section name is required.');
+                            return;
+                        }
+                        if (name.toLowerCase() === 'uncategorized') {
+                            error.alert('"Uncategorized" is a reserved name.');
+                            return;
+                        }
+                        try {
+                            await api.post(this.getApiPath(), { section: name });
+                            await this.load();
+                            modal.close(modalId);
+                        } catch (err) {
+                            error.alert(err.message);
+                        }
+                    }
+                },
+            ],
+            size: 'small',
+            closable: false,
+        });
     }
     
     async openEditModal(item) {
-        if (item.isUncategorized) {
-            modal.show({ title: 'Uncategorized', content: 'The "Uncategorized" pseudo‑section cannot be edited.', actions: [{ label: 'OK' }], size: 'small' });
-            return;
-        }
         const groupsInSection = state.get('groups').filter(g => (g.section || 'Uncategorized') === item.section);
         let groupsHtml = '';
         if (groupsInSection.length === 0) {
@@ -101,44 +127,80 @@ export class SectionManager extends BaseManager {
                 </li>
             `).join('');
         }
-        const content = dom.createElement('div', {}, [
-            dom.createElement('div', { class: 'form-row' }, [
-                dom.createElement('label', {}, ['Section Name']),
-                dom.createElement('input', { id: 'editSectionName', type: 'text', value: item.section }),
-            ]),
-            dom.createElement('div', { class: 'form-row' }, [
-                dom.createElement('label', {}, ['Groups in this section']),
-                dom.createElement('ul', { class: 'section-group-list' }, [groupsHtml]),
-            ]),
-        ]);
+        
+        const content = dom.createElement('div', {});
+        
+        if (item.isUncategorized) {
+            // Read-only modal for Uncategorized
+            const infoRow = dom.createElement('div', { class: 'form-row' });
+            const infoLabel = dom.createElement('label', {}, ['Section']);
+            const infoValue = dom.createElement('div', { style: 'padding: 8px; background: #2d2d5a; border-radius: 6px;' }, [item.section]);
+            infoRow.appendChild(infoLabel);
+            infoRow.appendChild(infoValue);
+            content.appendChild(infoRow);
+            
+            const readonlyNote = dom.createElement('p', { style: 'color:#888; margin-bottom: 16px;' }, ['This is a built‑in section and cannot be renamed or deleted.']);
+            content.appendChild(readonlyNote);
+        } else {
+            const formRow1 = dom.createElement('div', { class: 'form-row' });
+            const label1 = dom.createElement('label', {}, ['Section Name']);
+            const input = dom.createElement('input', { id: 'editSectionName', type: 'text', value: item.section });
+            formRow1.appendChild(label1);
+            formRow1.appendChild(input);
+            content.appendChild(formRow1);
+        }
+        
+        const formRow2 = dom.createElement('div', { class: 'form-row' });
+        const label2 = dom.createElement('label', {}, ['Groups in this section']);
+        const ul = dom.createElement('ul', { class: 'section-group-list' });
+        ul.innerHTML = groupsHtml;
+        formRow2.appendChild(label2);
+        formRow2.appendChild(ul);
+        content.appendChild(formRow2);
+        
         const modalId = modal.show({
-            title: 'Edit Section',
-            content,
+            title: item.isUncategorized ? 'Uncategorized Section' : 'Edit Section',
+            content: content,
             actions: [
-                { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId) },
-                { label: 'Save', variant: 'save', onClick: async () => {
-                    const newName = document.getElementById('editSectionName').value.trim();
-                    if (!newName || newName.toLowerCase() === 'uncategorized') {
-                        modal.show({ title: 'Error', content: 'Invalid section name', actions: [{ label: 'OK' }], size: 'small' });
-                        return;
+                { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                ...(item.isUncategorized ? [] : [{ 
+                    label: 'Save', 
+                    variant: 'save', 
+                    close: false,
+                    onClick: async () => {
+                        const newName = document.getElementById('editSectionName').value.trim();
+                        if (!newName || newName.toLowerCase() === 'uncategorized') {
+                            error.alert('Invalid section name');
+                            return;
+                        }
+                        if (newName !== item.section) {
+                            try {
+                                await api.put(`/api/models/${state.get('currentModel')}/sections/${item.section}`, { new_name: newName });
+                                await this.load();
+                                await window.managers.groups.load();
+                                modal.close(modalId);
+                            } catch (err) {
+                                error.alert(err.message);
+                            }
+                        } else {
+                            modal.close(modalId);
+                        }
                     }
-                    if (newName !== item.section) {
-                        await api.put(`/api/models/${state.get('currentModel')}/sections/${item.section}`, { new_name: newName });
-                        await this.load();
-                        await window.managers.groups.load();
-                    }
-                    modal.close(modalId);
-                } },
+                }])
             ],
             size: 'medium',
             closable: false,
         });
+        
         setTimeout(() => {
             document.querySelectorAll('.edit-group-from-section').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const groupId = parseInt(btn.dataset.groupId);
                     const index = state.get('groups').findIndex(g => g.id == groupId);
-                    if (index !== -1) await window.managers.groups.openEditModal(state.get('groups')[index], index);
+                    if (index !== -1) {
+                        await window.managers.groups.openEditModal(state.get('groups')[index], index);
+                        modal.close(modalId);
+                    }
                 });
             });
             document.querySelectorAll('.delete-group-from-section').forEach(btn => {
@@ -148,11 +210,15 @@ export class SectionManager extends BaseManager {
                     if (confirmed) {
                         const index = state.get('groups').findIndex(g => g.id == groupId);
                         if (index !== -1) {
-                            await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
-                            await window.managers.groups.load();
-                            await this.load();
-                            modal.close(modalId);
-                            this.openEditModal(item);
+                            try {
+                                await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
+                                await window.managers.groups.load();
+                                await this.load();
+                                modal.close(modalId);
+                                this.openEditModal(item);
+                            } catch (err) {
+                                error.alert(err.message);
+                            }
                         }
                     }
                 });
@@ -161,16 +227,23 @@ export class SectionManager extends BaseManager {
     }
     
     async performDelete(item) {
-        if (item.isUncategorized) return;
+        if (item.isUncategorized) {
+            error.alert('The "Uncategorized" section cannot be deleted.');
+            return;
+        }
         const groupsUsing = state.get('groups').filter(g => g.section === item.section).length;
         const otherSections = this.originalData.filter(s => s.section !== item.section && !s.isUncategorized).map(s => s.section);
         const action = await this.showDeleteOptions(groupsUsing, otherSections);
         if (!action) return;
         let url = `/api/models/${state.get('currentModel')}/sections/${item.section}?action=${action.action}`;
         if (action.target) url += `&target=${action.target}`;
-        await api.delete(url);
-        await this.load();
-        await window.managers.groups.load();
+        try {
+            await api.delete(url);
+            await this.load();
+            await window.managers.groups.load();
+        } catch (err) {
+            error.alert(err.message);
+        }
     }
     
     showDeleteOptions(groupsUsing, otherSections) {
@@ -201,12 +274,12 @@ export class SectionManager extends BaseManager {
                 title: 'Delete Section',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null) },
+                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null), close: false },
                     { label: 'Delete', variant: 'save', onClick: () => {
                         const selectedAction = document.querySelector('input[name="deleteAction"]:checked').value;
                         const target = selectedAction === 'move' ? document.getElementById('moveTarget').value : null;
                         resolve({ action: selectedAction, target });
-                    } },
+                    }, close: false },
                 ],
                 size: 'medium',
                 closable: false,

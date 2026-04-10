@@ -3,6 +3,7 @@ import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import events from '../core/events.js';
+import { error } from '../ui/error.js';
 
 export class ModelManager {
     constructor() {
@@ -37,14 +38,8 @@ export class ModelManager {
             this.updateUI();
             this.selectEl.disabled = this.models.length === 0;
         } catch (err) {
-            console.error('Failed to load models', err);
+            error.alert(err.message);
             this.selectEl.disabled = true;
-            modal.show({
-                title: 'Error Loading Models',
-                content: err.message,
-                actions: [{ label: 'Retry', variant: 'save', onClick: () => this.load() }],
-                size: 'small'
-            });
         }
     }
 
@@ -71,13 +66,7 @@ export class ModelManager {
                 await state.setCurrentModel(caseInsensitive.name);
                 this.selectEl.value = caseInsensitive.name;
             } else {
-                console.warn(`Model "${modelName}" not found`);
-                modal.show({
-                    title: 'Model Not Found',
-                    content: `Model "${modelName}" does not exist.`,
-                    actions: [{ label: 'OK', variant: 'cancel' }],
-                    size: 'small'
-                });
+                error.alert(`Model "${modelName}" does not exist.`);
                 return;
             }
         } else {
@@ -120,27 +109,28 @@ export class ModelManager {
             await api.post('/api/models', vals);
             await this.load();
         } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+            error.alert(err.message);
         }
     }
 
     showCreateModal() {
         return new Promise((resolve) => {
+            let modalId = null;
             const content = dom.createElement('div', {}, [
                 dom.createElement('input', { id: 'modelName', type: 'text', placeholder: 'Model Name', style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelDesc', type: 'text', placeholder: 'Description', style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelAuthor', type: 'text', placeholder: 'Author', style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelVersion', type: 'text', placeholder: 'Version', value: '1.0.0', style: 'width:100%;' }),
             ]);
-            modal.show({
+            modalId = modal.show({
                 title: 'Create New Model',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null), close: true },
-                    { label: 'Create', variant: 'save', onClick: () => {
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
+                    { label: 'Create', variant: 'save', close: false, onClick: () => {
                         const name = document.getElementById('modelName').value.trim();
                         if (!name) {
-                            modal.show({ title: 'Error', content: 'Model name required', actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+                            error.alert('Model name required');
                             return;
                         }
                         resolve({
@@ -149,7 +139,8 @@ export class ModelManager {
                             author: document.getElementById('modelAuthor').value,
                             version: document.getElementById('modelVersion').value,
                         });
-                    }, close: true },
+                        modal.close(modalId);
+                    } },
                 ],
                 size: 'medium',
                 closable: false,
@@ -185,27 +176,28 @@ export class ModelManager {
             await this.load();
             await state.setCurrentModel(vals.name);
         } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+            error.alert(err.message);
         }
     }
 
     showEditModal(model) {
         return new Promise((resolve) => {
+            let modalId = null;
             const content = dom.createElement('div', {}, [
                 dom.createElement('input', { id: 'modelName', type: 'text', placeholder: 'Model Name', value: model.name, style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelDesc', type: 'text', placeholder: 'Description', value: model.description || '', style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelAuthor', type: 'text', placeholder: 'Author', value: model.author || '', style: 'width:100%; margin-bottom:12px;' }),
                 dom.createElement('input', { id: 'modelVersion', type: 'text', placeholder: 'Version', value: model.version || '1.0.0', style: 'width:100%;' }),
             ]);
-            modal.show({
+            modalId = modal.show({
                 title: 'Edit Model',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null), close: true },
-                    { label: 'Save', variant: 'save', onClick: () => {
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
+                    { label: 'Save', variant: 'save', close: false, onClick: () => {
                         const name = document.getElementById('modelName').value.trim();
                         if (!name) {
-                            modal.show({ title: 'Error', content: 'Model name required', actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+                            error.alert('Model name required');
                             return;
                         }
                         resolve({
@@ -214,7 +206,8 @@ export class ModelManager {
                             author: document.getElementById('modelAuthor').value,
                             version: document.getElementById('modelVersion').value,
                         });
-                    }, close: true },
+                        modal.close(modalId);
+                    } },
                 ],
                 size: 'medium',
                 closable: false,
@@ -231,7 +224,7 @@ export class ModelManager {
             await api.delete(`/api/models/${current}`);
             await this.load();
         } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+            error.alert(err.message);
         }
     }
 
@@ -259,10 +252,10 @@ export class ModelManager {
                         await this.load();
                         await state.setCurrentModel(result.model_name);
                     } else {
-                        modal.show({ title: 'Conversion Failed', content: result.error, actions: [{ label: 'OK' }], size: 'small' });
+                        error.alert(result.error || 'Conversion failed');
                     }
                 } catch (err) {
-                    modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
+                    error.alert(err.message);
                 }
             } else {
                 try {
@@ -290,7 +283,7 @@ export class ModelManager {
                         throw new Error(result.error || 'Import failed');
                     }
                 } catch (err) {
-                    modal.show({ title: 'Import Failed', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
+                    error.alert(err.message);
                 }
             }
         };
@@ -317,7 +310,7 @@ export class ModelManager {
                             modal.close(modalId);
                             resolve({ overwrite: false, name: newName });
                         } else {
-                            modal.show({ title: 'Error', content: 'Please enter a name', actions: [{ label: 'OK', variant: 'cancel' }], size: 'small', closable: false });
+                            error.alert('Please enter a name');
                         }
                     }, close: false },
                 ],

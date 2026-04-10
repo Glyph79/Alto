@@ -9,8 +9,12 @@ import { FallbackManager } from './lib/managers/FallbackManager.js';
 import GridRenderer from './lib/grid/GridRenderer.js';
 import { showConverterSettingsModal } from './components/ConverterSettingsModal.js';
 import { checkLegacyModels } from './components/LegacyNotification.js';
+import { error } from './lib/ui/error.js';
 
 window.GridRenderer = GridRenderer;
+
+// Install global error handler
+error.installGlobalHandler();
 
 window.managers = {
     models: new ModelManager(),

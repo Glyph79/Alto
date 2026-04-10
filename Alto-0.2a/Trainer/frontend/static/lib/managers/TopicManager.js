@@ -1,10 +1,10 @@
-// lib/managers/TopicManager.js
 import { BaseManager } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import events from '../core/events.js';
+import { error } from '../ui/error.js';
 
 export class TopicManager extends BaseManager {
     constructor() {
@@ -56,8 +56,8 @@ export class TopicManager extends BaseManager {
                         <span class="topic-name">${dom.escapeHtml(item.topic)}</span>
                     </div>
                     <div class="card-actions">
-                        <button class="card-edit" data-topic="${dom.escapeHtml(item.topic)}" title="Edit">✎</button>
-                        ${!item.isNoTopic ? `<button class="card-delete" data-topic="${dom.escapeHtml(item.topic)}" title="Delete">🗑</button>` : ''}
+                        <button class="card-edit" data-topic="${dom.escapeHtml(item.topic)}" title="${item.isNoTopic ? 'View Topic' : 'Edit Topic'}">✎</button>
+                        ${!item.isNoTopic ? `<button class="card-delete" data-topic="${dom.escapeHtml(item.topic)}" title="Delete Topic">🗑</button>` : ''}
                     </div>
                 </div>
                 <div class="stats">
@@ -68,58 +68,187 @@ export class TopicManager extends BaseManager {
     }
     
     async openCreateModal() {
-        const name = await modal.prompt('Add Topic', '', { placeholder: 'Topic name' });
-        if (!name) return;
-        if (name.toLowerCase() === 'null' || name === '(No Topic)') {
-            modal.show({ title: 'Error', content: `"${name}" is a reserved name.`, actions: [{ label: 'OK' }], size: 'small' });
-            return;
-        }
-        try {
-            await api.post(this.getApiPath(), { topic: name });
-            await this.load();
-        } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
-        }
+        let modalId = null;
+        const content = dom.createElement('div', {});
+        
+        const formRow = dom.createElement('div', { class: 'form-row' });
+        const label = dom.createElement('label', {}, ['Topic Name']);
+        const input = dom.createElement('input', { id: 'newTopicName', type: 'text', placeholder: 'Topic name', autocomplete: 'off' });
+        formRow.appendChild(label);
+        formRow.appendChild(input);
+        content.appendChild(formRow);
+        
+        modalId = modal.show({
+            title: 'Add Topic',
+            content: content,
+            actions: [
+                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                { 
+                    label: 'Create', 
+                    variant: 'save', 
+                    close: false,
+                    onClick: async () => {
+                        const name = document.getElementById('newTopicName').value.trim();
+                        if (!name) {
+                            error.alert('Topic name is required.');
+                            return;
+                        }
+                        if (name.toLowerCase() === 'null' || name === '(No Topic)') {
+                            error.alert(`"${name}" is a reserved name.`);
+                            return;
+                        }
+                        try {
+                            await api.post(this.getApiPath(), { topic: name });
+                            await this.load();
+                            modal.close(modalId);
+                        } catch (err) {
+                            error.alert(err.message);
+                        }
+                    }
+                },
+            ],
+            size: 'small',
+            closable: false,
+        });
     }
     
     async openEditModal(item) {
         if (item.isNoTopic) {
-            modal.show({ title: '(No Topic)', content: 'This pseudo-topic cannot be edited.', actions: [{ label: 'OK' }], size: 'small' });
+            // Read-only modal for (No Topic)
+            const groupsWithoutTopic = state.get('groups').filter(g => !g.topic);
+            let groupsHtml = '';
+            if (groupsWithoutTopic.length === 0) {
+                groupsHtml = '<li style="justify-content:center; color:#888;">No groups without a topic</li>';
+            } else {
+                groupsHtml = groupsWithoutTopic.map(g => `
+                    <li class="group-usage-item" data-group-id="${g.id}">
+                        <span class="group-name">${dom.escapeHtml(g.group_name || 'Unnamed')}</span>
+                        <div class="group-usage-actions">
+                            <button class="edit-group-from-topic" data-group-id="${g.id}" title="Edit Group">✎</button>
+                            <button class="delete-group-from-topic" data-group-id="${g.id}" title="Delete Group">🗑</button>
+                        </div>
+                    </li>
+                `).join('');
+            }
+            
+            const content = dom.createElement('div', {});
+            
+            const infoRow = dom.createElement('div', { class: 'form-row' });
+            const infoLabel = dom.createElement('label', {}, ['Topic']);
+            const infoValue = dom.createElement('div', { style: 'padding: 8px; background: #2d2d5a; border-radius: 6px;' }, ['(No Topic)']);
+            infoRow.appendChild(infoLabel);
+            infoRow.appendChild(infoValue);
+            content.appendChild(infoRow);
+            
+            const readonlyNote = dom.createElement('p', { style: 'color:#888; margin-bottom: 16px;' }, ['This is a pseudo‑topic and cannot be renamed or deleted. It represents groups without a topic.']);
+            content.appendChild(readonlyNote);
+            
+            const groupsRow = dom.createElement('div', { class: 'form-row' });
+            const groupsLabel = dom.createElement('label', {}, ['Groups without a topic']);
+            const ul = dom.createElement('ul', { class: 'group-usage-list' });
+            ul.innerHTML = groupsHtml;
+            groupsRow.appendChild(groupsLabel);
+            groupsRow.appendChild(ul);
+            content.appendChild(groupsRow);
+            
+            const modalId = modal.show({
+                title: '(No Topic)',
+                content: content,
+                actions: [
+                    { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                ],
+                size: 'medium',
+                closable: false,
+            });
+            
+            setTimeout(() => {
+                document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const groupId = parseInt(btn.dataset.groupId);
+                        const index = state.get('groups').findIndex(g => g.id === groupId);
+                        if (index !== -1) {
+                            await window.managers.groups.openEditModal(state.get('groups')[index], index);
+                            modal.close(modalId);
+                        }
+                    });
+                });
+                document.querySelectorAll('.delete-group-from-topic').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const groupId = parseInt(btn.dataset.groupId);
+                        const confirmed = await modal.confirm('Delete this group?');
+                        if (confirmed) {
+                            const index = state.get('groups').findIndex(g => g.id === groupId);
+                            if (index !== -1) {
+                                try {
+                                    await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
+                                    await window.managers.groups.load();
+                                    await this.load();
+                                    modal.close(modalId);
+                                } catch (err) {
+                                    error.alert(err.message);
+                                }
+                            }
+                        }
+                    });
+                });
+            }, 100);
             return;
         }
+        
+        // Normal editable topic
         const groupsUsing = await api.get(`/api/models/${state.get('currentModel')}/topics/${item.topic}/groups`);
         const groupsHtml = this.renderGroupsList(groupsUsing.groups || [], item.topic);
-        const content = dom.createElement('div', {}, [
-            dom.createElement('div', { class: 'form-row' }, [
-                dom.createElement('label', {}, ['Topic Name']),
-                dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.topic }),
-            ]),
-            dom.createElement('div', { class: 'form-row' }, [
-                dom.createElement('label', {}, ['Groups using this topic']),
-                dom.createElement('ul', { class: 'group-usage-list', id: 'topicGroupList' }, [groupsHtml]),
-            ]),
-        ]);
+        
+        const content = dom.createElement('div', {});
+        
+        const formRow1 = dom.createElement('div', { class: 'form-row' });
+        const label1 = dom.createElement('label', {}, ['Topic Name']);
+        const input = dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.topic });
+        formRow1.appendChild(label1);
+        formRow1.appendChild(input);
+        content.appendChild(formRow1);
+        
+        const formRow2 = dom.createElement('div', { class: 'form-row' });
+        const label2 = dom.createElement('label', {}, ['Groups using this topic']);
+        const ul = dom.createElement('ul', { class: 'group-usage-list', id: 'topicGroupList' });
+        ul.innerHTML = groupsHtml;
+        formRow2.appendChild(label2);
+        formRow2.appendChild(ul);
+        content.appendChild(formRow2);
+        
         const modalId = modal.show({
             title: 'Edit Topic',
-            content,
+            content: content,
             actions: [
-                { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId) },
-                { label: 'Save', variant: 'save', onClick: async () => {
-                    const newName = document.getElementById('editTopicName').value.trim();
-                    if (!newName || newName.toLowerCase() === 'null' || newName === '(No Topic)') {
-                        modal.show({ title: 'Error', content: 'Invalid topic name', actions: [{ label: 'OK' }], size: 'small' });
-                        return;
+                { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                { 
+                    label: 'Save', 
+                    variant: 'save', 
+                    close: false,
+                    onClick: async () => {
+                        const newName = document.getElementById('editTopicName').value.trim();
+                        if (!newName || newName.toLowerCase() === 'null' || newName === '(No Topic)') {
+                            error.alert('Invalid topic name');
+                            return;
+                        }
+                        if (newName !== item.topic) {
+                            try {
+                                await api.put(`/api/models/${state.get('currentModel')}/topics/${item.topic}`, { new_name: newName });
+                                await this.load();
+                                modal.close(modalId);
+                            } catch (err) {
+                                error.alert(err.message);
+                            }
+                        } else {
+                            modal.close(modalId);
+                        }
                     }
-                    if (newName !== item.topic) {
-                        await api.put(`/api/models/${state.get('currentModel')}/topics/${item.topic}`, { new_name: newName });
-                        await this.load();
-                    }
-                    modal.close(modalId);
-                } },
+                },
             ],
             size: 'medium',
             closable: false,
         });
+        
         setTimeout(() => this.attachGroupHandlers(item.topic), 100);
     }
     
@@ -154,9 +283,13 @@ export class TopicManager extends BaseManager {
                 if (confirmed) {
                     const index = state.get('groups').findIndex(g => g.id === groupId);
                     if (index !== -1) {
-                        await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
-                        await window.managers.groups.load();
-                        await this.load();
+                        try {
+                            await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
+                            await window.managers.groups.load();
+                            await this.load();
+                        } catch (err) {
+                            error.alert(err.message);
+                        }
                     }
                 }
             });
@@ -164,7 +297,10 @@ export class TopicManager extends BaseManager {
     }
     
     async performDelete(item) {
-        if (item.isNoTopic) return;
+        if (item.isNoTopic) {
+            error.alert('The "(No Topic)" pseudo‑topic cannot be deleted.');
+            return;
+        }
         const groupsUsingCount = state.get('groups').filter(g => g.topic === item.topic).length;
         let action = 'reassign';
         let target = null;
@@ -177,9 +313,13 @@ export class TopicManager extends BaseManager {
         }
         let url = `/api/models/${state.get('currentModel')}/topics/${item.topic}?action=${action}`;
         if (target) url += `&target=${target}`;
-        await api.delete(url);
-        await this.load();
-        await window.managers.groups.load();
+        try {
+            await api.delete(url);
+            await this.load();
+            await window.managers.groups.load();
+        } catch (err) {
+            error.alert(err.message);
+        }
     }
     
     showDeleteOptions(count, otherTopics) {
@@ -204,12 +344,12 @@ export class TopicManager extends BaseManager {
                 title: 'Delete Topic',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null) },
+                    { label: 'Cancel', variant: 'cancel', onClick: () => resolve(null), close: false },
                     { label: 'Delete', variant: 'save', onClick: () => {
                         const action = document.querySelector('input[name="deleteAction"]:checked').value;
                         const target = action === 'reassign' ? document.getElementById('reassignTarget').value : null;
                         resolve({ action, target });
-                    } },
+                    }, close: false },
                 ],
                 size: 'medium',
                 closable: false,

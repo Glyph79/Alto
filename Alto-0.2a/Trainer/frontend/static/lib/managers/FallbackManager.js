@@ -1,4 +1,3 @@
-// lib/managers/FallbackManager.js
 import { BaseManager } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
@@ -6,6 +5,7 @@ import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import events from '../core/events.js';
+import { error } from '../ui/error.js';
 
 export class FallbackManager extends BaseManager {
     constructor() {
@@ -74,8 +74,18 @@ export class FallbackManager extends BaseManager {
             title: isNew ? 'Add Fallback' : 'Edit Fallback',
             content: this.buildFallbackModalContent(fallback),
             actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId) },
-                { label: 'Save', variant: 'save', onClick: () => this.saveFallback(fallback?.id, modalId) },
+                { 
+                    label: 'Cancel', 
+                    variant: 'cancel', 
+                    onClick: () => modal.close(modalId), 
+                    close: false 
+                },
+                { 
+                    label: 'Save', 
+                    variant: 'save', 
+                    close: false,
+                    onClick: () => this.saveFallback(fallback?.id, modalId) 
+                },
             ],
             size: 'medium',
             closable: false,
@@ -125,13 +135,13 @@ export class FallbackManager extends BaseManager {
     async saveFallback(id, modalId) {
         const name = document.getElementById('fallbackName').value.trim();
         if (!name) {
-            modal.show({ title: 'Error', content: 'Fallback name is required.', actions: [{ label: 'OK' }], size: 'small' });
+            error.alert('Fallback name is required.');
             return;
         }
         const description = document.getElementById('fallbackDescription').value.trim();
         const answers = this.answerEditor.getItems();
         if (answers.length === 0) {
-            modal.show({ title: 'Error', content: 'At least one answer is required.', actions: [{ label: 'OK' }], size: 'small' });
+            error.alert('At least one answer is required.');
             return;
         }
         const data = { name, description, answers };
@@ -145,7 +155,7 @@ export class FallbackManager extends BaseManager {
             modal.close(modalId);
             events.emit('fallbacks:updated');
         } catch (err) {
-            modal.show({ title: 'Error', content: err.message, actions: [{ label: 'OK' }], size: 'small' });
+            error.alert(err.message);
         }
     }
     
