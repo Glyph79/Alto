@@ -90,7 +90,7 @@ export class VariantManager extends BaseManager {
         const div = dom.createElement('div', {});
         div.innerHTML = `
             <div class="form-row">
-                <label>Name</label>
+                <label>Name (optional)</label>
                 <input type="text" id="variantName" value="${dom.escapeHtml(variant?.name || '')}" placeholder="e.g., Weather synonyms">
             </div>
             <div class="form-row">
@@ -100,7 +100,7 @@ export class VariantManager extends BaseManager {
                 </select>
             </div>
             <div class="qa-section">
-                <h3>Words</h3>
+                <h3>Words <span style="color:#ffaa66;">(at least one)</span></h3>
                 <div id="variantWordsContainer"></div>
             </div>
         `;
@@ -131,13 +131,10 @@ export class VariantManager extends BaseManager {
     }
     
     async saveVariant(id, modalId) {
-        const name = document.getElementById('variantName').value.trim();
-        if (!name) {
-            error.alert('Variant name is required.');
-            return;
-        }
+        const name = document.getElementById('variantName').value.trim(); // optional
         const section = document.getElementById('variantSectionSelect').value || null;
         const words = this.wordEditor.getItems();
+        
         if (words.length === 0) {
             error.alert('At least one word is required.');
             return;

@@ -1,4 +1,3 @@
-// components/TreeEditor.js - Follow-up tree editor (extracted from old tree.js)
 import { dom } from '../lib/core/dom.js';
 import { modal } from '../lib/ui/modal.js';
 import { loading } from '../lib/ui/loading.js';
@@ -6,6 +5,7 @@ import { retryUI, retryOperation } from '../lib/ui/retry.js';
 import { api } from '../lib/core/api.js';
 import { state } from '../lib/core/state.js';
 import { ListEditor } from './ListEditor.js';
+import { error } from '../lib/ui/error.js';
 
 export class TreeEditor {
     constructor(config) {
@@ -28,7 +28,7 @@ export class TreeEditor {
             content: this.buildModalContent(),
             actions: [
                 { label: 'Cancel', variant: 'cancel', onClick: () => this.handleCancel() },
-                { label: 'Save Tree', variant: 'save', onClick: () => this.handleSave() },
+                { label: 'Save Tree', variant: 'save', close: false, onClick: () => this.handleSave() },
             ],
             size: 'large',
             closable: false,
@@ -119,7 +119,6 @@ export class TreeEditor {
         const container = document.getElementById('treeContainer');
         if (!container) return;
         container.innerHTML = this.renderNodes(this.currentTree, 0);
-        // Attach expand/collapse and selection after rendering
         document.querySelectorAll('.tree-node-header').forEach(header => {
             const nodeId = header.dataset.nodeId;
             const expandIcon = header.querySelector('.expand-icon');
@@ -192,7 +191,6 @@ export class TreeEditor {
         if (qaPanel) qaPanel.style.display = 'flex';
         if (noNodeMsg) noNodeMsg.style.display = 'none';
 
-        // Update fallback select
         const fbSelect = document.getElementById('treeFallbackSelect');
         if (fbSelect) {
             fbSelect.value = node.fallback || '';
@@ -204,7 +202,6 @@ export class TreeEditor {
             };
         }
 
-        // Initialize ListEditors for questions and answers
         const questionsContainer = document.getElementById('treeQuestionsContainer');
         const answersContainer = document.getElementById('treeAnswersContainer');
         if (!questionsContainer || !answersContainer) return;
@@ -356,6 +353,27 @@ export class TreeEditor {
     }
 
     async handleSave() {
+        // Validate all nodes have at least one question and one answer
+        const validateTree = (nodes) => {
+            for (const node of nodes) {
+                const details = this.nodeDetailsCache.get(node.id) || { questions: node.questions || [], answers: node.answers || [] };
+                if (details.questions.length === 0) {
+                    error.alert(`Node "${node.branch_name || 'Unnamed'}" has no questions. Each node requires at least one question.`);
+                    return false;
+                }
+                if (details.answers.length === 0) {
+                    error.alert(`Node "${node.branch_name || 'Unnamed'}" has no answers. Each node requires at least one answer.`);
+                    return false;
+                }
+                if (node.children && node.children.length > 0) {
+                    if (!validateTree(node.children)) return false;
+                }
+            }
+            return true;
+        };
+        
+        if (!validateTree(this.currentTree)) return;
+        
         const buildFullTree = (nodes) => {
             return nodes.map(node => {
                 const details = this.nodeDetailsCache.get(node.id) || { questions: node.questions || [], answers: node.answers || [] };

@@ -57,10 +57,8 @@ export class GroupManager extends BaseManager {
         return raw;
     }
     
-    // Override load to update state.groups
     async load() {
-        await super.load(); // this sets this.originalData and this.displayData
-        // Update global state with groups for sections/topics to use
+        await super.load();
         state.set('groups', this.originalData);
     }
     
@@ -101,6 +99,9 @@ export class GroupManager extends BaseManager {
         this.currentGroupIndex = index;
         const isNew = (index === null);
         
+        await this.ensureTopicsAndSections();
+        await this.ensureFallbacks();
+        
         const modalId = modal.show({
             title: isNew ? 'Create Group' : 'Edit Group',
             content: this.buildModalContent(),
@@ -115,7 +116,6 @@ export class GroupManager extends BaseManager {
         
         const modalContent = document.querySelector(`#${modalId} .modal-content`);
         if (window.disableButtonsInContainer) window.disableButtonsInContainer(modalContent);
-        await this.ensureTopicsAndSections();
         
         if (isNew) {
             this.modalGroupCopy = {
@@ -149,12 +149,12 @@ export class GroupManager extends BaseManager {
         const div = dom.createElement('div', {});
         div.innerHTML = `
             <div class="form-row">
-                <label>Group Name</label>
-                <input type="text" id="modalGroupName">
+                <label>Group Name (optional)</label>
+                <input type="text" id="modalGroupName" placeholder="e.g., Weather group">
             </div>
             <div class="form-row">
-                <label>Description</label>
-                <input type="text" id="modalGroupDesc">
+                <label>Description (optional)</label>
+                <input type="text" id="modalGroupDesc" placeholder="Brief description">
             </div>
             <div class="form-row" style="display: flex; gap: 16px;">
                 <div style="flex:1;">
@@ -272,13 +272,23 @@ export class GroupManager extends BaseManager {
         this.modalGroupCopy.questions = this.questionEditor.getItems();
         this.modalGroupCopy.answers = this.answerEditor.getItems();
         
+        // Validation: at least one question and one answer
+        if (this.modalGroupCopy.questions.length === 0) {
+            error.alert('At least one question is required.');
+            return;
+        }
+        if (this.modalGroupCopy.answers.length === 0) {
+            error.alert('At least one answer is required.');
+            return;
+        }
+        
         try {
             if (this.currentGroupIndex === null) {
                 await api.post(this.getApiPath(), this.modalGroupCopy);
             } else {
                 await api.put(`${this.getApiPath()}/${this.currentGroupIndex}`, this.modalGroupCopy);
             }
-            await this.load(); // this will update state.groups
+            await this.load();
             await window.managers.topics?.load();
             await window.managers.sections?.load();
             this.closeGroupModal();
@@ -310,6 +320,15 @@ export class GroupManager extends BaseManager {
         }
     }
     
+    async ensureFallbacks() {
+        if (state.get('fallbacks').length === 0 && state.get('currentModel')) {
+            try {
+                const fallbacks = await api.get(`/api/models/${state.get('currentModel')}/fallbacks`);
+                state.set('fallbacks', fallbacks);
+            } catch (e) { /* ignore */ }
+        }
+    }
+    
     async performDelete(item, index) {
         if (index === undefined) {
             index = this.originalData.findIndex(g => g.id === item.id);
@@ -317,7 +336,7 @@ export class GroupManager extends BaseManager {
         if (index === -1) return;
         try {
             await api.delete(`${this.getApiPath()}/${index}`);
-            await this.load(); // update state.groups
+            await this.load();
             await window.managers.topics?.load();
             await window.managers.sections?.load();
         } catch (err) {

@@ -31,7 +31,9 @@ export class FallbackManager extends BaseManager {
     }
     
     async fetchData() {
-        return await api.get(this.getApiPath());
+        const data = await api.get(this.getApiPath());
+        state.set('fallbacks', data);
+        return data;
     }
     
     transformData(raw) {
@@ -43,7 +45,7 @@ export class FallbackManager extends BaseManager {
             <div class="fallback-card" data-card-index="${idx}" data-fallback-id="${fb.id}">
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 4px;">
-                        <span class="fallback-name">${dom.escapeHtml(fb.name)}</span>
+                        <span class="fallback-name">${dom.escapeHtml(fb.name || 'Unnamed')}</span>
                     </div>
                     <div class="card-actions">
                         <button class="card-edit" data-fallback-id="${fb.id}" title="Edit">✎</button>
@@ -69,23 +71,13 @@ export class FallbackManager extends BaseManager {
     }
     
     async openFallbackModal(fallback) {
-        const isNew = !fallback;
+        const isNew = (fallback === null);
         const modalId = modal.show({
             title: isNew ? 'Add Fallback' : 'Edit Fallback',
             content: this.buildFallbackModalContent(fallback),
             actions: [
-                { 
-                    label: 'Cancel', 
-                    variant: 'cancel', 
-                    onClick: () => modal.close(modalId), 
-                    close: false 
-                },
-                { 
-                    label: 'Save', 
-                    variant: 'save', 
-                    close: false,
-                    onClick: () => this.saveFallback(fallback?.id, modalId) 
-                },
+                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                { label: 'Save', variant: 'save', close: false, onClick: () => this.saveFallback(isNew ? null : fallback.id, modalId) },
             ],
             size: 'medium',
             closable: false,
@@ -104,15 +96,15 @@ export class FallbackManager extends BaseManager {
         const div = dom.createElement('div', {});
         div.innerHTML = `
             <div class="form-row">
-                <label>Name</label>
+                <label>Name (optional)</label>
                 <input type="text" id="fallbackName" placeholder="e.g., Default apology">
             </div>
             <div class="form-row">
-                <label>Description</label>
+                <label>Description (optional)</label>
                 <input type="text" id="fallbackDescription" placeholder="Optional description">
             </div>
             <div class="qa-section">
-                <h3>Answers</h3>
+                <h3>Answers <span style="color:#ffaa66;">(at least one)</span></h3>
                 <div id="fallbackAnswersContainer"></div>
             </div>
         `;
@@ -133,13 +125,10 @@ export class FallbackManager extends BaseManager {
     }
     
     async saveFallback(id, modalId) {
-        const name = document.getElementById('fallbackName').value.trim();
-        if (!name) {
-            error.alert('Fallback name is required.');
-            return;
-        }
+        const name = document.getElementById('fallbackName').value.trim(); // optional
         const description = document.getElementById('fallbackDescription').value.trim();
         const answers = this.answerEditor.getItems();
+        
         if (answers.length === 0) {
             error.alert('At least one answer is required.');
             return;
