@@ -1,10 +1,12 @@
 import sqlite3
 import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from .blob_utils import store_blob, release_blob, get_blob_data
 from ..utils.msgpack_helpers import pack_array, unpack_array
 
-def get_fallbacks(conn: sqlite3.Connection) -> List[Dict]:
+def get_fallbacks(conn: sqlite3.Connection, limit: int, offset: int) -> Tuple[List[Dict], int]:
+    cur = conn.execute("SELECT COUNT(*) FROM fallbacks")
+    total = cur.fetchone()[0]
     cur = conn.execute("""
         SELECT f.id, f.name, f.description, f.answer_count,
                (SELECT COUNT(*) FROM (
@@ -14,7 +16,8 @@ def get_fallbacks(conn: sqlite3.Connection) -> List[Dict]:
                )) as usage_count
         FROM fallbacks f
         ORDER BY f.id
-    """)
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
     fallbacks = []
     for row in cur:
         fallbacks.append({
@@ -24,7 +27,7 @@ def get_fallbacks(conn: sqlite3.Connection) -> List[Dict]:
             "answer_count": row[3],
             "usage_count": row[4]
         })
-    return fallbacks
+    return fallbacks, total
 
 def get_fallback_by_id(conn: sqlite3.Connection, fallback_id: int) -> Dict:
     cur = conn.execute(

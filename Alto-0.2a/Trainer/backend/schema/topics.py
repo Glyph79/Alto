@@ -1,10 +1,17 @@
 import sqlite3
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from .helpers import _get_topic_id
 
 def get_topics_list(conn: sqlite3.Connection) -> List[str]:
     cur = conn.execute("SELECT name FROM topics ORDER BY name")
     return [row[0] for row in cur]
+
+def get_topics_paginated(conn: sqlite3.Connection, limit: int, offset: int) -> Tuple[List[Dict], int]:
+    cur = conn.execute("SELECT COUNT(*) FROM topics")
+    total = cur.fetchone()[0]
+    cur = conn.execute("SELECT id, name FROM topics ORDER BY name LIMIT ? OFFSET ?", (limit, offset))
+    topics = [{"id": row[0], "name": row[1]} for row in cur]
+    return topics, total
 
 def add_topic(conn: sqlite3.Connection, name: str) -> int:
     try:

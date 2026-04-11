@@ -1,3 +1,5 @@
+/* components.css – full file */
+
 /* Tabs */
 .tab-bar {
     display: flex;
@@ -588,4 +590,41 @@ input::placeholder {
     color: white;
     font-size: 1rem;
     margin: 16px 0;
+}
+
+/* Load More button and max items message */
+.load-more-btn {
+    display: block;
+    width: 100%;
+    background: #6c63ff;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    margin-top: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+.load-more-btn:hover {
+    background: #5a52d5;
+    transform: translateY(-1px);
+}
+.load-more-loader {
+    text-align: center;
+    padding: 12px;
+    color: #aaa;
+}
+.max-items-msg {
+    text-align: center;
+    padding: 12px;
+    color: #ffaa66;
+    font-size: 0.85rem;
+    margin-top: 12px;
+    border-top: 1px solid #2d2d5a;
+}
+.global-loading {
+    text-align: center;
+    padding: 40px;
+    color: #aaa;
 }

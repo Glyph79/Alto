@@ -11,6 +11,7 @@ export class TopicManager extends BaseManager {
     constructor() {
         super('topics', {
             apiPath: () => `/api/models/${state.get('currentModel')}/topics`,
+            itemsKey: 'topics',
             nameField: 'name',
             searchFields: ['name'],
             sortSelectors: {
@@ -26,10 +27,25 @@ export class TopicManager extends BaseManager {
         events.on('groups:updated', () => this.refresh());
     }
     
-    async fetchData() {
-        const data = await api.get(this.getApiPath());
-        state.set('topics', data);
-        const groups = state.get('groups');
+    async fetchPage(offset, limit) {
+        const url = `${this.getApiPath()}?limit=${limit}&offset=${offset}`;
+        const response = await api.get(url);
+        // We need to merge with group counts, so we handle in transformData
+        return {
+            items: response.topics,
+            total: response.total
+        };
+    }
+    
+    async load(reset = true) {
+        await super.load(reset);
+        state.set('topics', this.originalData);
+    }
+    
+    transformData(raw) {
+        // raw is the paginated topics list without counts
+        // We'll compute counts from groups state after load
+        const groups = state.get('groups') || [];
         const counts = {};
         groups.forEach(g => {
             const topicId = g.topic_id;
@@ -38,15 +54,10 @@ export class TopicManager extends BaseManager {
         const noTopicCount = groups.filter(g => !g.topic_id).length;
         const items = [];
         items.push({ id: null, name: '(No Topic)', count: noTopicCount, isNoTopic: true });
-        data.forEach(topic => {
-            const name = topic.name || `Topic ${topic.id}`;
-            items.push({ id: topic.id, name: name, count: counts[topic.id] || 0, isNoTopic: false });
+        raw.forEach(topic => {
+            items.push({ id: topic.id, name: topic.name, count: counts[topic.id] || 0, isNoTopic: false });
         });
         return items;
-    }
-    
-    transformData(raw) {
-        return raw;
     }
     
     renderItem(item, idx) {
@@ -107,7 +118,7 @@ export class TopicManager extends BaseManager {
                                     const currentTopics = state.get('topics') || [];
                                     state.set('topics', [...currentTopics, result.topic]);
                                 }
-                                await this.load();
+                                await this.load(true);
                                 modal.close(modalId);
                                 modalLock.unlock('topicModal');
                             } catch (err) {
@@ -127,7 +138,6 @@ export class TopicManager extends BaseManager {
     
     async openEditModal(item) {
         if (item.isNoTopic) {
-            // No lock needed for read-only view, but we still use lock to prevent duplicate
             if (!modalLock.lock('topicModal')) return;
             try {
                 const groupsWithoutTopic = state.get('groups').filter(g => !g.topic_id);
@@ -189,8 +199,8 @@ export class TopicManager extends BaseManager {
                                 if (index !== -1) {
                                     try {
                                         await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
-                                        await window.managers.groups.load();
-                                        await this.load();
+                                        await window.managers.groups.load(true);
+                                        await this.load(true);
                                         modal.close(modalId);
                                         modalLock.unlock('topicModal');
                                     } catch (err) {
@@ -249,7 +259,7 @@ export class TopicManager extends BaseManager {
                                     if (result.topics) {
                                         state.set('topics', result.topics);
                                     }
-                                    await this.load();
+                                    await this.load(true);
                                     modal.close(modalId);
                                     modalLock.unlock('topicModal');
                                 } catch (err) {
@@ -292,7 +302,7 @@ export class TopicManager extends BaseManager {
                 const index = state.get('groups').findIndex(g => g.id === groupId);
                 if (index !== -1) {
                     await window.managers.groups.openEditModal(state.get('groups')[index], index);
-                    await this.load();
+                    await this.load(true);
                 }
             });
         });
@@ -305,8 +315,8 @@ export class TopicManager extends BaseManager {
                     if (index !== -1) {
                         try {
                             await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
-                            await window.managers.groups.load();
-                            await this.load();
+                            await window.managers.groups.load(true);
+                            await this.load(true);
                         } catch (err) {
                             error.alert(err.message);
                         }
@@ -336,8 +346,8 @@ export class TopicManager extends BaseManager {
         try {
             const result = await api.delete(url);
             if (result.topics) state.set('topics', result.topics);
-            await this.load();
-            await window.managers.groups.load();
+            await this.load(true);
+            await window.managers.groups.load(true);
         } catch (err) {
             error.alert(err.message);
         }

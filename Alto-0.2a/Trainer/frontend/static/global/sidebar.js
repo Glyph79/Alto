@@ -43,11 +43,18 @@ async function ensureTopicsLoaded() {
     if (!currentModel) return;
     let topics = state.get('topics');
     if (topics && topics.length > 0) return;
-    try {
-        const topicsData = await api.get(`/api/models/${currentModel}/topics`);
-        state.set('topics', topicsData);
-    } catch (err) {
-        console.error('Failed to load topics for sidebar:', err);
+    // Use TopicManager to load if available
+    if (window.managers && window.managers.topics) {
+        await window.managers.topics.load(true);
+    } else {
+        // Fallback: fetch directly and extract array
+        try {
+            const response = await api.get(`/api/models/${currentModel}/topics?limit=100&offset=0`);
+            const topicsArray = response.topics || [];
+            state.set('topics', topicsArray);
+        } catch (err) {
+            console.error('Failed to load topics for sidebar:', err);
+        }
     }
 }
 
@@ -121,7 +128,11 @@ function updateSidebarForTab(tabName) {
 function populateTopicFilter() {
     const topicSelect = document.getElementById('topicFilter');
     if (!topicSelect) return;
-    const topics = state.get('topics') || [];
+    let topics = state.get('topics');
+    // Ensure topics is an array
+    if (!topics || !Array.isArray(topics)) {
+        topics = [];
+    }
     let options = '<option value="">All Topics</option>';
     topics.forEach(topic => {
         const topicName = topic.name || topic; // handle both object and string

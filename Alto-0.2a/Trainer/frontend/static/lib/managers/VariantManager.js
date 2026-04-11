@@ -4,7 +4,6 @@ import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
-import events from '../core/events.js';
 import { error } from '../ui/error.js';
 import { modalLock } from '../ui/modalLock.js';
 
@@ -12,6 +11,7 @@ export class VariantManager extends BaseManager {
     constructor() {
         super('variants', {
             apiPath: () => `/api/models/${state.get('currentModel')}/variants`,
+            itemsKey: 'variants',
             nameField: 'name',
             searchFields: ['name', 'words'],
             sortSelectors: {
@@ -28,12 +28,13 @@ export class VariantManager extends BaseManager {
         this.wordEditor = null;
     }
     
-    async fetchData() {
-        return await api.get(this.getApiPath());
-    }
-    
-    transformData(raw) {
-        return raw;
+    async fetchPage(offset, limit) {
+        const url = `${this.getApiPath()}?limit=${limit}&offset=${offset}`;
+        const response = await api.get(url);
+        return {
+            items: response.variants,
+            total: response.total
+        };
     }
     
     renderItem(variant, idx) {
@@ -135,7 +136,7 @@ export class VariantManager extends BaseManager {
             } else {
                 await api.put(`${this.getApiPath()}/${id}`, data);
             }
-            await this.load();
+            await this.load(true);
             modal.close(modalId);
             modalLock.unlock('variantModal');
         } catch (err) {
@@ -146,6 +147,6 @@ export class VariantManager extends BaseManager {
     
     async performDelete(item) {
         await api.delete(`${this.getApiPath()}/${item.id}`);
-        await this.load();
+        await this.load(true);
     }
 }

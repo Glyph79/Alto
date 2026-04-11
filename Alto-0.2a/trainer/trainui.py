@@ -198,10 +198,12 @@ async def get_node_details(name, group_index, node_id):
         return jsonify(result), 400
     return jsonify(result)
 
-# Lightweight group routes
+# Lightweight group routes with pagination
 @app.route('/api/models/<name>/groups/summaries', methods=['GET'])
 async def get_group_summaries(name):
-    result = await send_command("get-group-summaries", name=name)
+    limit = request.args.get('limit', default=20, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    result = await send_command("get-group-summaries", name=name, limit=limit, offset=offset)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)
@@ -213,12 +215,12 @@ async def get_group_full(name, index):
         return jsonify(result), 404
     return jsonify(result)
 
-# No section routes
-
-# Topic endpoints
+# Topic endpoints with pagination
 @app.route('/api/models/<name>/topics', methods=['GET'])
 async def get_topics(name):
-    result = await send_command("get-topics", name=name)
+    limit = request.args.get('limit', default=20, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    result = await send_command("get-topics", name=name, limit=limit, offset=offset)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
@@ -264,10 +266,12 @@ async def delete_topic(name, topic):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# Variant endpoints
+# Variant endpoints with pagination
 @app.route('/api/models/<name>/variants', methods=['GET'])
 async def get_variants(name):
-    result = await send_command("get-variants", name=name)
+    limit = request.args.get('limit', default=20, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    result = await send_command("get-variants", name=name, limit=limit, offset=offset)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
@@ -297,10 +301,12 @@ async def delete_variant(name, variant_id):
         return jsonify(result), 400
     return jsonify({"status": "ok"})
 
-# Fallback endpoints
+# Fallback endpoints with pagination
 @app.route('/api/models/<name>/fallbacks', methods=['GET'])
 async def list_fallbacks(name):
-    result = await send_command("list-fallbacks", name=name)
+    limit = request.args.get('limit', default=20, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    result = await send_command("list-fallbacks", name=name, limit=limit, offset=offset)
     if "error" in result:
         return jsonify(result), 500
     return jsonify(result)

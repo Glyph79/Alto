@@ -12,6 +12,7 @@ export class FallbackManager extends BaseManager {
     constructor() {
         super('fallbacks', {
             apiPath: () => `/api/models/${state.get('currentModel')}/fallbacks`,
+            itemsKey: 'fallbacks',
             nameField: 'name',
             searchFields: ['name', 'description'],
             sortSelectors: {
@@ -31,14 +32,13 @@ export class FallbackManager extends BaseManager {
         events.on('fallbacks:updated', () => this.refresh());
     }
     
-    async fetchData() {
-        const data = await api.get(this.getApiPath());
-        state.set('fallbacks', data);
-        return data;
-    }
-    
-    transformData(raw) {
-        return raw;
+    async fetchPage(offset, limit) {
+        const url = `${this.getApiPath()}?limit=${limit}&offset=${offset}`;
+        const response = await api.get(url);
+        return {
+            items: response.fallbacks,
+            total: response.total
+        };
     }
     
     renderItem(fb, idx) {
@@ -155,7 +155,7 @@ export class FallbackManager extends BaseManager {
             } else {
                 await api.put(`${this.getApiPath()}/${id}`, data);
             }
-            await this.load();
+            await this.load(true);
             modal.close(modalId);
             modalLock.unlock('fallbackModal');
             events.emit('fallbacks:updated');
@@ -167,7 +167,7 @@ export class FallbackManager extends BaseManager {
     
     async performDelete(item) {
         await api.delete(`${this.getApiPath()}/${item.id}`);
-        await this.load();
+        await this.load(true);
         events.emit('fallbacks:updated');
     }
 }

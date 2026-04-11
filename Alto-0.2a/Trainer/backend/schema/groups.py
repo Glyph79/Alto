@@ -1,6 +1,6 @@
 import sqlite3
 import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from .helpers import _get_or_create_question_id, _get_topic_id, _get_fallback_id
 from .followups import insert_followup_tree, delete_followup_tree
 from ..utils.msgpack_helpers import pack_array, unpack_array
@@ -149,7 +149,12 @@ def get_group_summaries(conn: sqlite3.Connection) -> List[Dict]:
         })
     return summaries
 
-def get_group_summaries_with_counts(conn: sqlite3.Connection) -> List[Dict]:
+def get_group_summaries_with_counts(conn: sqlite3.Connection, limit: int, offset: int) -> Tuple[List[Dict], int]:
+    # First get total count
+    cur = conn.execute("SELECT COUNT(*) FROM groups")
+    total = cur.fetchone()[0]
+
+    # Then get paginated summaries
     cur = conn.execute("""
         SELECT g.id, g.group_name,
                COALESCE(t.name, '') as topic,
@@ -158,7 +163,8 @@ def get_group_summaries_with_counts(conn: sqlite3.Connection) -> List[Dict]:
         FROM groups g
         LEFT JOIN topics t ON g.topic_id = t.id
         ORDER BY g.id
-    """)
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
     summaries = []
     for row in cur:
         summaries.append({
@@ -168,4 +174,4 @@ def get_group_summaries_with_counts(conn: sqlite3.Connection) -> List[Dict]:
             "question_count": row[3],
             "answer_count": row[4]
         })
-    return summaries
+    return summaries, total

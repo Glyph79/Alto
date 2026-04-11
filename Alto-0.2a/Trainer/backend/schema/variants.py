@@ -1,8 +1,10 @@
 import sqlite3
 import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
-def get_variants(conn: sqlite3.Connection) -> List[Dict]:
+def get_variants(conn: sqlite3.Connection, limit: int, offset: int) -> Tuple[List[Dict], int]:
+    cur = conn.execute("SELECT COUNT(*) FROM variant_groups")
+    total = cur.fetchone()[0]
     cur = conn.execute("""
         SELECT vg.id, vg.name,
                GROUP_CONCAT(vw.word, ',') as words
@@ -10,7 +12,8 @@ def get_variants(conn: sqlite3.Connection) -> List[Dict]:
         LEFT JOIN variant_words vw ON vw.group_id = vg.id
         GROUP BY vg.id
         ORDER BY vg.id
-    """)
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
     variants = []
     for row in cur:
         words = row[2].split(',') if row[2] else []
@@ -19,7 +22,7 @@ def get_variants(conn: sqlite3.Connection) -> List[Dict]:
             "name": row[1],
             "words": words
         })
-    return variants
+    return variants, total
 
 def add_variant(conn: sqlite3.Connection, name: str, words: List[str]) -> int:
     try:

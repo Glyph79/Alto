@@ -109,10 +109,10 @@ def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
             fb_row = fb_cur.fetchone()
             if fb_row:
                 fallback_name = fb_row[0]
-        # Use get_blob_data to handle blob_id = 0 gracefully
         from ..schema.blob_utils import get_blob_data
         questions_raw = get_blob_data(model.conn, row[0])
         answers_raw = get_blob_data(model.conn, row[1])
+        from ..utils.msgpack_helpers import unpack_array
         questions = unpack_array(questions_raw) if questions_raw else []
         answers = unpack_array(answers_raw) if answers_raw else []
         return {
@@ -125,11 +125,11 @@ def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
-def cmd_get_group_summaries(name: str, **kwargs) -> Dict:
+def cmd_get_group_summaries(name: str, limit: int = 20, offset: int = 0, **kwargs) -> Dict:
     try:
         model = get_model(name)
-        summaries = model.get_group_summaries_with_counts()
-        return {"groups": summaries}
+        summaries, total = model.get_group_summaries_with_counts(limit=limit, offset=offset)
+        return {"groups": summaries, "total": total, "limit": limit, "offset": offset}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:

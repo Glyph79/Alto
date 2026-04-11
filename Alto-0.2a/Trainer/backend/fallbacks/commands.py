@@ -2,17 +2,18 @@ import json
 from typing import Dict, List
 from ..model import get_model
 
-def cmd_list_fallbacks(name: str, **kwargs) -> List[Dict]:
+def cmd_list_fallbacks(name: str, limit: int = 20, offset: int = 0, **kwargs) -> Dict:
     try:
         model = get_model(name)
-        return model.get_fallbacks()
+        fallbacks, total = model.get_fallbacks(limit, offset)
+        return {"fallbacks": fallbacks, "total": total, "limit": limit, "offset": offset}
     except Exception as e:
         return {"error": str(e)}
 
 def cmd_create_fallback(name: str, data: str, **kwargs) -> Dict:
     try:
         fallback_dict = json.loads(data)
-        fallback_name = fallback_dict.get("name", "").strip()  # may be empty
+        fallback_name = fallback_dict.get("name", "").strip()
         description = fallback_dict.get("description", "")
         answers = fallback_dict.get("answers", [])
         if not isinstance(answers, list) or not answers:
@@ -33,7 +34,7 @@ def cmd_get_fallback(name: str, fallback_id: int, **kwargs) -> Dict:
 def cmd_update_fallback(name: str, fallback_id: int, data: str, **kwargs) -> Dict:
     try:
         fallback_dict = json.loads(data)
-        fallback_name = fallback_dict.get("name", "").strip()  # may be empty
+        fallback_name = fallback_dict.get("name", "").strip()
         description = fallback_dict.get("description", "")
         answers = fallback_dict.get("answers", [])
         if not isinstance(answers, list) or not answers:

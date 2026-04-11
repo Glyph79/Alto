@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import datetime
 from collections import OrderedDict
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 
 from .constants import ALTO_VERSION
 from .tables import init_model_db, create_empty_schema, get_model_info
@@ -13,7 +13,7 @@ from .groups import (
     get_group_summaries, get_group_summaries_with_counts,
     get_group_by_id, insert_group, update_group, delete_group
 )
-from .topics import get_topics_list, add_topic, rename_topic, delete_topic, get_topic_groups
+from .topics import get_topics_list, add_topic, rename_topic, delete_topic, get_topic_groups, get_topics_paginated
 from .variants import get_variants, add_variant, update_variant, delete_variant
 from .fallbacks import (
     get_fallbacks, get_fallback_by_id, create_fallback, update_fallback,
@@ -186,13 +186,18 @@ class Model:
             self._load_group_summaries()
         return self._group_summaries
 
-    def get_group_summaries_with_counts(self) -> List[Dict]:
+    def get_group_summaries_with_counts(self, limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
         self.last_used = time.time()
-        return get_group_summaries_with_counts(self.conn)
+        return get_group_summaries_with_counts(self.conn, limit, offset)
 
     def get_topics(self) -> List[str]:
         self.last_used = time.time()
         return get_topics_list(self.conn)
+
+    # ADDED METHOD – paginated topics for the API
+    def get_topics_paginated(self, limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
+        self.last_used = time.time()
+        return get_topics_paginated(self.conn, limit, offset)
 
     def get_group_by_id(self, group_id: int, include_followups: bool = False) -> Dict:
         self.last_used = time.time()
@@ -230,9 +235,9 @@ class Model:
         self.last_used = time.time()
         return get_topic_groups(self.conn, topic_name)
 
-    def get_variants(self) -> List[Dict]:
+    def get_variants(self, limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
         self.last_used = time.time()
-        return get_variants(self.conn)
+        return get_variants(self.conn, limit, offset)
 
     def add_variant(self, name: str, words: List[str]) -> int:
         self.last_used = time.time()
@@ -246,9 +251,9 @@ class Model:
         self.last_used = time.time()
         delete_variant(self.conn, variant_id)
 
-    def get_fallbacks(self) -> List[Dict]:
+    def get_fallbacks(self, limit: int = 20, offset: int = 0) -> Tuple[List[Dict], int]:
         self.last_used = time.time()
-        return get_fallbacks(self.conn)
+        return get_fallbacks(self.conn, limit, offset)
 
     def get_fallback_by_id(self, fallback_id: int) -> Dict:
         self.last_used = time.time()

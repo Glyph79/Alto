@@ -2,8 +2,6 @@ import { BaseManager } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
-import { loading } from '../ui/loading.js';
-import { retryUI } from '../ui/retry.js';
 import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import { TreeEditor } from '../../components/TreeEditor.js';
@@ -13,9 +11,10 @@ import { modalLock } from '../ui/modalLock.js';
 export class GroupManager extends BaseManager {
     constructor() {
         super('groups', {
-            apiPath: () => `/api/models/${state.get('currentModel')}/groups`,
+            apiPath: () => `/api/models/${state.get('currentModel')}/groups/summaries`,
+            itemsKey: 'groups',
             nameField: 'group_name',
-            searchFields: ['group_name', 'group_description'],
+            searchFields: ['group_name'],
             sortSelectors: {
                 'name-asc': (a, b) => (a.group_name || '').localeCompare(b.group_name || ''),
                 'name-desc': (a, b) => (b.group_name || '').localeCompare(a.group_name || ''),
@@ -48,17 +47,17 @@ export class GroupManager extends BaseManager {
         return items.filter(item => item.topic === this._topicFilter);
     }
     
-    async fetchData() {
-        const data = await api.get(`${this.getApiPath()}/summaries`);
-        return data.groups || [];
+    async fetchPage(offset, limit) {
+        const url = `${this.getApiPath()}?limit=${limit}&offset=${offset}`;
+        const response = await api.get(url);
+        return {
+            items: response.groups,
+            total: response.total
+        };
     }
     
-    transformData(raw) {
-        return raw;
-    }
-    
-    async load() {
-        await super.load();
+    async load(reset = true) {
+        await super.load(reset);
         state.set('groups', this.originalData);
     }
     
@@ -74,7 +73,6 @@ export class GroupManager extends BaseManager {
                     </div>
                 </div>
                 <h4>${dom.escapeHtml(group.group_name || 'Unnamed')}</h4>
-                <div class="description">${dom.escapeHtml(group.group_description || '')}</div>
                 <div class="stats">
                     <span>❓ ${group.question_count || 0} question${group.question_count !== 1 ? 's' : ''}</span>
                     <span>💬 ${group.answer_count || 0} answer${group.answer_count !== 1 ? 's' : ''}</span>
@@ -97,10 +95,7 @@ export class GroupManager extends BaseManager {
     }
     
     async openGroupModal(index) {
-        // Lock to prevent duplicate group modals
-        if (!modalLock.lock('groupModal')) {
-            return; // silently ignore
-        }
+        if (!modalLock.lock('groupModal')) return;
         try {
             this.currentGroupIndex = index;
             const isNew = (index === null);
@@ -126,7 +121,6 @@ export class GroupManager extends BaseManager {
             if (isNew) {
                 this.modalGroupCopy = {
                     group_name: '',
-                    group_description: '',
                     topic_id: null,
                     fallback_id: null,
                     questions: [],
@@ -138,7 +132,7 @@ export class GroupManager extends BaseManager {
             } else {
                 const idx = parseInt(index, 10);
                 if (isNaN(idx)) throw new Error('Invalid group index');
-                const fullGroup = await api.get(`${this.getApiPath()}/${idx}/full`);
+                const fullGroup = await api.get(`/api/models/${state.get('currentModel')}/groups/${idx}/full`);
                 this.modalGroupCopy = fullGroup;
                 this.populateForm();
                 this.initEditors();
@@ -156,10 +150,6 @@ export class GroupManager extends BaseManager {
             <div class="form-row">
                 <label>Group Name (optional)</label>
                 <input type="text" id="modalGroupName" placeholder="e.g., Weather group">
-            </div>
-            <div class="form-row">
-                <label>Description (optional)</label>
-                <input type="text" id="modalGroupDesc" placeholder="Brief description">
             </div>
             <div class="form-row" style="display: flex; gap: 16px;">
                 <div style="flex:1;">
@@ -190,7 +180,6 @@ export class GroupManager extends BaseManager {
         const modalEl = document.getElementById(this.modalId);
         if (!modalEl) return;
         modalEl.querySelector('#modalGroupName').value = this.modalGroupCopy.group_name || '';
-        modalEl.querySelector('#modalGroupDesc').value = this.modalGroupCopy.group_description || '';
         
         const topicSelect = modalEl.querySelector('#modalGroupTopic');
         let topicOptions = '<option value="">(No Topic)</option>';
@@ -253,7 +242,7 @@ export class GroupManager extends BaseManager {
         const treeEditor = new TreeEditor({
             groupIndex: this.currentGroupIndex,
             onSave: async (treeData) => {
-                await api.put(`${this.getApiPath()}/${this.currentGroupIndex}/followups`, treeData);
+                await api.put(`/api/models/${state.get('currentModel')}/groups/${this.currentGroupIndex}/followups`, treeData);
                 this.modalGroupCopy.follow_ups = treeData;
             },
         });
@@ -266,7 +255,6 @@ export class GroupManager extends BaseManager {
         let groupName = modalEl.querySelector('#modalGroupName').value.trim();
         if (!groupName) groupName = 'Unnamed Group';
         this.modalGroupCopy.group_name = groupName;
-        this.modalGroupCopy.group_description = modalEl.querySelector('#modalGroupDesc').value;
         const topicId = modalEl.querySelector('#modalGroupTopic').value;
         this.modalGroupCopy.topic_id = topicId ? parseInt(topicId, 10) : null;
         const fallbackId = modalEl.querySelector('#modalGroupFallback').value;
@@ -285,12 +273,12 @@ export class GroupManager extends BaseManager {
         
         try {
             if (this.currentGroupIndex === null) {
-                await api.post(this.getApiPath(), this.modalGroupCopy);
+                await api.post(`/api/models/${state.get('currentModel')}/groups`, this.modalGroupCopy);
             } else {
-                await api.put(`${this.getApiPath()}/${this.currentGroupIndex}`, this.modalGroupCopy);
+                await api.put(`/api/models/${state.get('currentModel')}/groups/${this.currentGroupIndex}`, this.modalGroupCopy);
             }
-            await this.load();
-            await window.managers.topics?.load();
+            await this.load(true);
+            await window.managers.topics?.load(true);
             this.closeGroupModal();
         } catch (err) {
             error.alert(`Save failed: ${err.message}`);
@@ -309,8 +297,8 @@ export class GroupManager extends BaseManager {
     async ensureTopics() {
         if (state.get('topics').length === 0 && state.get('currentModel')) {
             try {
-                const topics = await api.get(`/api/models/${state.get('currentModel')}/topics`);
-                state.set('topics', topics);
+                const response = await api.get(`/api/models/${state.get('currentModel')}/topics?limit=100&offset=0`);
+                state.set('topics', response.topics);
             } catch (e) { /* ignore */ }
         }
     }
@@ -318,8 +306,8 @@ export class GroupManager extends BaseManager {
     async ensureFallbacks() {
         if (state.get('fallbacks').length === 0 && state.get('currentModel')) {
             try {
-                const fallbacks = await api.get(`/api/models/${state.get('currentModel')}/fallbacks`);
-                state.set('fallbacks', fallbacks);
+                const response = await api.get(`/api/models/${state.get('currentModel')}/fallbacks?limit=100&offset=0`);
+                state.set('fallbacks', response.fallbacks);
             } catch (e) { /* ignore */ }
         }
     }
@@ -330,9 +318,9 @@ export class GroupManager extends BaseManager {
         }
         if (index === -1) return;
         try {
-            await api.delete(`${this.getApiPath()}/${index}`);
-            await this.load();
-            await window.managers.topics?.load();
+            await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
+            await this.load(true);
+            await window.managers.topics?.load(true);
         } catch (err) {
             error.alert(err.message);
         }
