@@ -1,6 +1,3 @@
-"""
-Import an ICF directory into a new v0.2a .rbm model.
-"""
 import json
 from pathlib import Path
 from typing import Dict, List
@@ -9,12 +6,7 @@ from backend.models.commands import cmd_create_model
 from backend.model import get_model
 from backend.utils.file_helpers import list_all_models, get_model_container_path
 
-
 def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_missing: bool = True) -> str:
-    """
-    Read an ICF directory and create a new v0.2a model.
-    Returns the path to the new .rbm container.
-    """
     models_dir = Path(models_dir).resolve()
     icf_dir = Path(icf_dir)
     if not icf_dir.is_dir():
@@ -53,7 +45,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
                     items.append(batch)
         return items
 
-    # Sections
     sections = read_batches("sections")
     for sec in sections:
         name = sec["name"]
@@ -66,7 +57,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
                 print(f"  Warning: could not add section '{name}': {e}")
     print(f"  Imported {len(sections)} sections")
 
-    # Topics
     topics = read_batches("topics")
     for topic in topics:
         name = topic["name"]
@@ -78,7 +68,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
                 print(f"  Warning: could not add topic '{name}': {e}")
     print(f"  Imported {len(topics)} topics")
 
-    # Variants
     variants = read_batches("variants")
     for variant in variants:
         name = variant["name"]
@@ -90,7 +79,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
             print(f"  Warning: could not add variant '{name}': {e}")
     print(f"  Imported {len(variants)} variants")
 
-    # Groups
     groups = read_batches("groups")
     for group in groups:
         group_dict = {
@@ -108,7 +96,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
             print(f"  Warning: could not add group '{group['group_name']}': {e}")
     print(f"  Imported {len(groups)} groups")
 
-    # Fallbacks
     fallbacks = read_batches("fallbacks")
     for fb in fallbacks:
         name = fb["name"]

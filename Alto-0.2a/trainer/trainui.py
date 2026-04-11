@@ -214,6 +214,13 @@ async def get_group_full(name, index):
     return jsonify(result)
 
 # Section endpoints
+@app.route('/api/models/<name>/sections', methods=['GET'])
+async def get_sections(name):
+    result = await send_command("get-sections", name=name)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
 @app.route('/api/models/<name>/sections', methods=['POST'])
 async def add_section(name):
     data = await request.get_json()
@@ -223,7 +230,11 @@ async def add_section(name):
     result = await send_command("add-section", name=name, section=section)
     if "error" in result:
         return jsonify(result), 400
-    return jsonify({"status": "ok"})
+    # Fetch the updated sections list (objects with id & name)
+    sections_result = await send_command("get-sections", name=name)
+    if "error" in sections_result:
+        return jsonify(sections_result), 500
+    return jsonify({"status": "ok", "sections": sections_result})
 
 @app.route('/api/models/<name>/sections/<old_name>', methods=['PUT'])
 async def rename_section(name, old_name):
@@ -375,7 +386,7 @@ async def get_fallback_groups(name, fallback_id):
         return jsonify(result), 404
     return jsonify(result)
 
-# ========== Import/Export (fixed: .db files use converter, no name prompt) ==========
+# ========== Import/Export ==========
 @app.route('/api/models/import', methods=['POST'])
 async def import_model():
     files = await request.files
@@ -384,7 +395,6 @@ async def import_model():
     file = files['file']
     filename = file.filename.lower()
     
-    # For .rbm files, use the existing import-rbm command
     if filename.endswith('.rbm'):
         form = await request.form
         custom_name = form.get('name', '').strip()
@@ -394,7 +404,6 @@ async def import_model():
             tmp.write(content)
             tmp_path = tmp.name
         result = await send_command("import-rbm", file=tmp_path, name=custom_name, overwrite=overwrite)
-        # Retry deletion if file locked
         for _ in range(5):
             try:
                 os.unlink(tmp_path)
@@ -408,7 +417,6 @@ async def import_model():
             return jsonify(result), status
         return jsonify(result)
     
-    # For .db files, use the converter – read model name from database, don't ask user
     if filename.endswith('.db'):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as tmp:
             content = file.read()
@@ -417,7 +425,6 @@ async def import_model():
         try:
             models_dir = config.get('DEFAULT', 'models_dir')
             container_path = convert_legacy_db_to_rbm(Path(tmp_path), new_model_name=None, models_dir=Path(models_dir))
-            # Extract the actual model name from the container manifest
             from backend.utils.file_helpers import read_manifest
             manifest = read_manifest(container_path)
             model_name = manifest["name"] if manifest else Path(tmp_path).stem
@@ -425,7 +432,6 @@ async def import_model():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         finally:
-            # Retry deletion if file locked
             for _ in range(5):
                 try:
                     os.unlink(tmp_path)
@@ -460,7 +466,6 @@ async def api_set_converter_settings():
     data = await request.get_json()
     update_converter_settings(
         batch_size=data.get('batch_size'),
-        # create_missing is ignored; always True
     )
     return jsonify({'status': 'ok'})
 
@@ -488,7 +493,6 @@ async def api_convert_legacy():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
-        # Retry deletion if file locked
         for _ in range(5):
             try:
                 os.unlink(tmp_path)

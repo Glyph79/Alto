@@ -82,13 +82,16 @@ export class FallbackManager extends BaseManager {
             size: 'medium',
             closable: false,
         });
-        this.initAnswerEditor(fallback?.answers || []);
-        if (fallback) {
-            document.getElementById('fallbackName').value = fallback.name || '';
-            document.getElementById('fallbackDescription').value = fallback.description || '';
-        } else {
-            document.getElementById('fallbackName').value = '';
-            document.getElementById('fallbackDescription').value = '';
+        this.initAnswerEditor(fallback?.answers || [], modalId);
+        const modalEl = document.getElementById(modalId);
+        if (modalEl) {
+            if (fallback) {
+                modalEl.querySelector('#fallbackName').value = fallback.name || '';
+                modalEl.querySelector('#fallbackDescription').value = fallback.description || '';
+            } else {
+                modalEl.querySelector('#fallbackName').value = '';
+                modalEl.querySelector('#fallbackDescription').value = '';
+            }
         }
     }
     
@@ -96,7 +99,7 @@ export class FallbackManager extends BaseManager {
         const div = dom.createElement('div', {});
         div.innerHTML = `
             <div class="form-row">
-                <label>Name (optional)</label>
+                <label>Name (optional – will be auto‑generated if empty)</label>
                 <input type="text" id="fallbackName" placeholder="e.g., Default apology">
             </div>
             <div class="form-row">
@@ -104,15 +107,17 @@ export class FallbackManager extends BaseManager {
                 <input type="text" id="fallbackDescription" placeholder="Optional description">
             </div>
             <div class="qa-section">
-                <h3>Answers <span style="color:#ffaa66;">(at least one)</span></h3>
+                <h3>Answers</h3>
                 <div id="fallbackAnswersContainer"></div>
             </div>
         `;
         return div;
     }
     
-    initAnswerEditor(answers) {
-        const container = document.getElementById('fallbackAnswersContainer');
+    initAnswerEditor(answers, modalId) {
+        const modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        const container = modalEl.querySelector('#fallbackAnswersContainer');
         if (this.answerEditor) this.answerEditor.destroy();
         this.answerEditor = new ListEditor({
             container,
@@ -125,8 +130,10 @@ export class FallbackManager extends BaseManager {
     }
     
     async saveFallback(id, modalId) {
-        const name = document.getElementById('fallbackName').value.trim(); // optional
-        const description = document.getElementById('fallbackDescription').value.trim();
+        const modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        const name = modalEl.querySelector('#fallbackName').value.trim();
+        const description = modalEl.querySelector('#fallbackDescription').value.trim();
         const answers = this.answerEditor.getItems();
         
         if (answers.length === 0) {

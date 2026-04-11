@@ -7,7 +7,6 @@ def get_sections_list(conn: sqlite3.Connection) -> List[str]:
     return [row[0] for row in cur]
 
 def add_section(conn: sqlite3.Connection, name: str) -> int:
-    conn.execute("BEGIN IMMEDIATE")
     try:
         cur = conn.execute("SELECT id FROM sections WHERE name = ?", (name,))
         if cur.fetchone() is not None:
@@ -46,7 +45,6 @@ def delete_section(conn: sqlite3.Connection, name: str, action: str = "uncategor
         conn.execute("DELETE FROM sections WHERE id = ?", (section_id,))
         conn.commit()
         return
-    conn.execute("BEGIN IMMEDIATE")
     try:
         if action == "uncategorized":
             conn.execute("UPDATE groups SET section_id = NULL WHERE section_id = ?", (section_id,))

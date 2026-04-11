@@ -8,7 +8,6 @@ def get_topics_list(conn: sqlite3.Connection) -> List[str]:
 
 def add_topic(conn: sqlite3.Connection, name: str, section_name: Optional[str] = None) -> int:
     section_id = _get_section_id(conn, section_name) if section_name else None
-    conn.execute("BEGIN IMMEDIATE")
     try:
         cur = conn.execute("SELECT id FROM topics WHERE name = ?", (name,))
         if cur.fetchone() is not None:
@@ -40,13 +39,11 @@ def delete_topic(conn: sqlite3.Connection, name: str, action: str = "reassign", 
     if action == "delete_groups":
         cur = conn.execute("SELECT id FROM groups WHERE topic_id = ?", (topic_id,))
         group_ids = [row[0] for row in cur.fetchall()]
-        # Delete groups will cascade to followups etc.
         for gid in group_ids:
             conn.execute("DELETE FROM groups WHERE id = ?", (gid,))
         conn.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
         conn.commit()
         return
-    conn.execute("BEGIN IMMEDIATE")
     try:
         conn.execute("UPDATE groups SET topic_id = ? WHERE topic_id = ?", (target_id, topic_id))
         conn.execute("DELETE FROM topics WHERE id = ?", (topic_id,))

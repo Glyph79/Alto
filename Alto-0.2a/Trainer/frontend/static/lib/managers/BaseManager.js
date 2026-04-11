@@ -157,8 +157,14 @@ export class BaseManager {
             this.enableControls(true);
             this._updateEmptyState();
         } catch (err) {
-            error.alert(`Failed to load ${this.feature}: ${err.message}`);
-            this.enableControls(false);
+            // Suppress the error popup for old‑format models
+            if (err.message && err.message.includes("uses an old schema that is no longer supported")) {
+                console.warn("Skipping error popup for unsupported model schema:", err.message);
+                this.enableControls(false);
+            } else {
+                error.alert(`Failed to load ${this.feature}: ${err.message}`);
+                this.enableControls(false);
+            }
         }
     }
     

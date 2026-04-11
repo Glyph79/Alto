@@ -83,7 +83,7 @@ export class VariantManager extends BaseManager {
         });
         this.currentVariantId = id;
         this.initWordEditor(variant?.words || []);
-        this.populateVariantSectionSelect(variant?.section);
+        this.populateVariantSectionSelect(variant?.section, modalId);
     }
     
     buildVariantModalContent(variant) {
@@ -120,8 +120,10 @@ export class VariantManager extends BaseManager {
         });
     }
     
-    populateVariantSectionSelect(selectedSection) {
-        const select = document.getElementById('variantSectionSelect');
+    populateVariantSectionSelect(selectedSection, modalId) {
+        const modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        const select = modalEl.querySelector('#variantSectionSelect');
         if (!select) return;
         let options = '<option value="">(Uncategorized)</option>';
         (state.get('sections') || []).forEach(s => {
@@ -131,8 +133,11 @@ export class VariantManager extends BaseManager {
     }
     
     async saveVariant(id, modalId) {
-        const name = document.getElementById('variantName').value.trim(); // optional
-        const section = document.getElementById('variantSectionSelect').value || null;
+        const modalEl = document.getElementById(modalId);
+        if (!modalEl) return;
+        let name = modalEl.querySelector('#variantName').value.trim();
+        if (!name) name = 'Unnamed Variant';
+        const section = modalEl.querySelector('#variantSectionSelect').value || null;
         const words = this.wordEditor.getItems();
         
         if (words.length === 0) {

@@ -10,11 +10,11 @@ export class TopicManager extends BaseManager {
     constructor() {
         super('topics', {
             apiPath: () => `/api/models/${state.get('currentModel')}/topics`,
-            nameField: 'topic',
-            searchFields: ['topic'],
+            nameField: 'name',
+            searchFields: ['name'],
             sortSelectors: {
-                'name-asc': (a, b) => a.topic.localeCompare(b.topic),
-                'name-desc': (a, b) => b.topic.localeCompare(a.topic),
+                'name-asc': (a, b) => a.name.localeCompare(b.name),
+                'name-desc': (a, b) => b.name.localeCompare(a.name),
                 'usage-desc': (a, b) => b.count - a.count,
                 'usage-asc': (a, b) => a.count - b.count,
             },
@@ -26,18 +26,20 @@ export class TopicManager extends BaseManager {
     }
     
     async fetchData() {
+        const data = await api.get(this.getApiPath());
+        state.set('topics', data);
         const groups = state.get('groups');
-        const groupCounts = {};
+        const counts = {};
         groups.forEach(g => {
-            const topic = g.topic;
-            if (topic) groupCounts[topic] = (groupCounts[topic] || 0) + 1;
+            const topicId = g.topic_id;
+            if (topicId) counts[topicId] = (counts[topicId] || 0) + 1;
         });
-        const noTopicCount = groups.filter(g => !g.topic).length;
-        const topicsList = state.get('topics') || [];
+        const noTopicCount = groups.filter(g => !g.topic_id).length;
         const items = [];
-        items.push({ topic: '(No Topic)', count: noTopicCount, isNoTopic: true });
-        topicsList.forEach(topic => {
-            items.push({ topic, count: groupCounts[topic] || 0, isNoTopic: false });
+        items.push({ id: null, name: '(No Topic)', count: noTopicCount, isNoTopic: true });
+        data.forEach(topic => {
+            const name = topic.name || `Topic ${topic.id}`;
+            items.push({ id: topic.id, name: name, count: counts[topic.id] || 0, isNoTopic: false });
         });
         return items;
     }
@@ -47,17 +49,18 @@ export class TopicManager extends BaseManager {
     }
     
     renderItem(item, idx) {
-        const hue = item.isNoTopic ? 0 : (item.topic.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
+        const name = item.name || 'Unnamed Topic';
+        const hue = item.isNoTopic ? 0 : (name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) * 7) % 360;
         return `
-            <div class="topic-card" data-card-index="${idx}" data-topic="${dom.escapeHtml(item.topic)}">
+            <div class="topic-card" data-card-index="${idx}" data-topic-id="${item.id}">
                 <div class="header">
                     <div style="display: flex; align-items: center; gap: 4px;">
                         <span class="topic-color-dot" style="background-color: ${item.isNoTopic ? '#888' : `hsl(${hue}, 70%, 60%)`};"></span>
-                        <span class="topic-name">${dom.escapeHtml(item.topic)}</span>
+                        <span class="topic-name">${dom.escapeHtml(name)}</span>
                     </div>
                     <div class="card-actions">
-                        <button class="card-edit" data-topic="${dom.escapeHtml(item.topic)}" title="${item.isNoTopic ? 'View Topic' : 'Edit Topic'}">✎</button>
-                        ${!item.isNoTopic ? `<button class="card-delete" data-topic="${dom.escapeHtml(item.topic)}" title="Delete Topic">🗑</button>` : ''}
+                        <button class="card-edit" data-topic-id="${item.id}" title="${item.isNoTopic ? 'View Topic' : 'Edit Topic'}">✎</button>
+                        ${!item.isNoTopic ? `<button class="card-delete" data-topic-id="${item.id}" title="Delete Topic">🗑</button>` : ''}
                     </div>
                 </div>
                 <div class="stats">
@@ -70,7 +73,6 @@ export class TopicManager extends BaseManager {
     async openCreateModal() {
         let modalId = null;
         const content = dom.createElement('div', {});
-        
         const formRow = dom.createElement('div', { class: 'form-row' });
         const label = dom.createElement('label', {}, ['Topic Name']);
         const input = dom.createElement('input', { id: 'newTopicName', type: 'text', placeholder: 'Topic name', autocomplete: 'off' });
@@ -83,22 +85,25 @@ export class TopicManager extends BaseManager {
             content: content,
             actions: [
                 { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                { 
-                    label: 'Create', 
-                    variant: 'save', 
+                {
+                    label: 'Create',
+                    variant: 'save',
                     close: false,
                     onClick: async () => {
-                        const name = document.getElementById('newTopicName').value.trim();
-                        if (!name) {
-                            error.alert('Topic name is required.');
-                            return;
-                        }
+                        const modalEl = document.getElementById(modalId);
+                        if (!modalEl) return;
+                        let name = modalEl.querySelector('#newTopicName').value.trim();
+                        if (!name) name = 'Unnamed Topic';
                         if (name.toLowerCase() === 'null' || name === '(No Topic)') {
                             error.alert(`"${name}" is a reserved name.`);
                             return;
                         }
                         try {
-                            await api.post(this.getApiPath(), { topic: name });
+                            const result = await api.post(this.getApiPath(), { topic: name });
+                            if (result.topic) {
+                                const currentTopics = state.get('topics') || [];
+                                state.set('topics', [...currentTopics, result.topic]);
+                            }
                             await this.load();
                             modal.close(modalId);
                         } catch (err) {
@@ -114,8 +119,7 @@ export class TopicManager extends BaseManager {
     
     async openEditModal(item) {
         if (item.isNoTopic) {
-            // Read-only modal for (No Topic)
-            const groupsWithoutTopic = state.get('groups').filter(g => !g.topic);
+            const groupsWithoutTopic = state.get('groups').filter(g => !g.topic_id);
             let groupsHtml = '';
             if (groupsWithoutTopic.length === 0) {
                 groupsHtml = '<li style="justify-content:center; color:#888;">No groups without a topic</li>';
@@ -130,19 +134,15 @@ export class TopicManager extends BaseManager {
                     </li>
                 `).join('');
             }
-            
             const content = dom.createElement('div', {});
-            
             const infoRow = dom.createElement('div', { class: 'form-row' });
             const infoLabel = dom.createElement('label', {}, ['Topic']);
             const infoValue = dom.createElement('div', { style: 'padding: 8px; background: #2d2d5a; border-radius: 6px;' }, ['(No Topic)']);
             infoRow.appendChild(infoLabel);
             infoRow.appendChild(infoValue);
             content.appendChild(infoRow);
-            
             const readonlyNote = dom.createElement('p', { style: 'color:#888; margin-bottom: 16px;' }, ['This is a pseudo‑topic and cannot be renamed or deleted. It represents groups without a topic.']);
             content.appendChild(readonlyNote);
-            
             const groupsRow = dom.createElement('div', { class: 'form-row' });
             const groupsLabel = dom.createElement('label', {}, ['Groups without a topic']);
             const ul = dom.createElement('ul', { class: 'group-usage-list' });
@@ -150,17 +150,13 @@ export class TopicManager extends BaseManager {
             groupsRow.appendChild(groupsLabel);
             groupsRow.appendChild(ul);
             content.appendChild(groupsRow);
-            
             const modalId = modal.show({
                 title: '(No Topic)',
                 content: content,
-                actions: [
-                    { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                ],
+                actions: [{ label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false }],
                 size: 'medium',
                 closable: false,
             });
-            
             setTimeout(() => {
                 document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
                     btn.addEventListener('click', async (e) => {
@@ -195,19 +191,15 @@ export class TopicManager extends BaseManager {
             return;
         }
         
-        // Normal editable topic
-        const groupsUsing = await api.get(`/api/models/${state.get('currentModel')}/topics/${item.topic}/groups`);
-        const groupsHtml = this.renderGroupsList(groupsUsing.groups || [], item.topic);
-        
+        const groupsUsing = await api.get(`/api/models/${state.get('currentModel')}/topics/${item.name}/groups`);
+        const groupsHtml = this.renderGroupsList(groupsUsing.groups || [], item.name);
         const content = dom.createElement('div', {});
-        
         const formRow1 = dom.createElement('div', { class: 'form-row' });
         const label1 = dom.createElement('label', {}, ['Topic Name']);
-        const input = dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.topic });
+        const input = dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.name });
         formRow1.appendChild(label1);
         formRow1.appendChild(input);
         content.appendChild(formRow1);
-        
         const formRow2 = dom.createElement('div', { class: 'form-row' });
         const label2 = dom.createElement('label', {}, ['Groups using this topic']);
         const ul = dom.createElement('ul', { class: 'group-usage-list', id: 'topicGroupList' });
@@ -215,25 +207,29 @@ export class TopicManager extends BaseManager {
         formRow2.appendChild(label2);
         formRow2.appendChild(ul);
         content.appendChild(formRow2);
-        
         const modalId = modal.show({
             title: 'Edit Topic',
             content: content,
             actions: [
                 { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                { 
-                    label: 'Save', 
-                    variant: 'save', 
+                {
+                    label: 'Save',
+                    variant: 'save',
                     close: false,
                     onClick: async () => {
-                        const newName = document.getElementById('editTopicName').value.trim();
+                        const modalEl = document.getElementById(modalId);
+                        if (!modalEl) return;
+                        const newName = modalEl.querySelector('#editTopicName').value.trim();
                         if (!newName || newName.toLowerCase() === 'null' || newName === '(No Topic)') {
                             error.alert('Invalid topic name');
                             return;
                         }
-                        if (newName !== item.topic) {
+                        if (newName !== item.name) {
                             try {
-                                await api.put(`/api/models/${state.get('currentModel')}/topics/${item.topic}`, { new_name: newName });
+                                const result = await api.put(`/api/models/${state.get('currentModel')}/topics/${item.name}`, { new_name: newName });
+                                if (result.topics) {
+                                    state.set('topics', result.topics);
+                                }
                                 await this.load();
                                 modal.close(modalId);
                             } catch (err) {
@@ -248,8 +244,7 @@ export class TopicManager extends BaseManager {
             size: 'medium',
             closable: false,
         });
-        
-        setTimeout(() => this.attachGroupHandlers(item.topic), 100);
+        setTimeout(() => this.attachGroupHandlers(item.name), 100);
     }
     
     renderGroupsList(groups, topic) {
@@ -301,20 +296,21 @@ export class TopicManager extends BaseManager {
             error.alert('The "(No Topic)" pseudo‑topic cannot be deleted.');
             return;
         }
-        const groupsUsingCount = state.get('groups').filter(g => g.topic === item.topic).length;
+        const groupsUsingCount = state.get('groups').filter(g => g.topic_id === item.id).length;
         let action = 'reassign';
         let target = null;
         if (groupsUsingCount > 0) {
-            const otherTopics = state.get('topics').filter(t => t !== item.topic);
+            const otherTopics = state.get('topics').filter(t => t.id !== item.id);
             const result = await this.showDeleteOptions(groupsUsingCount, otherTopics);
             if (!result) return;
             action = result.action;
             target = result.target;
         }
-        let url = `/api/models/${state.get('currentModel')}/topics/${item.topic}?action=${action}`;
+        let url = `/api/models/${state.get('currentModel')}/topics/${item.name}?action=${action}`;
         if (target) url += `&target=${target}`;
         try {
-            await api.delete(url);
+            const result = await api.delete(url);
+            if (result.topics) state.set('topics', result.topics);
             await this.load();
             await window.managers.groups.load();
         } catch (err) {
@@ -324,7 +320,7 @@ export class TopicManager extends BaseManager {
     
     showDeleteOptions(count, otherTopics) {
         return new Promise((resolve) => {
-            const optionsHtml = otherTopics.map(t => `<option value="${dom.escapeHtml(t)}">${dom.escapeHtml(t)}</option>`).join('');
+            const optionsHtml = otherTopics.map(t => `<option value="${t.name}">${dom.escapeHtml(t.name)}</option>`).join('');
             const content = dom.createElement('div', {}, [
                 dom.createElement('p', {}, [`Topic is used by ${count} group(s).`]),
                 dom.createElement('div', { style: 'margin: 20px 0;' }, [

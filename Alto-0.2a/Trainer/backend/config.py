@@ -12,7 +12,6 @@ DEFAULT_CONFIG = {
     },
     'converter': {
         'batch_size': '100',
-        # 'create_missing' removed – always enabled in converter
     },
     'editor': {
         'auto_save': 'True',
@@ -20,6 +19,10 @@ DEFAULT_CONFIG = {
     },
     'cache': {
         'max_cached_models': '3',
+    },
+    'storage': {
+        'compression_enabled': 'True',
+        'compression_level': '6',
     }
 }
 

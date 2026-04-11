@@ -5,7 +5,7 @@ import tarfile
 import sqlite3
 import msgpack
 import re
-import zlib
+import zstandard as zstd
 from typing import List, Dict, Set
 from ..base import BaseAdapter, CACHE_ROOT, get_model_container_path
 
@@ -57,6 +57,26 @@ class AdapterV0_2a(BaseAdapter):
     def _unpack(self, data: bytes) -> list:
         return msgpack.unpackb(data, raw=False)
 
+    def _decompress_blob(self, blob_id: int) -> bytes:
+        """Retrieve and decompress a blob from blob_store."""
+        if blob_id == 0:
+            return b''
+        conn = self._get_conn()
+        cur = conn.execute("SELECT data FROM blob_store WHERE id = ?", (blob_id,))
+        row = cur.fetchone()
+        if not row:
+            return b''
+        compressed = row[0]
+        # First byte is flag (0 = raw, 1 = zstd)
+        if not compressed:
+            return b''
+        flag = compressed[0]
+        payload = compressed[1:]
+        if flag == 1:
+            return zstd.decompress(payload)
+        else:
+            return payload
+
     def get_group_questions(self, group_id: int) -> List[str]:
         conn = self._get_conn()
         cur = conn.execute("""
@@ -69,12 +89,12 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_group_answers(self, group_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob FROM groups WHERE id = ?", (group_id,))
+        cur = conn.execute("SELECT answers_blob_id FROM groups WHERE id = ?", (group_id,))
         row = cur.fetchone()
-        if not row:
+        if not row or not row[0]:
             return []
-        decompressed = zlib.decompress(row[0])
-        return msgpack.unpackb(decompressed, raw=False)
+        blob_data = self._decompress_blob(row[0])
+        return self._unpack(blob_data) if blob_data else []
 
     def get_group_data(self, group_id: int) -> Dict:
         conn = self._get_conn()
@@ -120,15 +140,21 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_node_questions(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute("SELECT questions_blob_id FROM followup_nodes WHERE id = ?", (node_id,))
         row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
+        if not row or not row[0]:
+            return []
+        blob_data = self._decompress_blob(row[0])
+        return self._unpack(blob_data) if blob_data else []
 
     def get_node_answers(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute("SELECT answers_blob_id FROM followup_nodes WHERE id = ?", (node_id,))
         row = cur.fetchone()
-        return self._unpack(row[0]) if row else []
+        if not row or not row[0]:
+            return []
+        blob_data = self._decompress_blob(row[0])
+        return self._unpack(blob_data) if blob_data else []
 
     def get_topics(self) -> List[str]:
         conn = self._get_conn()

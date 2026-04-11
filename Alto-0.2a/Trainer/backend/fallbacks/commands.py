@@ -12,9 +12,7 @@ def cmd_list_fallbacks(name: str, **kwargs) -> List[Dict]:
 def cmd_create_fallback(name: str, data: str, **kwargs) -> Dict:
     try:
         fallback_dict = json.loads(data)
-        fallback_name = fallback_dict.get("name", "").strip()
-        if not fallback_name:
-            return {"error": "Fallback name is required"}
+        fallback_name = fallback_dict.get("name", "").strip()  # may be empty
         description = fallback_dict.get("description", "")
         answers = fallback_dict.get("answers", [])
         if not isinstance(answers, list) or not answers:
@@ -35,9 +33,7 @@ def cmd_get_fallback(name: str, fallback_id: int, **kwargs) -> Dict:
 def cmd_update_fallback(name: str, fallback_id: int, data: str, **kwargs) -> Dict:
     try:
         fallback_dict = json.loads(data)
-        fallback_name = fallback_dict.get("name", "").strip()
-        if not fallback_name:
-            return {"error": "Fallback name is required"}
+        fallback_name = fallback_dict.get("name", "").strip()  # may be empty
         description = fallback_dict.get("description", "")
         answers = fallback_dict.get("answers", [])
         if not isinstance(answers, list) or not answers:

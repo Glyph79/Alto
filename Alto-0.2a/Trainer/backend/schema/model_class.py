@@ -8,7 +8,7 @@ from collections import OrderedDict
 from typing import List, Dict, Optional, Any
 
 from .constants import ALTO_VERSION
-from .tables import init_model_db, create_empty_schema, get_model_info, upgrade_schema_to_fallbacks
+from .tables import init_model_db, create_empty_schema, get_model_info
 from .groups import (
     get_group_summaries, get_group_summaries_with_counts,
     get_group_by_id, insert_group, update_group, delete_group
@@ -21,7 +21,7 @@ from .fallbacks import (
     delete_fallback, get_groups_by_fallback, get_nodes_by_fallback
 )
 from .helpers import _get_or_create_question_id
-from .compression import compress_blob, decompress_blob
+from .blob_utils import store_blob, release_blob, get_blob_data
 from ..utils.msgpack_helpers import pack_array, unpack_array
 from ..utils.file_helpers import (
     get_model_db_path, find_model_dir, safe_filename, MODELS_BASE_DIR,
@@ -38,21 +38,11 @@ class Model:
         if self.container_path:
             self.db_path, manifest = unpack_model(self.container_path, self.temp_dir)
             conn = sqlite3.connect(self.db_path)
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='group_questions'")
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='blob_store'")
             if cursor.fetchone() is None:
-                cur = conn.execute("SELECT alto_version FROM model_info")
-                row = cur.fetchone()
-                version = row[0] if row else "0.1a"
                 conn.close()
-                if version.startswith("0.1"):
-                    self._migrate_legacy_container(self.db_path, manifest)
-                    self.db_path, manifest = unpack_model(self.container_path, self.temp_dir)
-                else:
-                    raise RuntimeError(f"Model '{name}' uses an unsupported schema.")
+                raise RuntimeError(f"Model '{name}' uses an old schema that is no longer supported. Please re-import the original .db file.")
             else:
-                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fallbacks'")
-                if cursor.fetchone() is None:
-                    self._upgrade_to_fallbacks(conn)
                 conn.close()
         else:
             legacy_db_path = get_model_db_path(name)
@@ -74,81 +64,8 @@ class Model:
         self._group_summaries = None
         self.last_used = time.time()
 
-    def _upgrade_to_fallbacks(self, conn: sqlite3.Connection):
-        upgrade_schema_to_fallbacks(conn)
-
-    def _migrate_legacy_container(self, old_db_path: str, old_manifest: dict):
-        new_db_path = os.path.join(self.temp_dir, "new_database.db")
-        new_conn = sqlite3.connect(new_db_path)
-        create_empty_schema(new_conn)
-
-        new_conn.execute(f"ATTACH DATABASE '{old_db_path}' AS old")
-
-        for table in ['sections', 'topics', 'variant_groups', 'variant_words']:
-            new_conn.execute(f"INSERT INTO {table} SELECT * FROM old.{table}")
-
-        now_iso = datetime.datetime.now().isoformat()
-        cur = new_conn.execute("SELECT id, group_name, topic_id, section_id, questions_blob, answers_blob FROM old.groups")
-        for row in cur:
-            gid, gname, tid, sid, q_blob, a_blob = row
-            questions = unpack_array(q_blob)
-            answers = unpack_array(a_blob)
-            answers_compressed = compress_blob(pack_array(answers))
-            new_conn.execute(
-                """INSERT INTO groups
-                   (id, group_name, topic_id, section_id, fallback_id, answers_blob, answer_count, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (gid, gname, tid, sid, None, answers_compressed, len(answers), now_iso, now_iso)
-            )
-            for idx, q in enumerate(questions):
-                qid = _get_or_create_question_id(new_conn, q)
-                new_conn.execute(
-                    "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
-                    (gid, qid, idx)
-                )
-
-        cur = new_conn.execute("SELECT id, group_id, parent_id, branch_name, questions_blob, answers_blob FROM old.followup_nodes")
-        for row in cur:
-            new_conn.execute(
-                "INSERT INTO followup_nodes (id, group_id, parent_id, branch_name, questions_blob, answers_blob, fallback_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (row[0], row[1], row[2], row[3], row[4], row[5], None)
-            )
-
-        name = old_manifest.get("name", self.name)
-        desc = old_manifest.get("description", "")
-        author = old_manifest.get("author", "")
-        version = old_manifest.get("version", "1.0.0")
-        alto_ver = old_manifest.get("alto_version", "0.1a")
-        created = old_manifest.get("created_at", now_iso)
-        updated = old_manifest.get("updated_at", now_iso)
-        new_conn.execute(
-            """INSERT INTO model_info
-               (name, description, author, version, alto_version, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, desc, author, version, alto_ver, created, updated)
-        )
-
-        new_conn.execute("DETACH old")
-        new_conn.commit()
-        new_conn.close()
-
-        new_manifest = get_model_info(sqlite3.connect(new_db_path))
-        folder = find_model_dir(self.name)
-        safe = safe_filename(self.name)
-        new_container_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")
-        fd, tmp_path = tempfile.mkstemp(suffix='.rbm', dir=os.path.dirname(new_container_path))
-        os.close(fd)
-        try:
-            pack_model(new_db_path, new_manifest, tmp_path)
-            os.replace(tmp_path, new_container_path)
-            os.remove(old_db_path)
-            self.container_path = new_container_path
-        except Exception:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            raise
-
     def _migrate_legacy_folder(self, legacy_db_path: str):
+        """Convert a legacy .db file (0.1a) to the new optimised schema."""
         temp_conn = sqlite3.connect(legacy_db_path)
         temp_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         temp_conn.close()
@@ -159,32 +76,51 @@ class Model:
 
         new_conn.execute(f"ATTACH DATABASE '{legacy_db_path}' AS old")
 
+        # Copy sections, topics, variants
         for table in ['sections', 'topics', 'variant_groups', 'variant_words']:
             new_conn.execute(f"INSERT INTO {table} SELECT * FROM old.{table}")
 
         now_iso = datetime.datetime.now().isoformat()
+
+        # Migrate groups
         cur = new_conn.execute("SELECT id, group_name, topic_id, section_id, questions_blob, answers_blob FROM old.groups")
         for row in cur:
             gid, gname, tid, sid, q_blob, a_blob = row
-            questions = unpack_array(q_blob)
-            answers = unpack_array(a_blob)
-            answers_compressed = compress_blob(pack_array(answers))
+            questions = unpack_array(q_blob) if q_blob else []
+            answers = unpack_array(a_blob) if a_blob else []
+            q_raw = pack_array(questions)
+            a_raw = pack_array(answers)
+            q_id = store_blob(new_conn, q_raw, normalise=True)
+            a_id = store_blob(new_conn, a_raw, normalise=False)
             new_conn.execute(
-                "INSERT INTO groups (id, group_name, topic_id, section_id, fallback_id, answers_blob, answer_count, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (gid, gname, tid, sid, None, answers_compressed, len(answers), now_iso, now_iso)
+                """INSERT INTO groups
+                   (id, group_name, topic_id, section_id, fallback_id, questions_blob_id, answers_blob_id, answer_count, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (gid, gname, tid, sid, None, q_id, a_id, len(answers), now_iso, now_iso)
             )
             for idx, q in enumerate(questions):
                 qid = _get_or_create_question_id(new_conn, q)
-                new_conn.execute("INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)", (gid, qid, idx))
+                new_conn.execute(
+                    "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
+                    (gid, qid, idx)
+                )
 
+        # Migrate followup_nodes
         cur = new_conn.execute("SELECT id, group_id, parent_id, branch_name, questions_blob, answers_blob FROM old.followup_nodes")
         for row in cur:
+            nid, gid, pid, bname, q_blob, a_blob = row
+            questions = unpack_array(q_blob) if q_blob else []
+            answers = unpack_array(a_blob) if a_blob else []
+            q_raw = pack_array(questions)
+            a_raw = pack_array(answers)
+            q_id = store_blob(new_conn, q_raw, normalise=True)
+            a_id = store_blob(new_conn, a_raw, normalise=False)
             new_conn.execute(
-                "INSERT INTO followup_nodes (id, group_id, parent_id, branch_name, questions_blob, answers_blob, fallback_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (row[0], row[1], row[2], row[3], row[4], row[5], None)
+                "INSERT INTO followup_nodes (id, group_id, parent_id, branch_name, questions_blob_id, answers_blob_id, fallback_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (nid, gid, pid, bname, q_id, a_id, None)
             )
 
+        # Model info
         cur = new_conn.execute("SELECT name, description, author, version, alto_version, created_at, updated_at FROM old.model_info")
         row = cur.fetchone()
         if row:
@@ -193,8 +129,7 @@ class Model:
             name, desc, author, version, alto_ver = self.name, "", "", "1.0.0", "0.1a"
             created = updated = now_iso
         new_conn.execute(
-            "INSERT INTO model_info (name, description, author, version, alto_version, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO model_info (name, description, author, version, alto_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (name, desc, author, version, alto_ver, created, updated)
         )
 
@@ -202,6 +137,7 @@ class Model:
         new_conn.commit()
         new_conn.close()
 
+        # Pack the new database into a .rbm
         folder = find_model_dir(self.name)
         safe = safe_filename(self.name)
         container_path = os.path.join(MODELS_BASE_DIR, folder, f"{safe}.rbm")

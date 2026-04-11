@@ -49,7 +49,9 @@ export class GroupManager extends BaseManager {
     
     async fetchData() {
         const data = await api.get(`${this.getApiPath()}/summaries`);
-        if (data.sections) state.set('sections', data.sections);
+        // Fetch sections properly (as objects with id & name)
+        const sectionsData = await api.get(`/api/models/${state.get('currentModel')}/sections`);
+        state.set('sections', sectionsData);
         return data.groups || [];
     }
     
@@ -63,10 +65,12 @@ export class GroupManager extends BaseManager {
     }
     
     renderItem(group, idx) {
+        const sectionObj = (state.get('sections') || []).find(s => s.id === group.section_id);
+        const sectionName = sectionObj ? sectionObj.name : 'Uncategorized';
         return `
             <div class="group-card" data-card-index="${idx}" data-group-id="${group.id}">
                 <div class="header">
-                    <span class="section-badge">${dom.escapeHtml(group.section || 'Uncategorized')}</span>
+                    <span class="section-badge">${dom.escapeHtml(sectionName)}</span>
                     <div class="card-actions">
                         <button class="card-edit" data-group-id="${group.id}" title="Edit">✎</button>
                         <button class="card-delete" data-group-id="${group.id}" title="Delete">🗑</button>
@@ -121,9 +125,9 @@ export class GroupManager extends BaseManager {
             this.modalGroupCopy = {
                 group_name: '',
                 group_description: '',
-                topic: '',
-                section: '',
-                fallback: '',
+                topic_id: null,
+                section_id: null,
+                fallback_id: null,
                 questions: [],
                 answers: [],
             };
@@ -186,37 +190,41 @@ export class GroupManager extends BaseManager {
     }
     
     populateForm() {
-        document.getElementById('modalGroupName').value = this.modalGroupCopy.group_name || '';
-        document.getElementById('modalGroupDesc').value = this.modalGroupCopy.group_description || '';
+        const modalEl = document.getElementById(this.modalId);
+        if (!modalEl) return;
+        modalEl.querySelector('#modalGroupName').value = this.modalGroupCopy.group_name || '';
+        modalEl.querySelector('#modalGroupDesc').value = this.modalGroupCopy.group_description || '';
         
-        const topicSelect = document.getElementById('modalGroupTopic');
+        const topicSelect = modalEl.querySelector('#modalGroupTopic');
         let topicOptions = '<option value="">(No Topic)</option>';
         (state.get('topics') || []).forEach(t => {
-            topicOptions += `<option value="${dom.escapeHtml(t)}">${dom.escapeHtml(t)}</option>`;
+            topicOptions += `<option value="${t.id}">${dom.escapeHtml(t.name)}</option>`;
         });
         topicSelect.innerHTML = topicOptions;
-        topicSelect.value = this.modalGroupCopy.topic || '';
+        topicSelect.value = this.modalGroupCopy.topic_id || '';
         
-        const sectionSelect = document.getElementById('modalGroupSection');
+        const sectionSelect = modalEl.querySelector('#modalGroupSection');
         let sectionOptions = '<option value="">(Uncategorized)</option>';
         (state.get('sections') || []).forEach(s => {
-            sectionOptions += `<option value="${dom.escapeHtml(s)}">${dom.escapeHtml(s)}</option>`;
+            sectionOptions += `<option value="${s.id}">${dom.escapeHtml(s.name)}</option>`;
         });
         sectionSelect.innerHTML = sectionOptions;
-        sectionSelect.value = this.modalGroupCopy.section || '';
+        sectionSelect.value = this.modalGroupCopy.section_id || '';
         
-        const fallbackSelect = document.getElementById('modalGroupFallback');
+        const fallbackSelect = modalEl.querySelector('#modalGroupFallback');
         let fbOptions = '<option value="">(None)</option>';
         (state.get('fallbacks') || []).forEach(fb => {
-            fbOptions += `<option value="${dom.escapeHtml(fb.name)}">${dom.escapeHtml(fb.name)}</option>`;
+            fbOptions += `<option value="${fb.id}">${dom.escapeHtml(fb.name || '(Unnamed)')}</option>`;
         });
         fallbackSelect.innerHTML = fbOptions;
-        fallbackSelect.value = this.modalGroupCopy.fallback || '';
+        fallbackSelect.value = this.modalGroupCopy.fallback_id || '';
     }
     
     initEditors() {
-        const questionsContainer = document.getElementById('modalQuestionsContainer');
-        const answersContainer = document.getElementById('modalAnswersContainer');
+        const modalEl = document.getElementById(this.modalId);
+        if (!modalEl) return;
+        const questionsContainer = modalEl.querySelector('#modalQuestionsContainer');
+        const answersContainer = modalEl.querySelector('#modalAnswersContainer');
         if (this.questionEditor) this.questionEditor.destroy();
         if (this.answerEditor) this.answerEditor.destroy();
         
@@ -237,7 +245,7 @@ export class GroupManager extends BaseManager {
             onDelete: (idx) => { this.modalGroupCopy.answers.splice(idx, 1); },
         });
         
-        const followupsBtn = document.getElementById('modalEditFollowupsBtn');
+        const followupsBtn = modalEl.querySelector('#modalEditFollowupsBtn');
         if (followupsBtn) {
             followupsBtn.onclick = () => this.openTreeEditor();
         }
@@ -264,15 +272,21 @@ export class GroupManager extends BaseManager {
     }
     
     async saveGroup() {
-        this.modalGroupCopy.group_name = document.getElementById('modalGroupName').value;
-        this.modalGroupCopy.group_description = document.getElementById('modalGroupDesc').value;
-        this.modalGroupCopy.topic = document.getElementById('modalGroupTopic').value;
-        this.modalGroupCopy.section = document.getElementById('modalGroupSection').value;
-        this.modalGroupCopy.fallback = document.getElementById('modalGroupFallback').value;
+        const modalEl = document.getElementById(this.modalId);
+        if (!modalEl) return;
+        let groupName = modalEl.querySelector('#modalGroupName').value.trim();
+        if (!groupName) groupName = 'Unnamed Group';
+        this.modalGroupCopy.group_name = groupName;
+        this.modalGroupCopy.group_description = modalEl.querySelector('#modalGroupDesc').value;
+        const topicId = modalEl.querySelector('#modalGroupTopic').value;
+        this.modalGroupCopy.topic_id = topicId ? parseInt(topicId, 10) : null;
+        const sectionId = modalEl.querySelector('#modalGroupSection').value;
+        this.modalGroupCopy.section_id = sectionId ? parseInt(sectionId, 10) : null;
+        const fallbackId = modalEl.querySelector('#modalGroupFallback').value;
+        this.modalGroupCopy.fallback_id = fallbackId ? parseInt(fallbackId, 10) : null;
         this.modalGroupCopy.questions = this.questionEditor.getItems();
         this.modalGroupCopy.answers = this.answerEditor.getItems();
         
-        // Validation: at least one question and one answer
         if (this.modalGroupCopy.questions.length === 0) {
             error.alert('At least one question is required.');
             return;
@@ -314,8 +328,8 @@ export class GroupManager extends BaseManager {
         }
         if (state.get('sections').length === 0 && state.get('currentModel')) {
             try {
-                const info = await api.get(`/api/models/${state.get('currentModel')}`);
-                if (info.sections) state.set('sections', info.sections);
+                const sections = await api.get(`/api/models/${state.get('currentModel')}/sections`);
+                state.set('sections', sections);
             } catch (e) { /* ignore */ }
         }
     }

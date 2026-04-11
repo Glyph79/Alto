@@ -193,10 +193,10 @@ export class TreeEditor {
 
         const fbSelect = document.getElementById('treeFallbackSelect');
         if (fbSelect) {
-            fbSelect.value = node.fallback || '';
+            fbSelect.value = node.fallback_id || '';
             fbSelect.onchange = (e) => {
                 if (this.selectedNodeId) {
-                    this.nodeMap.get(this.selectedNodeId).fallback = e.target.value;
+                    this.nodeMap.get(this.selectedNodeId).fallback_id = e.target.value ? parseInt(e.target.value, 10) : null;
                     this.unsaved = true;
                 }
             };
@@ -279,7 +279,7 @@ export class TreeEditor {
     }
 
     addRoot() {
-        const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [], fallback: '' };
+        const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [], fallback_id: null };
         newNode.id = `node_${this.nextNodeId++}`;
         this.nodeMap.set(newNode.id, newNode);
         this.currentTree.push(newNode);
@@ -293,7 +293,7 @@ export class TreeEditor {
         const parentNode = this.nodeMap.get(this.selectedNodeId);
         if (!parentNode) return;
         if (!parentNode.children) parentNode.children = [];
-        const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [], fallback: '' };
+        const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [], fallback_id: null };
         newNode.id = `node_${this.nextNodeId++}`;
         this.nodeMap.set(newNode.id, newNode);
         parentNode.children.push(newNode);
@@ -342,12 +342,12 @@ export class TreeEditor {
         if (!select) return;
         let options = '<option value="">(None)</option>';
         (state.get('fallbacks') || []).forEach(fb => {
-            options += `<option value="${dom.escapeHtml(fb.name)}">${dom.escapeHtml(fb.name)}</option>`;
+            options += `<option value="${fb.id}">${dom.escapeHtml(fb.name || '(Unnamed)')}</option>`;
         });
         select.innerHTML = options;
         if (this.selectedNodeId) {
             const node = this.nodeMap.get(this.selectedNodeId);
-            if (node && node.fallback) select.value = node.fallback;
+            if (node && node.fallback_id) select.value = node.fallback_id;
             else select.value = '';
         }
     }
@@ -382,7 +382,7 @@ export class TreeEditor {
                     branch_name: node.branch_name,
                     questions: details.questions,
                     answers: details.answers,
-                    fallback: node.fallback || '',
+                    fallback_id: node.fallback_id || null,
                     children: buildFullTree(node.children || []),
                 };
             });

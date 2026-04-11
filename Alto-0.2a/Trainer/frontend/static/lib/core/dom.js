@@ -1,8 +1,10 @@
 // lib/core/dom.js - DOM utilities
 export const dom = {
     escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/[&<>]/g, function(m) {
+        // Safely handle undefined, null, numbers, etc.
+        if (str === undefined || str === null) return '';
+        const s = String(str);
+        return s.replace(/[&<>]/g, function(m) {
             if (m === '&') return '&amp;';
             if (m === '<') return '&lt;';
             if (m === '>') return '&gt;';

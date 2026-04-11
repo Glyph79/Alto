@@ -2,7 +2,6 @@ import sqlite3
 import datetime
 from typing import List, Dict, Optional
 from .helpers import _get_section_id
-from .compression import compress_blob, decompress_blob
 
 def get_variants(conn: sqlite3.Connection) -> List[Dict]:
     cur = conn.execute("""
@@ -29,7 +28,6 @@ def get_variants(conn: sqlite3.Connection) -> List[Dict]:
 def add_variant(conn: sqlite3.Connection, name: str, section_name: Optional[str], words: List[str]) -> int:
     section_id = _get_section_id(conn, section_name) if section_name else None
     now = datetime.datetime.now().isoformat()
-    conn.execute("BEGIN IMMEDIATE")
     try:
         cur = conn.execute(
             "INSERT INTO variant_groups (name, section_id, created_at) VALUES (?, ?, ?) RETURNING id",
@@ -46,7 +44,6 @@ def add_variant(conn: sqlite3.Connection, name: str, section_name: Optional[str]
 
 def update_variant(conn: sqlite3.Connection, variant_id: int, name: str, section_name: Optional[str], words: List[str]):
     section_id = _get_section_id(conn, section_name) if section_name else None
-    conn.execute("BEGIN IMMEDIATE")
     try:
         conn.execute(
             "UPDATE variant_groups SET name = ?, section_id = ? WHERE id = ?",

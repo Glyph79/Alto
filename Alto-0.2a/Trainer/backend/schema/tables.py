@@ -4,7 +4,7 @@ from typing import Dict, Any
 from .constants import ALTO_VERSION, DEFAULT_SECTIONS, DEFAULT_TOPICS
 
 def create_empty_schema(conn: sqlite3.Connection):
-    """Create all tables and indexes without default data."""
+    """Create all tables and indexes without default data (new optimised schema)."""
     conn.execute("""
         CREATE TABLE model_info (
             name TEXT PRIMARY KEY,
@@ -37,7 +37,8 @@ def create_empty_schema(conn: sqlite3.Connection):
             topic_id INTEGER REFERENCES topics(id) ON DELETE SET NULL,
             section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL,
             fallback_id INTEGER REFERENCES fallbacks(id) ON DELETE SET NULL,
-            answers_blob BLOB NOT NULL,
+            questions_blob_id INTEGER NOT NULL DEFAULT 0,
+            answers_blob_id INTEGER NOT NULL DEFAULT 0,
             answer_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -86,8 +87,8 @@ def create_empty_schema(conn: sqlite3.Connection):
             group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
             parent_id INTEGER REFERENCES followup_nodes(id) ON DELETE CASCADE,
             branch_name TEXT NOT NULL,
-            questions_blob BLOB NOT NULL,
-            answers_blob BLOB NOT NULL,
+            questions_blob_id INTEGER NOT NULL DEFAULT 0,
+            answers_blob_id INTEGER NOT NULL DEFAULT 0,
             fallback_id INTEGER REFERENCES fallbacks(id) ON DELETE SET NULL
         )
     """)
@@ -109,15 +110,26 @@ def create_empty_schema(conn: sqlite3.Connection):
     conn.execute("""
         CREATE TABLE fallbacks (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
+            name TEXT,
             description TEXT NOT NULL,
-            answers_blob BLOB NOT NULL,
+            answers_blob_id INTEGER NOT NULL DEFAULT 0,
             answer_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE blob_store (
+            id INTEGER PRIMARY KEY,
+            hash TEXT UNIQUE NOT NULL,
+            data BLOB NOT NULL,
+            ref_count INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            last_used TEXT NOT NULL
+        )
+    """)
 
+    # Indexes
     conn.execute("CREATE INDEX idx_groups_topic ON groups(topic_id)")
     conn.execute("CREATE INDEX idx_groups_section ON groups(section_id)")
     conn.execute("CREATE INDEX idx_groups_fallback ON groups(fallback_id)")
@@ -129,7 +141,8 @@ def create_empty_schema(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX idx_followup_nodes_fallback ON followup_nodes(fallback_id)")
     conn.execute("CREATE INDEX idx_group_questions_group ON group_questions(group_id)")
     conn.execute("CREATE INDEX idx_group_questions_question ON group_questions(question_id)")
-    conn.execute("CREATE INDEX idx_fallbacks_name ON fallbacks(name)")
+    conn.execute("CREATE INDEX idx_fallbacks_id ON fallbacks(id)")
+    conn.execute("CREATE INDEX idx_blob_store_hash ON blob_store(hash)")
 
 def init_model_db(conn: sqlite3.Connection, model_name: str, description: str, author: str, version: str):
     """Create full schema with default sections/topics for a new model."""
@@ -191,22 +204,6 @@ def update_model_info(conn: sqlite3.Connection, **kwargs):
     conn.commit()
     return info
 
+# Dummy function for compatibility (old .rbm upgrade not supported)
 def upgrade_schema_to_fallbacks(conn: sqlite3.Connection):
-    """Add fallbacks table and fallback_id columns to groups and followup_nodes."""
-    conn.execute("""
-        CREATE TABLE fallbacks (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT NOT NULL,
-            answers_blob BLOB NOT NULL,
-            answer_count INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX idx_fallbacks_name ON fallbacks(name)")
-    conn.execute("ALTER TABLE groups ADD COLUMN fallback_id INTEGER REFERENCES fallbacks(id) ON DELETE SET NULL")
-    conn.execute("CREATE INDEX idx_groups_fallback ON groups(fallback_id)")
-    conn.execute("ALTER TABLE followup_nodes ADD COLUMN fallback_id INTEGER REFERENCES fallbacks(id) ON DELETE SET NULL")
-    conn.execute("CREATE INDEX idx_followup_nodes_fallback ON followup_nodes(fallback_id)")
-    conn.commit()
+    pass

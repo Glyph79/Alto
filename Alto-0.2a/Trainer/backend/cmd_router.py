@@ -9,7 +9,7 @@ from .groups.commands import (
     cmd_get_group_summaries, cmd_get_group_full
 )
 from .sections.commands import (
-    cmd_add_section, cmd_rename_section, cmd_delete_section
+    cmd_add_section, cmd_rename_section, cmd_delete_section, cmd_get_sections
 )
 from .topics.commands import (
     cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic,
@@ -44,6 +44,7 @@ COMMANDS = {
     "add-section":      cmd_add_section,
     "rename-section":   cmd_rename_section,
     "delete-section":   cmd_delete_section,
+    "get-sections":     cmd_get_sections,
     "get-topics":       cmd_get_topics,
     "add-topic":        cmd_add_topic,
     "rename-topic":     cmd_rename_topic,

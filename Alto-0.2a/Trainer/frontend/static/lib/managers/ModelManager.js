@@ -127,34 +127,36 @@ export class ModelManager {
                 content,
                 actions: [
                     { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
-                    { label: 'Create', variant: 'save', close: false, onClick: () => {
-                        const name = document.getElementById('modelName').value.trim();
-                        if (!name) {
-                            error.alert('Model name required');
-                            return;
+                    {
+                        label: 'Create',
+                        variant: 'save',
+                        close: false,
+                        onClick: () => {
+                            const modalEl = document.getElementById(modalId);
+                            if (!modalEl) return;
+                            const nameInput = modalEl.querySelector('#modelName');
+                            const descInput = modalEl.querySelector('#modelDesc');
+                            const authorInput = modalEl.querySelector('#modelAuthor');
+                            const versionInput = modalEl.querySelector('#modelVersion');
+                            const name = nameInput ? nameInput.value.trim() : '';
+                            if (!name) {
+                                error.alert('Model name required');
+                                return;
+                            }
+                            resolve({
+                                name,
+                                description: descInput ? descInput.value : '',
+                                author: authorInput ? authorInput.value : '',
+                                version: versionInput ? versionInput.value : '1.0.0',
+                            });
+                            modal.close(modalId);
                         }
-                        resolve({
-                            name,
-                            description: document.getElementById('modelDesc').value,
-                            author: document.getElementById('modelAuthor').value,
-                            version: document.getElementById('modelVersion').value,
-                        });
-                        modal.close(modalId);
-                    } },
+                    },
                 ],
                 size: 'medium',
                 closable: false,
             });
         });
-    }
-
-    initEventListeners() {
-        this.selectEl.addEventListener('change', (e) => this.switchModel(e.target.value));
-        document.getElementById('createModelBtn')?.addEventListener('click', () => this.createModel());
-        document.getElementById('editModelBtn')?.addEventListener('click', () => this.editModel());
-        document.getElementById('deleteModelBtn')?.addEventListener('click', () => this.deleteModel());
-        document.getElementById('exportBtn')?.addEventListener('click', () => this.exportModel());
-        document.getElementById('importBtn')?.addEventListener('click', () => this.importModel());
     }
 
     async editModel() {
@@ -194,20 +196,31 @@ export class ModelManager {
                 content,
                 actions: [
                     { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
-                    { label: 'Save', variant: 'save', close: false, onClick: () => {
-                        const name = document.getElementById('modelName').value.trim();
-                        if (!name) {
-                            error.alert('Model name required');
-                            return;
+                    {
+                        label: 'Save',
+                        variant: 'save',
+                        close: false,
+                        onClick: () => {
+                            const modalEl = document.getElementById(modalId);
+                            if (!modalEl) return;
+                            const nameInput = modalEl.querySelector('#modelName');
+                            const descInput = modalEl.querySelector('#modelDesc');
+                            const authorInput = modalEl.querySelector('#modelAuthor');
+                            const versionInput = modalEl.querySelector('#modelVersion');
+                            const name = nameInput ? nameInput.value.trim() : '';
+                            if (!name) {
+                                error.alert('Model name required');
+                                return;
+                            }
+                            resolve({
+                                name,
+                                description: descInput ? descInput.value : '',
+                                author: authorInput ? authorInput.value : '',
+                                version: versionInput ? versionInput.value : '1.0.0',
+                            });
+                            modal.close(modalId);
                         }
-                        resolve({
-                            name,
-                            description: document.getElementById('modelDesc').value,
-                            author: document.getElementById('modelAuthor').value,
-                            version: document.getElementById('modelVersion').value,
-                        });
-                        modal.close(modalId);
-                    } },
+                    },
                 ],
                 size: 'medium',
                 closable: false,
@@ -305,7 +318,9 @@ export class ModelManager {
                     { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
                     { label: 'Overwrite', variant: 'save', onClick: () => { modal.close(modalId); resolve({ overwrite: true, name: existingName }); }, close: false },
                     { label: 'Rename', variant: 'save', onClick: () => {
-                        const newName = document.getElementById('newNameInput').value.trim();
+                        const modalEl = document.getElementById(modalId);
+                        if (!modalEl) return;
+                        const newName = modalEl.querySelector('#newNameInput').value.trim();
                         if (newName) {
                             modal.close(modalId);
                             resolve({ overwrite: false, name: newName });
@@ -318,5 +333,14 @@ export class ModelManager {
                 closable: false,
             });
         });
+    }
+
+    initEventListeners() {
+        this.selectEl.addEventListener('change', (e) => this.switchModel(e.target.value));
+        document.getElementById('createModelBtn')?.addEventListener('click', () => this.createModel());
+        document.getElementById('editModelBtn')?.addEventListener('click', () => this.editModel());
+        document.getElementById('deleteModelBtn')?.addEventListener('click', () => this.deleteModel());
+        document.getElementById('exportBtn')?.addEventListener('click', () => this.exportModel());
+        document.getElementById('importBtn')?.addEventListener('click', () => this.importModel());
     }
 }
