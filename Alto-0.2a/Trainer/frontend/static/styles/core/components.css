@@ -592,7 +592,32 @@ input::placeholder {
     margin: 16px 0;
 }
 
-/* Load More button and max items message */
+/* Load Previous button – appears at the top */
+.load-prev-btn {
+    display: block;
+    width: 100%;
+    background: #6c63ff;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+.load-prev-btn:hover {
+    background: #5a52d5;
+    transform: translateY(-1px);
+}
+.load-prev-loader {
+    text-align: center;
+    padding: 12px;
+    color: #aaa;
+    margin-bottom: 16px;
+}
+
+/* Load More button – appears at the bottom */
 .load-more-btn {
     display: block;
     width: 100%;
@@ -615,14 +640,8 @@ input::placeholder {
     padding: 12px;
     color: #aaa;
 }
-.max-items-msg {
-    text-align: center;
-    padding: 12px;
-    color: #ffaa66;
-    font-size: 0.85rem;
-    margin-top: 12px;
-    border-top: 1px solid #2d2d5a;
-}
+
+/* Global loading indicator */
 .global-loading {
     text-align: center;
     padding: 40px;

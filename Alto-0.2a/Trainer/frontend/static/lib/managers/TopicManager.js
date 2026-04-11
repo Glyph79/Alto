@@ -1,4 +1,4 @@
-import { BaseManager } from './BaseManager.js';
+import { BaseManager, naturalCompare } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
@@ -15,8 +15,8 @@ export class TopicManager extends BaseManager {
             nameField: 'name',
             searchFields: ['name'],
             sortSelectors: {
-                'name-asc': (a, b) => a.name.localeCompare(b.name),
-                'name-desc': (a, b) => b.name.localeCompare(a.name),
+                'name-asc': (a, b) => naturalCompare(a.name, b.name),
+                'name-desc': (a, b) => naturalCompare(b.name, a.name),
                 'usage-desc': (a, b) => b.count - a.count,
                 'usage-asc': (a, b) => a.count - b.count,
             },
@@ -24,13 +24,12 @@ export class TopicManager extends BaseManager {
             gridContainerId: 'topicsGridContainer',
             emptyStateDivId: 'noTopicsEmptyState',
         });
-        events.on('groups:updated', () => this.refresh());
+        events.on('state:groups:changed', () => this.refresh());
     }
     
     async fetchPage(offset, limit) {
         const url = `${this.getApiPath()}?limit=${limit}&offset=${offset}`;
         const response = await api.get(url);
-        // We need to merge with group counts, so we handle in transformData
         return {
             items: response.topics,
             total: response.total
@@ -39,23 +38,25 @@ export class TopicManager extends BaseManager {
     
     async load(reset = true) {
         await super.load(reset);
-        state.set('topics', this.originalData);
+        state.set('topics', this.allItems);
     }
     
     transformData(raw) {
-        // raw is the paginated topics list without counts
-        // We'll compute counts from groups state after load
+        // raw is the paginated topics list from API: [{id, name}, ...]
         const groups = state.get('groups') || [];
         const counts = {};
         groups.forEach(g => {
-            const topicId = g.topic_id;
-            if (topicId) counts[topicId] = (counts[topicId] || 0) + 1;
+            const topicName = g.topic || '';
+            if (topicName) {
+                counts[topicName] = (counts[topicName] || 0) + 1;
+            } else {
+                counts['(No Topic)'] = (counts['(No Topic)'] || 0) + 1;
+            }
         });
-        const noTopicCount = groups.filter(g => !g.topic_id).length;
         const items = [];
-        items.push({ id: null, name: '(No Topic)', count: noTopicCount, isNoTopic: true });
+        items.push({ id: null, name: '(No Topic)', count: counts['(No Topic)'] || 0, isNoTopic: true });
         raw.forEach(topic => {
-            items.push({ id: topic.id, name: topic.name, count: counts[topic.id] || 0, isNoTopic: false });
+            items.push({ id: topic.id, name: topic.name, count: counts[topic.name] || 0, isNoTopic: false });
         });
         return items;
     }
@@ -140,7 +141,7 @@ export class TopicManager extends BaseManager {
         if (item.isNoTopic) {
             if (!modalLock.lock('topicModal')) return;
             try {
-                const groupsWithoutTopic = state.get('groups').filter(g => !g.topic_id);
+                const groupsWithoutTopic = state.get('groups').filter(g => !g.topic);
                 let groupsHtml = '';
                 if (groupsWithoutTopic.length === 0) {
                     groupsHtml = '<li style="justify-content:center; color:#888;">No groups without a topic</li>';
@@ -331,11 +332,11 @@ export class TopicManager extends BaseManager {
             error.alert('The "(No Topic)" pseudo‑topic cannot be deleted.');
             return;
         }
-        const groupsUsingCount = state.get('groups').filter(g => g.topic_id === item.id).length;
+        const groupsUsingCount = state.get('groups').filter(g => g.topic === item.name).length;
         let action = 'reassign';
         let target = null;
         if (groupsUsingCount > 0) {
-            const otherTopics = state.get('topics').filter(t => t.id !== item.id);
+            const otherTopics = state.get('topics').filter(t => t.name !== item.name);
             const result = await this.showDeleteOptions(groupsUsingCount, otherTopics);
             if (!result) return;
             action = result.action;

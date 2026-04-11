@@ -1,28 +1,28 @@
-// lib/managers/BaseManager.js - Abstract base with pagination and 100-item cap
+// lib/managers/BaseManager.js - Abstract base with bidirectional pagination, sliding window, and scroll preservation
 import { state } from '../core/state.js';
 import events from '../core/events.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import { error } from '../ui/error.js';
-import { loading } from '../ui/loading.js';
 
 export class BaseManager {
     constructor(featureName, config) {
         this.feature = featureName;
         this.config = config;
         this.grid = null;
-        this.originalData = [];      // all items loaded so far (capped at 100)
+        this.allItems = [];
         this.displayData = [];
         this.isLoaded = false;
         
         // Pagination state
+        this.startOffset = 0;
+        this.endOffset = 0;
         this.totalCount = 0;
-        this.hasMore = true;
         this.limit = 20;
-        this.offset = 0;
         this.maxItems = 100;
         this.isLoadingMore = false;
+        this.isLoadingPrevious = false;
         
         // Search/sort/filter
         this._searchTerm = '';
@@ -37,13 +37,11 @@ export class BaseManager {
     getItems() { throw new Error('getItems() must be implemented'); }
     renderItem(item, index) { throw new Error('renderItem() must be implemented'); }
     
-    // Override to return the correct API endpoint
     getApiPath() {
         const path = this.config.apiPath;
         return typeof path === 'function' ? path() : path;
     }
     
-    // Override to specify the key in the response that holds the array
     get itemsKey() { return this.config.itemsKey || this.feature; }
     
     async fetchPage(offset, limit) {
@@ -55,11 +53,60 @@ export class BaseManager {
         };
     }
     
+    // Helper to get the scrollable ancestor of the grid container
+    getScrollContainer() {
+        const container = document.getElementById(this.config.gridContainerId);
+        if (!container) return window;
+        let el = container.parentElement;
+        while (el && el !== document.body) {
+            const style = window.getComputedStyle(el);
+            if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                return el;
+            }
+            el = el.parentElement;
+        }
+        return window;
+    }
+    
+    // Save current scroll position relative to the first visible item
+    saveScrollPosition() {
+        const scrollContainer = this.getScrollContainer();
+        if (scrollContainer === window) {
+            return { type: 'window', scrollY: window.scrollY };
+        }
+        // Find the first visible grid card
+        const container = document.getElementById(this.config.gridContainerId);
+        const firstCard = container?.querySelector('.group-card, .topic-card, .variant-card, .fallback-card');
+        if (!firstCard) {
+            return { type: 'element', scrollTop: scrollContainer.scrollTop };
+        }
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const cardRect = firstCard.getBoundingClientRect();
+        const offset = cardRect.top - containerRect.top;
+        return { type: 'element', scrollTop: scrollContainer.scrollTop, offsetToCard: offset, card: firstCard };
+    }
+    
+    restoreScrollPosition(saved) {
+        if (!saved) return;
+        const scrollContainer = this.getScrollContainer();
+        if (saved.type === 'window') {
+            window.scrollTo(0, saved.scrollY);
+        } else if (saved.type === 'element' && saved.card && saved.card.isConnected) {
+            const newCardRect = saved.card.getBoundingClientRect();
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const newOffset = newCardRect.top - containerRect.top;
+            const delta = saved.offsetToCard - newOffset;
+            scrollContainer.scrollTop += delta;
+        } else if (saved.type === 'element') {
+            scrollContainer.scrollTop = saved.scrollTop;
+        }
+    }
+    
     async load(reset = true) {
         if (reset) {
-            this.originalData = [];
-            this.offset = 0;
-            this.hasMore = true;
+            this.allItems = [];
+            this.startOffset = 0;
+            this.endOffset = 0;
             this.totalCount = 0;
         }
         if (!state.get('currentModel')) {
@@ -73,27 +120,13 @@ export class BaseManager {
         if (reset) this.showLoadingIndicator(container);
         
         try {
-            const { items, total } = await this.fetchPage(this.offset, this.limit);
-            this.totalCount = total;
-            
             if (reset) {
-                this.originalData = items;
-            } else {
-                this.originalData.push(...items);
+                const { items, total } = await this.fetchPage(0, this.limit);
+                this.totalCount = total;
+                this.allItems = items;
+                this.startOffset = 0;
+                this.endOffset = items.length;
             }
-            
-            // Enforce 100-item cap: remove oldest if exceeded
-            if (this.originalData.length > this.maxItems) {
-                const removeCount = this.originalData.length - this.maxItems;
-                this.originalData.splice(0, removeCount);
-                // Adjust offset to reflect new start? For simplicity, we keep offset as is,
-                // but the user might lose the ability to load more exactly. However, they
-                // can still load more up to total count, but the client cache stays within limit.
-                // We'll keep hasMore based on server total and client count.
-            }
-            
-            this.offset += items.length;
-            this.hasMore = this.offset < this.totalCount && this.originalData.length < this.maxItems;
             
             this._applyFiltersAndSort();
             
@@ -104,9 +137,8 @@ export class BaseManager {
             }
             this.enableControls(true);
             this._updateEmptyState();
-            this.updateLoadMoreButton();
+            this.updateNavButtons();
         } catch (err) {
-            // Suppress old schema error popup
             if (err.message && err.message.includes("uses an old schema that is no longer supported")) {
                 console.warn("Skipping error popup for unsupported model schema:", err.message);
                 this.enableControls(false);
@@ -120,36 +152,100 @@ export class BaseManager {
     }
     
     async loadMore() {
-        if (this.isLoadingMore || !this.hasMore) return;
+        if (this.isLoadingMore || this.endOffset >= this.totalCount) return;
         this.isLoadingMore = true;
         this.showLoadMoreLoading();
-        await this.load(false);
-        this.isLoadingMore = false;
-        this.hideLoadMoreLoading();
+        
+        const savedScroll = this.saveScrollPosition();
+        
+        try {
+            const { items, total } = await this.fetchPage(this.endOffset, this.limit);
+            this.totalCount = total;
+            this.allItems.push(...items);
+            let removedCount = 0;
+            if (this.allItems.length > this.maxItems) {
+                const removeCount = this.allItems.length - this.maxItems;
+                this.allItems.splice(0, removeCount);
+                this.startOffset += removeCount;
+                removedCount = removeCount;
+            }
+            this.endOffset += items.length;
+            
+            this._applyFiltersAndSort();
+            this.grid.setItems(this.displayData);
+            this.updateNavButtons();
+            
+            // Restore scroll after DOM update
+            setTimeout(() => this.restoreScrollPosition(savedScroll), 0);
+        } catch (err) {
+            error.alert(`Failed to load more: ${err.message}`);
+        } finally {
+            this.isLoadingMore = false;
+            this.hideLoadMoreLoading();
+        }
     }
     
-    updateLoadMoreButton() {
+    async loadPrevious() {
+        if (this.isLoadingPrevious || this.startOffset <= 0) return;
+        this.isLoadingPrevious = true;
+        this.showLoadPreviousLoading();
+        
+        const savedScroll = this.saveScrollPosition();
+        
+        const newStart = Math.max(0, this.startOffset - this.limit);
+        const newLimit = this.startOffset - newStart;
+        if (newLimit <= 0) return;
+        
+        try {
+            const { items, total } = await this.fetchPage(newStart, newLimit);
+            this.totalCount = total;
+            this.allItems.unshift(...items);
+            let removedCount = 0;
+            if (this.allItems.length > this.maxItems) {
+                const removeCount = this.allItems.length - this.maxItems;
+                this.allItems.splice(-removeCount, removeCount);
+                this.endOffset -= removeCount;
+                removedCount = removeCount;
+            }
+            this.startOffset = newStart;
+            
+            this._applyFiltersAndSort();
+            this.grid.setItems(this.displayData);
+            this.updateNavButtons();
+            
+            // Restore scroll after DOM update
+            setTimeout(() => this.restoreScrollPosition(savedScroll), 0);
+        } catch (err) {
+            error.alert(`Failed to load previous: ${err.message}`);
+        } finally {
+            this.isLoadingPrevious = false;
+            this.hideLoadPreviousLoading();
+        }
+    }
+    
+    updateNavButtons() {
         const container = document.getElementById(this.config.gridContainerId);
         if (!container) return;
-        let loadMoreBtn = container.querySelector('.load-more-btn');
-        if (this.hasMore && this.originalData.length < this.maxItems) {
-            if (!loadMoreBtn) {
-                loadMoreBtn = dom.createElement('button', { class: 'load-more-btn' }, ['Load More']);
-                loadMoreBtn.addEventListener('click', () => this.loadMore());
-                container.appendChild(loadMoreBtn);
-            }
-        } else if (loadMoreBtn) {
-            loadMoreBtn.remove();
+        
+        const existingPrev = container.querySelector('.load-prev-btn');
+        if (existingPrev) existingPrev.remove();
+        const existingNext = container.querySelector('.load-more-btn');
+        if (existingNext) existingNext.remove();
+        const existingPrevLoader = container.querySelector('.load-prev-loader');
+        if (existingPrevLoader) existingPrevLoader.remove();
+        const existingNextLoader = container.querySelector('.load-more-loader');
+        if (existingNextLoader) existingNextLoader.remove();
+        
+        if (this.startOffset > 0) {
+            const prevBtn = dom.createElement('button', { class: 'load-prev-btn' }, ['← Load Previous']);
+            prevBtn.addEventListener('click', () => this.loadPrevious());
+            container.insertBefore(prevBtn, container.firstChild);
         }
-        let maxMsg = container.querySelector('.max-items-msg');
-        if (this.originalData.length >= this.maxItems && this.hasMore) {
-            if (!maxMsg) {
-                maxMsg = dom.createElement('div', { class: 'max-items-msg' }, 
-                    [`Showing first ${this.maxItems} items. Refine search to see more.`]);
-                container.appendChild(maxMsg);
-            }
-        } else if (maxMsg) {
-            maxMsg.remove();
+        
+        if (this.endOffset < this.totalCount) {
+            const nextBtn = dom.createElement('button', { class: 'load-more-btn' }, ['Load More →']);
+            nextBtn.addEventListener('click', () => this.loadMore());
+            container.appendChild(nextBtn);
         }
     }
     
@@ -171,8 +267,25 @@ export class BaseManager {
         }
     }
     
+    showLoadPreviousLoading() {
+        const container = document.getElementById(this.config.gridContainerId);
+        if (!container) return;
+        let loader = container.querySelector('.load-prev-loader');
+        if (!loader) {
+            loader = dom.createElement('div', { class: 'load-prev-loader' }, ['Loading previous...']);
+            container.insertBefore(loader, container.firstChild);
+        }
+    }
+    
+    hideLoadPreviousLoading() {
+        const container = document.getElementById(this.config.gridContainerId);
+        if (container) {
+            const loader = container.querySelector('.load-prev-loader');
+            if (loader) loader.remove();
+        }
+    }
+    
     showLoadingIndicator(container) {
-        // Already handled by grid or we can add a global loader
         const existing = container.querySelector('.global-loading');
         if (!existing) {
             const loader = dom.createElement('div', { class: 'global-loading' }, ['Loading...']);
@@ -189,13 +302,14 @@ export class BaseManager {
     }
     
     _applyFiltersAndSort() {
-        if (!this.originalData.length) {
+        if (!this.allItems.length) {
             this.displayData = [];
+            if (this.grid) this.grid.setItems(this.displayData);
+            this.updateNavButtons();
             return;
         }
         
-        let filtered = [...this.originalData];
-        
+        let filtered = [...this.allItems];
         if (this._searchTerm) {
             const searchFields = this.config.searchFields || [];
             filtered = filtered.filter(item => {
@@ -205,15 +319,13 @@ export class BaseManager {
                 });
             });
         }
-        
         filtered = this._applyCustomFilters(filtered);
-        
         if (this._sortKey && this.config.sortSelectors[this._sortKey]) {
             filtered.sort(this.config.sortSelectors[this._sortKey]);
         }
-        
         this.displayData = filtered;
         if (this.grid) this.grid.setItems(this.displayData);
+        this.updateNavButtons();
     }
     
     _applyCustomFilters(items) { return items; }
@@ -295,17 +407,17 @@ export class BaseManager {
             this.grid.destroy();
             this.grid = null;
         }
-        this.originalData = [];
+        this.allItems = [];
         this.displayData = [];
-        this.offset = 0;
-        this.hasMore = true;
+        this.startOffset = 0;
+        this.endOffset = 0;
         this.totalCount = 0;
         this.isLoaded = false;
         const container = document.getElementById(this.config.gridContainerId);
         if (container) container.innerHTML = '';
         this.enableControls(false);
         this._updateEmptyState();
-        this.updateLoadMoreButton();
+        this.updateNavButtons();
     }
     
     enableControls(enabled) {
@@ -323,11 +435,9 @@ export class BaseManager {
         const gridContainer = document.getElementById(this.config.gridContainerId);
         const emptyDiv = document.getElementById(this.config.emptyStateDivId);
         if (!gridContainer || !emptyDiv) return;
-
         const hasModel = !!state.get('currentModel');
-        const hasItems = this.originalData && this.originalData.length > 0;
-
-        if (hasModel && !hasItems && this.offset >= this.totalCount && this.totalCount === 0) {
+        const hasItems = this.allItems && this.allItems.length > 0;
+        if (hasModel && !hasItems && this.totalCount === 0) {
             gridContainer.style.display = 'none';
             emptyDiv.style.display = 'flex';
         } else {
@@ -335,4 +445,9 @@ export class BaseManager {
             emptyDiv.style.display = 'none';
         }
     }
+}
+
+export function naturalCompare(a, b) {
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    return collator.compare(a, b);
 }

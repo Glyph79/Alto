@@ -1,4 +1,4 @@
-import { BaseManager } from './BaseManager.js';
+import { BaseManager, naturalCompare } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
@@ -16,8 +16,8 @@ export class GroupManager extends BaseManager {
             nameField: 'group_name',
             searchFields: ['group_name'],
             sortSelectors: {
-                'name-asc': (a, b) => (a.group_name || '').localeCompare(b.group_name || ''),
-                'name-desc': (a, b) => (b.group_name || '').localeCompare(a.group_name || ''),
+                'name-asc': (a, b) => naturalCompare(a.group_name || '', b.group_name || ''),
+                'name-desc': (a, b) => naturalCompare(b.group_name || '', a.group_name || ''),
                 'questions-desc': (a, b) => (b.question_count || 0) - (a.question_count || 0),
                 'questions-asc': (a, b) => (a.question_count || 0) - (b.question_count || 0),
                 'answers-desc': (a, b) => (b.answer_count || 0) - (a.answer_count || 0),
@@ -58,7 +58,7 @@ export class GroupManager extends BaseManager {
     
     async load(reset = true) {
         await super.load(reset);
-        state.set('groups', this.originalData);
+        state.set('groups', this.allItems);
     }
     
     renderItem(group, idx) {
@@ -89,7 +89,7 @@ export class GroupManager extends BaseManager {
         if (index !== undefined && index !== null) {
             await this.openGroupModal(index);
         } else {
-            const foundIndex = this.originalData.findIndex(g => g.id === group.id);
+            const foundIndex = this.allItems.findIndex(g => g.id === group.id);
             if (foundIndex !== -1) await this.openGroupModal(foundIndex);
         }
     }
@@ -314,7 +314,7 @@ export class GroupManager extends BaseManager {
     
     async performDelete(item, index) {
         if (index === undefined) {
-            index = this.originalData.findIndex(g => g.id === item.id);
+            index = this.allItems.findIndex(g => g.id === item.id);
         }
         if (index === -1) return;
         try {

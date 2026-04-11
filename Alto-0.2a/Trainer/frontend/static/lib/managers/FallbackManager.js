@@ -1,4 +1,4 @@
-import { BaseManager } from './BaseManager.js';
+import { BaseManager, naturalCompare } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
@@ -16,8 +16,8 @@ export class FallbackManager extends BaseManager {
             nameField: 'name',
             searchFields: ['name', 'description'],
             sortSelectors: {
-                'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
-                'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
+                'name-asc': (a, b) => naturalCompare(a.name || '', b.name || ''),
+                'name-desc': (a, b) => naturalCompare(b.name || '', a.name || ''),
                 'usage-desc': (a, b) => (b.usage_count || 0) - (a.usage_count || 0),
                 'usage-asc': (a, b) => (a.usage_count || 0) - (b.usage_count || 0),
                 'answers-desc': (a, b) => (b.answer_count || 0) - (a.answer_count || 0),

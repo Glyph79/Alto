@@ -1,4 +1,4 @@
-import { BaseManager } from './BaseManager.js';
+import { BaseManager, naturalCompare } from './BaseManager.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { modal } from '../ui/modal.js';
@@ -15,8 +15,8 @@ export class VariantManager extends BaseManager {
             nameField: 'name',
             searchFields: ['name', 'words'],
             sortSelectors: {
-                'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
-                'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
+                'name-asc': (a, b) => naturalCompare(a.name || '', b.name || ''),
+                'name-desc': (a, b) => naturalCompare(b.name || '', a.name || ''),
                 'words-desc': (a, b) => b.words.length - a.words.length,
                 'words-asc': (a, b) => a.words.length - b.words.length,
             },
@@ -67,7 +67,7 @@ export class VariantManager extends BaseManager {
         try {
             let variant = null;
             if (id !== null) {
-                variant = this.originalData.find(v => v.id === id);
+                variant = this.allItems.find(v => v.id === id);
                 if (!variant) return;
             }
             const isNew = (id === null);
