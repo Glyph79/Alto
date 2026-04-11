@@ -16,13 +16,6 @@ def _get_topic_id(conn: sqlite3.Connection, topic_name: str) -> Optional[int]:
     row = cur.fetchone()
     return row[0] if row else None
 
-def _get_section_id(conn: sqlite3.Connection, section_name: str) -> Optional[int]:
-    if not section_name:
-        return None
-    cur = conn.execute("SELECT id FROM sections WHERE name = ?", (section_name,))
-    row = cur.fetchone()
-    return row[0] if row else None
-
 def _get_fallback_id(conn: sqlite3.Connection, fallback_name: str) -> Optional[int]:
     if not fallback_name:
         return None
@@ -34,13 +27,6 @@ def _get_topic_name(conn: sqlite3.Connection, topic_id: Optional[int]) -> str:
     if topic_id is None:
         return ""
     cur = conn.execute("SELECT name FROM topics WHERE id = ?", (topic_id,))
-    row = cur.fetchone()
-    return row[0] if row else ""
-
-def _get_section_name(conn: sqlite3.Connection, section_id: Optional[int]) -> str:
-    if section_id is None:
-        return ""
-    cur = conn.execute("SELECT name FROM sections WHERE id = ?", (section_id,))
     row = cur.fetchone()
     return row[0] if row else ""
 

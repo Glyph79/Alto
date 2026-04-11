@@ -89,24 +89,35 @@ def cmd_get_node_details(name: str, index: int, node_id: int, **kwargs) -> Dict:
         model = get_model(name)
         summaries = model.get_group_summaries()
         if index < 0 or index >= len(summaries):
-            return {"error": "Group index out of range"}
+            return {"error": f"Group index {index} out of range (0-{len(summaries)-1})"}
         group_id = summaries[index]["id"]
         cur = model.conn.execute(
-            "SELECT questions_blob, answers_blob, fallback_id FROM followup_nodes WHERE id = ? AND group_id = ?",
+            "SELECT questions_blob_id, answers_blob_id, fallback_id FROM followup_nodes WHERE id = ? AND group_id = ?",
             (node_id, group_id)
         )
         row = cur.fetchone()
         if not row:
-            return {"error": "Node not found"}
+            cur2 = model.conn.execute("SELECT id, group_id FROM followup_nodes WHERE id = ?", (node_id,))
+            node_info = cur2.fetchone()
+            if node_info:
+                return {"error": f"Node {node_id} exists but belongs to group {node_info[1]}, not group {group_id}"}
+            else:
+                return {"error": f"Node {node_id} not found in any group"}
         fallback_name = ""
         if row[2]:
             fb_cur = model.conn.execute("SELECT name FROM fallbacks WHERE id = ?", (row[2],))
             fb_row = fb_cur.fetchone()
             if fb_row:
                 fallback_name = fb_row[0]
+        # Use get_blob_data to handle blob_id = 0 gracefully
+        from ..schema.blob_utils import get_blob_data
+        questions_raw = get_blob_data(model.conn, row[0])
+        answers_raw = get_blob_data(model.conn, row[1])
+        questions = unpack_array(questions_raw) if questions_raw else []
+        answers = unpack_array(answers_raw) if answers_raw else []
         return {
-            "questions": unpack_array(row[0]),
-            "answers": unpack_array(row[1]),
+            "questions": questions,
+            "answers": answers,
             "fallback": fallback_name
         }
     except FileNotFoundError:
@@ -118,8 +129,7 @@ def cmd_get_group_summaries(name: str, **kwargs) -> Dict:
     try:
         model = get_model(name)
         summaries = model.get_group_summaries_with_counts()
-        sections = model.get_sections()
-        return {"groups": summaries, "sections": sections}
+        return {"groups": summaries}
     except FileNotFoundError:
         return {"error": f"Model '{name}' not found"}
     except Exception as e:

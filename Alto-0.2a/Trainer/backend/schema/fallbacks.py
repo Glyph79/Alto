@@ -28,7 +28,7 @@ def get_fallbacks(conn: sqlite3.Connection) -> List[Dict]:
 
 def get_fallback_by_id(conn: sqlite3.Connection, fallback_id: int) -> Dict:
     cur = conn.execute(
-        "SELECT id, name, description, answers_blob_id, answer_count, created_at, updated_at FROM fallbacks WHERE id = ?",
+        "SELECT id, name, description, answers_blob_id, answer_count FROM fallbacks WHERE id = ?",
         (fallback_id,)
     )
     row = cur.fetchone()
@@ -41,9 +41,7 @@ def get_fallback_by_id(conn: sqlite3.Connection, fallback_id: int) -> Dict:
         "name": row[1] if row[1] is not None else "",
         "description": row[2],
         "answers": answers,
-        "answer_count": row[4],
-        "created_at": row[5],
-        "updated_at": row[6]
+        "answer_count": row[4]
     }
 
 def create_fallback(conn: sqlite3.Connection, name: str, description: str, answers: List[str]) -> int:
@@ -53,11 +51,10 @@ def create_fallback(conn: sqlite3.Connection, name: str, description: str, answe
         db_name = name.strip()
     answers_raw = pack_array(answers)
     a_id = store_blob(conn, answers_raw, normalise=False)
-    now = datetime.datetime.now().isoformat()
     try:
         cur = conn.execute(
-            "INSERT INTO fallbacks (name, description, answers_blob_id, answer_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-            (db_name, description, a_id, len(answers), now, now)
+            "INSERT INTO fallbacks (name, description, answers_blob_id, answer_count) VALUES (?, ?, ?, ?) RETURNING id",
+            (db_name, description, a_id, len(answers))
         )
         fallback_id = cur.fetchone()[0]
         conn.commit()
@@ -75,11 +72,10 @@ def update_fallback(conn: sqlite3.Connection, fallback_id: int, name: str, descr
     new_a_id = store_blob(conn, answers_raw, normalise=False)
     cur = conn.execute("SELECT answers_blob_id FROM fallbacks WHERE id = ?", (fallback_id,))
     old_a_id = cur.fetchone()[0]
-    now = datetime.datetime.now().isoformat()
     try:
         conn.execute(
-            "UPDATE fallbacks SET name = ?, description = ?, answers_blob_id = ?, answer_count = ?, updated_at = ? WHERE id = ?",
-            (db_name, description, new_a_id, len(answers), now, fallback_id)
+            "UPDATE fallbacks SET name = ?, description = ?, answers_blob_id = ?, answer_count = ? WHERE id = ?",
+            (db_name, description, new_a_id, len(answers), fallback_id)
         )
         release_blob(conn, old_a_id)
         conn.commit()
@@ -97,9 +93,8 @@ def delete_fallback(conn: sqlite3.Connection, fallback_id: int):
 
 def get_groups_by_fallback(conn: sqlite3.Connection, fallback_id: int) -> List[Dict]:
     cur = conn.execute("""
-        SELECT g.id, g.group_name, COALESCE(s.name, '') as section
+        SELECT g.id, g.group_name
         FROM groups g
-        LEFT JOIN sections s ON g.section_id = s.id
         WHERE g.fallback_id = ?
         ORDER BY g.group_name
     """, (fallback_id,))
@@ -107,8 +102,7 @@ def get_groups_by_fallback(conn: sqlite3.Connection, fallback_id: int) -> List[D
     for row in cur:
         groups.append({
             "id": row[0],
-            "group_name": row[1],
-            "section": row[2]
+            "group_name": row[1]
         })
     return groups
 

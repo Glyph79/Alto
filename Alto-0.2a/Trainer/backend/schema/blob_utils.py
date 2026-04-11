@@ -31,15 +31,13 @@ def store_blob(conn: sqlite3.Connection, raw_data: bytes, normalise: bool = Fals
     cur = conn.execute("SELECT id, ref_count FROM blob_store WHERE hash = ?", (blob_hash,))
     row = cur.fetchone()
     if row:
-        conn.execute("UPDATE blob_store SET ref_count = ref_count + 1, last_used = ? WHERE id = ?",
-                     (datetime.datetime.now().isoformat(), row[0]))
+        conn.execute("UPDATE blob_store SET ref_count = ref_count + 1 WHERE id = ?", (row[0],))
         return row[0]
     
     compressed = compress_blob(raw_data)
-    now = datetime.datetime.now().isoformat()
     cur = conn.execute(
-        "INSERT INTO blob_store (hash, data, ref_count, created_at, last_used) VALUES (?, ?, ?, ?, ?) RETURNING id",
-        (blob_hash, compressed, 1, now, now)
+        "INSERT INTO blob_store (hash, data, ref_count) VALUES (?, ?, ?) RETURNING id",
+        (blob_hash, compressed, 1)
     )
     return cur.fetchone()[0]
 

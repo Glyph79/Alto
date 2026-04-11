@@ -6,6 +6,7 @@ import { api } from '../lib/core/api.js';
 import { state } from '../lib/core/state.js';
 import { ListEditor } from './ListEditor.js';
 import { error } from '../lib/ui/error.js';
+import { modalLock } from '../lib/ui/modalLock.js';
 
 export class TreeEditor {
     constructor(config) {
@@ -23,17 +24,23 @@ export class TreeEditor {
     }
 
     async open() {
-        this.modalId = modal.show({
-            title: 'Follow-up Tree Editor',
-            content: this.buildModalContent(),
-            actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => this.handleCancel() },
-                { label: 'Save Tree', variant: 'save', close: false, onClick: () => this.handleSave() },
-            ],
-            size: 'large',
-            closable: false,
-        });
-        await this.loadTree();
+        if (!modalLock.lock('followupTree')) return;
+        try {
+            this.modalId = modal.show({
+                title: 'Follow-up Tree Editor',
+                content: this.buildModalContent(),
+                actions: [
+                    { label: 'Cancel', variant: 'cancel', onClick: () => this.handleCancel() },
+                    { label: 'Save Tree', variant: 'save', close: false, onClick: () => this.handleSave() },
+                ],
+                size: 'large',
+                closable: false,
+            });
+            await this.loadTree();
+        } catch (err) {
+            modalLock.unlock('followupTree');
+            throw err;
+        }
     }
 
     buildModalContent() {
@@ -353,7 +360,6 @@ export class TreeEditor {
     }
 
     async handleSave() {
-        // Validate all nodes have at least one question and one answer
         const validateTree = (nodes) => {
             for (const node of nodes) {
                 const details = this.nodeDetailsCache.get(node.id) || { questions: node.questions || [], answers: node.answers || [] };
@@ -392,6 +398,7 @@ export class TreeEditor {
             await this.onSave(treeToSave);
             this.unsaved = false;
             modal.close(this.modalId);
+            modalLock.unlock('followupTree');
         } catch (err) {
             const treeContainer = document.getElementById('treeContainer');
             retryUI.show(treeContainer, `Failed to save tree: ${err.message}`, () => this.handleSave());
@@ -404,5 +411,6 @@ export class TreeEditor {
             if (!confirmed) return;
         }
         modal.close(this.modalId);
+        modalLock.unlock('followupTree');
     }
 }

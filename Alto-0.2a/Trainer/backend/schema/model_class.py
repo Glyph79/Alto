@@ -13,7 +13,6 @@ from .groups import (
     get_group_summaries, get_group_summaries_with_counts,
     get_group_by_id, insert_group, update_group, delete_group
 )
-from .sections import get_sections_list, add_section, rename_section, delete_section
 from .topics import get_topics_list, add_topic, rename_topic, delete_topic, get_topic_groups
 from .variants import get_variants, add_variant, update_variant, delete_variant
 from .fallbacks import (
@@ -65,7 +64,7 @@ class Model:
         self.last_used = time.time()
 
     def _migrate_legacy_folder(self, legacy_db_path: str):
-        """Convert a legacy .db file (0.1a) to the new optimised schema."""
+        """Convert a legacy .db file (0.1a) to the new optimised schema (no timestamps)."""
         temp_conn = sqlite3.connect(legacy_db_path)
         temp_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         temp_conn.close()
@@ -76,16 +75,14 @@ class Model:
 
         new_conn.execute(f"ATTACH DATABASE '{legacy_db_path}' AS old")
 
-        # Copy sections, topics, variants
-        for table in ['sections', 'topics', 'variant_groups', 'variant_words']:
+        # Copy topics, variants (sections are ignored – they will be lost)
+        for table in ['topics', 'variant_groups', 'variant_words']:
             new_conn.execute(f"INSERT INTO {table} SELECT * FROM old.{table}")
 
-        now_iso = datetime.datetime.now().isoformat()
-
-        # Migrate groups
-        cur = new_conn.execute("SELECT id, group_name, topic_id, section_id, questions_blob, answers_blob FROM old.groups")
+        # Migrate groups (ignore section_id and timestamps)
+        cur = new_conn.execute("SELECT id, group_name, topic_id, questions_blob, answers_blob FROM old.groups")
         for row in cur:
-            gid, gname, tid, sid, q_blob, a_blob = row
+            gid, gname, tid, q_blob, a_blob = row
             questions = unpack_array(q_blob) if q_blob else []
             answers = unpack_array(a_blob) if a_blob else []
             q_raw = pack_array(questions)
@@ -94,9 +91,9 @@ class Model:
             a_id = store_blob(new_conn, a_raw, normalise=False)
             new_conn.execute(
                 """INSERT INTO groups
-                   (id, group_name, topic_id, section_id, fallback_id, questions_blob_id, answers_blob_id, answer_count, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (gid, gname, tid, sid, None, q_id, a_id, len(answers), now_iso, now_iso)
+                   (id, group_name, topic_id, fallback_id, questions_blob_id, answers_blob_id, answer_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (gid, gname, tid, None, q_id, a_id, len(answers))
             )
             for idx, q in enumerate(questions):
                 qid = _get_or_create_question_id(new_conn, q)
@@ -120,17 +117,16 @@ class Model:
                 (nid, gid, pid, bname, q_id, a_id, None)
             )
 
-        # Model info
-        cur = new_conn.execute("SELECT name, description, author, version, alto_version, created_at, updated_at FROM old.model_info")
+        # Model info (no timestamps)
+        cur = new_conn.execute("SELECT name, description, author, version, alto_version FROM old.model_info")
         row = cur.fetchone()
         if row:
-            name, desc, author, version, alto_ver, created, updated = row
+            name, desc, author, version, alto_ver = row
         else:
             name, desc, author, version, alto_ver = self.name, "", "", "1.0.0", "0.1a"
-            created = updated = now_iso
         new_conn.execute(
-            "INSERT INTO model_info (name, description, author, version, alto_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, desc, author, version, alto_ver, created, updated)
+            "INSERT INTO model_info (name, description, author, version, alto_version) VALUES (?, ?, ?, ?, ?)",
+            (name, desc, author, version, alto_ver)
         )
 
         new_conn.execute("DETACH old")
@@ -194,10 +190,6 @@ class Model:
         self.last_used = time.time()
         return get_group_summaries_with_counts(self.conn)
 
-    def get_sections(self) -> List[str]:
-        self.last_used = time.time()
-        return get_sections_list(self.conn)
-
     def get_topics(self) -> List[str]:
         self.last_used = time.time()
         return get_topics_list(self.conn)
@@ -222,21 +214,9 @@ class Model:
         delete_group(self.conn, group_id)
         self._group_summaries = None
 
-    def add_section(self, name: str) -> int:
+    def add_topic(self, name: str) -> int:
         self.last_used = time.time()
-        return add_section(self.conn, name)
-
-    def rename_section(self, old_name: str, new_name: str):
-        self.last_used = time.time()
-        rename_section(self.conn, old_name, new_name)
-
-    def delete_section(self, name: str, action: str = "uncategorized", target: Optional[str] = None):
-        self.last_used = time.time()
-        delete_section(self.conn, name, action, target)
-
-    def add_topic(self, name: str, section_name: Optional[str] = None) -> int:
-        self.last_used = time.time()
-        return add_topic(self.conn, name, section_name)
+        return add_topic(self.conn, name)
 
     def rename_topic(self, old_name: str, new_name: str):
         self.last_used = time.time()
@@ -254,13 +234,13 @@ class Model:
         self.last_used = time.time()
         return get_variants(self.conn)
 
-    def add_variant(self, name: str, section_name: Optional[str], words: List[str]) -> int:
+    def add_variant(self, name: str, words: List[str]) -> int:
         self.last_used = time.time()
-        return add_variant(self.conn, name, section_name, words)
+        return add_variant(self.conn, name, words)
 
-    def update_variant(self, variant_id: int, name: str, section_name: Optional[str], words: List[str]):
+    def update_variant(self, variant_id: int, name: str, words: List[str]):
         self.last_used = time.time()
-        update_variant(self.conn, variant_id, name, section_name, words)
+        update_variant(self.conn, variant_id, name, words)
 
     def delete_variant(self, variant_id: int):
         self.last_used = time.time()

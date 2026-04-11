@@ -6,7 +6,6 @@ import { updateSidebar, resetSidebarFilters } from './sidebar.js';
 
 const tabs = {
     groups: { tabId: 'groupsTab', contentId: 'groupsContent' },
-    sections: { tabId: 'sectionsTab', contentId: 'sectionsContent' },
     topics: { tabId: 'topicsTab', contentId: 'topicsContent' },
     variants: { tabId: 'variantsTab', contentId: 'variantsContent' },
     fallbacks: { tabId: 'fallbacksTab', contentId: 'fallbacksContent' },
@@ -61,7 +60,6 @@ function setTabsEnabled(enabled) {
 
 export function initTabs() {
     dom.on('#groupsTab', 'click', () => switchTo('groups'));
-    dom.on('#sectionsTab', 'click', () => switchTo('sections'));
     dom.on('#topicsTab', 'click', () => switchTo('topics'));
     dom.on('#variantsTab', 'click', () => switchTo('variants'));
     dom.on('#fallbacksTab', 'click', () => switchTo('fallbacks'));

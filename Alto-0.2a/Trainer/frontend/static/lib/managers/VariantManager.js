@@ -6,6 +6,7 @@ import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import events from '../core/events.js';
 import { error } from '../ui/error.js';
+import { modalLock } from '../ui/modalLock.js';
 
 export class VariantManager extends BaseManager {
     constructor() {
@@ -16,8 +17,6 @@ export class VariantManager extends BaseManager {
             sortSelectors: {
                 'name-asc': (a, b) => (a.name || '').localeCompare(b.name || ''),
                 'name-desc': (a, b) => (b.name || '').localeCompare(a.name || ''),
-                'section-asc': (a, b) => (a.section || '').localeCompare(b.section || ''),
-                'section-desc': (a, b) => (b.section || '').localeCompare(a.section || ''),
                 'words-desc': (a, b) => b.words.length - a.words.length,
                 'words-asc': (a, b) => a.words.length - b.words.length,
             },
@@ -27,7 +26,6 @@ export class VariantManager extends BaseManager {
         });
         this.currentVariantId = null;
         this.wordEditor = null;
-        events.on('sections:updated', () => this.refresh());
     }
     
     async fetchData() {
@@ -42,7 +40,6 @@ export class VariantManager extends BaseManager {
         return `
             <div class="variant-card" data-card-index="${idx}" data-variant-id="${variant.id}">
                 <div class="header">
-                    <span class="section-badge">${dom.escapeHtml(variant.section || 'Uncategorized')}</span>
                     <div class="card-actions">
                         <button class="card-edit" data-variant-id="${variant.id}" title="Edit">✎</button>
                         <button class="card-delete" data-variant-id="${variant.id}" title="Delete">🗑</button>
@@ -65,25 +62,30 @@ export class VariantManager extends BaseManager {
     }
     
     async openVariantModal(id) {
-        let variant = null;
-        if (id !== null) {
-            variant = this.originalData.find(v => v.id === id);
-            if (!variant) return;
+        if (!modalLock.lock('variantModal')) return;
+        try {
+            let variant = null;
+            if (id !== null) {
+                variant = this.originalData.find(v => v.id === id);
+                if (!variant) return;
+            }
+            const isNew = (id === null);
+            const modalId = modal.show({
+                title: isNew ? 'Add Variant' : 'Edit Variant',
+                content: this.buildVariantModalContent(variant),
+                actions: [
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('variantModal'); }, close: false },
+                    { label: 'Save', variant: 'save', close: false, onClick: () => this.saveVariant(id, modalId) },
+                ],
+                size: 'medium',
+                closable: false,
+            });
+            this.currentVariantId = id;
+            this.initWordEditor(variant?.words || []);
+        } catch (err) {
+            modalLock.unlock('variantModal');
+            throw err;
         }
-        const isNew = (id === null);
-        const modalId = modal.show({
-            title: isNew ? 'Add Variant' : 'Edit Variant',
-            content: this.buildVariantModalContent(variant),
-            actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                { label: 'Save', variant: 'save', close: false, onClick: () => this.saveVariant(id, modalId) },
-            ],
-            size: 'medium',
-            closable: false,
-        });
-        this.currentVariantId = id;
-        this.initWordEditor(variant?.words || []);
-        this.populateVariantSectionSelect(variant?.section, modalId);
     }
     
     buildVariantModalContent(variant) {
@@ -92,12 +94,6 @@ export class VariantManager extends BaseManager {
             <div class="form-row">
                 <label>Name (optional)</label>
                 <input type="text" id="variantName" value="${dom.escapeHtml(variant?.name || '')}" placeholder="e.g., Weather synonyms">
-            </div>
-            <div class="form-row">
-                <label>Section</label>
-                <select id="variantSectionSelect">
-                    <option value="">(Uncategorized)</option>
-                </select>
             </div>
             <div class="qa-section">
                 <h3>Words <span style="color:#ffaa66;">(at least one)</span></h3>
@@ -120,31 +116,19 @@ export class VariantManager extends BaseManager {
         });
     }
     
-    populateVariantSectionSelect(selectedSection, modalId) {
-        const modalEl = document.getElementById(modalId);
-        if (!modalEl) return;
-        const select = modalEl.querySelector('#variantSectionSelect');
-        if (!select) return;
-        let options = '<option value="">(Uncategorized)</option>';
-        (state.get('sections') || []).forEach(s => {
-            options += `<option value="${dom.escapeHtml(s)}" ${s === selectedSection ? 'selected' : ''}>${dom.escapeHtml(s)}</option>`;
-        });
-        select.innerHTML = options;
-    }
-    
     async saveVariant(id, modalId) {
         const modalEl = document.getElementById(modalId);
         if (!modalEl) return;
         let name = modalEl.querySelector('#variantName').value.trim();
         if (!name) name = 'Unnamed Variant';
-        const section = modalEl.querySelector('#variantSectionSelect').value || null;
         const words = this.wordEditor.getItems();
         
         if (words.length === 0) {
             error.alert('At least one word is required.');
+            modalLock.unlock('variantModal');
             return;
         }
-        const data = { name, words, section };
+        const data = { name, words };
         try {
             if (id === null) {
                 await api.post(this.getApiPath(), data);
@@ -153,8 +137,10 @@ export class VariantManager extends BaseManager {
             }
             await this.load();
             modal.close(modalId);
+            modalLock.unlock('variantModal');
         } catch (err) {
             error.alert(err.message);
+            modalLock.unlock('variantModal');
         }
     }
     

@@ -4,6 +4,7 @@ import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import events from '../core/events.js';
 import { error } from '../ui/error.js';
+import { modalLock } from '../ui/modalLock.js';
 
 export class ModelManager {
     constructor() {
@@ -95,7 +96,7 @@ export class ModelManager {
             const btn = document.getElementById('createFirstModelBtn');
             if (btn) btn.onclick = () => this.createModel();
         }
-        const containers = ['groupsGridContainer', 'sectionsGridContainer', 'topicsGridContainer', 'variantsGridContainer', 'fallbacksGridContainer'];
+        const containers = ['groupsGridContainer', 'topicsGridContainer', 'variantsGridContainer', 'fallbacksGridContainer'];
         containers.forEach(id => {
             const container = document.getElementById(id);
             if (container) container.innerHTML = '';
@@ -115,6 +116,10 @@ export class ModelManager {
 
     showCreateModal() {
         return new Promise((resolve) => {
+            if (!modalLock.lock('modelModal')) {
+                resolve(null);
+                return;
+            }
             let modalId = null;
             const content = dom.createElement('div', {}, [
                 dom.createElement('input', { id: 'modelName', type: 'text', placeholder: 'Model Name', style: 'width:100%; margin-bottom:12px;' }),
@@ -126,7 +131,7 @@ export class ModelManager {
                 title: 'Create New Model',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('modelModal'); resolve(null); }, close: false },
                     {
                         label: 'Create',
                         variant: 'save',
@@ -150,6 +155,7 @@ export class ModelManager {
                                 version: versionInput ? versionInput.value : '1.0.0',
                             });
                             modal.close(modalId);
+                            modalLock.unlock('modelModal');
                         }
                     },
                 ],
@@ -184,6 +190,10 @@ export class ModelManager {
 
     showEditModal(model) {
         return new Promise((resolve) => {
+            if (!modalLock.lock('modelModal')) {
+                resolve(null);
+                return;
+            }
             let modalId = null;
             const content = dom.createElement('div', {}, [
                 dom.createElement('input', { id: 'modelName', type: 'text', placeholder: 'Model Name', value: model.name, style: 'width:100%; margin-bottom:12px;' }),
@@ -195,7 +205,7 @@ export class ModelManager {
                 title: 'Edit Model',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('modelModal'); resolve(null); }, close: false },
                     {
                         label: 'Save',
                         variant: 'save',
@@ -219,6 +229,7 @@ export class ModelManager {
                                 version: versionInput ? versionInput.value : '1.0.0',
                             });
                             modal.close(modalId);
+                            modalLock.unlock('modelModal');
                         }
                     },
                 ],
@@ -305,6 +316,10 @@ export class ModelManager {
 
     showConflictDialog(existingName, dbName) {
         return new Promise((resolve) => {
+            if (!modalLock.lock('modelModal')) {
+                resolve(null);
+                return;
+            }
             let modalId = null;
             const content = dom.createElement('div', {}, [
                 dom.createElement('p', {}, [`A model named "${existingName}" already exists.`]),
@@ -315,14 +330,15 @@ export class ModelManager {
                 title: 'Model Already Exists',
                 content,
                 actions: [
-                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); resolve(null); }, close: false },
-                    { label: 'Overwrite', variant: 'save', onClick: () => { modal.close(modalId); resolve({ overwrite: true, name: existingName }); }, close: false },
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('modelModal'); resolve(null); }, close: false },
+                    { label: 'Overwrite', variant: 'save', onClick: () => { modal.close(modalId); modalLock.unlock('modelModal'); resolve({ overwrite: true, name: existingName }); }, close: false },
                     { label: 'Rename', variant: 'save', onClick: () => {
                         const modalEl = document.getElementById(modalId);
                         if (!modalEl) return;
                         const newName = modalEl.querySelector('#newNameInput').value.trim();
                         if (newName) {
                             modal.close(modalId);
+                            modalLock.unlock('modelModal');
                             resolve({ overwrite: false, name: newName });
                         } else {
                             error.alert('Please enter a name');

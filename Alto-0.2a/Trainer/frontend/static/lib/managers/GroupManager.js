@@ -8,6 +8,7 @@ import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import { TreeEditor } from '../../components/TreeEditor.js';
 import { error } from '../ui/error.js';
+import { modalLock } from '../ui/modalLock.js';
 
 export class GroupManager extends BaseManager {
     constructor() {
@@ -49,9 +50,6 @@ export class GroupManager extends BaseManager {
     
     async fetchData() {
         const data = await api.get(`${this.getApiPath()}/summaries`);
-        // Fetch sections properly (as objects with id & name)
-        const sectionsData = await api.get(`/api/models/${state.get('currentModel')}/sections`);
-        state.set('sections', sectionsData);
         return data.groups || [];
     }
     
@@ -65,12 +63,11 @@ export class GroupManager extends BaseManager {
     }
     
     renderItem(group, idx) {
-        const sectionObj = (state.get('sections') || []).find(s => s.id === group.section_id);
-        const sectionName = sectionObj ? sectionObj.name : 'Uncategorized';
+        const topicName = group.topic || 'Uncategorized';
         return `
             <div class="group-card" data-card-index="${idx}" data-group-id="${group.id}">
                 <div class="header">
-                    <span class="section-badge">${dom.escapeHtml(sectionName)}</span>
+                    <span class="topic-badge">${dom.escapeHtml(topicName)}</span>
                     <div class="card-actions">
                         <button class="card-edit" data-group-id="${group.id}" title="Edit">✎</button>
                         <button class="card-delete" data-group-id="${group.id}" title="Delete">🗑</button>
@@ -100,42 +97,45 @@ export class GroupManager extends BaseManager {
     }
     
     async openGroupModal(index) {
-        this.currentGroupIndex = index;
-        const isNew = (index === null);
-        
-        await this.ensureTopicsAndSections();
-        await this.ensureFallbacks();
-        
-        const modalId = modal.show({
-            title: isNew ? 'Create Group' : 'Edit Group',
-            content: this.buildModalContent(),
-            actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => this.closeGroupModal(), close: false },
-                { label: 'Save Changes', variant: 'save', close: false, onClick: () => this.saveGroup() },
-            ],
-            size: 'medium',
-            closable: false,
-        });
-        this.modalId = modalId;
-        
-        const modalContent = document.querySelector(`#${modalId} .modal-content`);
-        if (window.disableButtonsInContainer) window.disableButtonsInContainer(modalContent);
-        
-        if (isNew) {
-            this.modalGroupCopy = {
-                group_name: '',
-                group_description: '',
-                topic_id: null,
-                section_id: null,
-                fallback_id: null,
-                questions: [],
-                answers: [],
-            };
-            this.populateForm();
-            this.initEditors();
-            if (window.enableButtonsInContainer) window.enableButtonsInContainer(modalContent);
-        } else {
-            try {
+        // Lock to prevent duplicate group modals
+        if (!modalLock.lock('groupModal')) {
+            return; // silently ignore
+        }
+        try {
+            this.currentGroupIndex = index;
+            const isNew = (index === null);
+            
+            await this.ensureTopics();
+            await this.ensureFallbacks();
+            
+            const modalId = modal.show({
+                title: isNew ? 'Create Group' : 'Edit Group',
+                content: this.buildModalContent(),
+                actions: [
+                    { label: 'Cancel', variant: 'cancel', onClick: () => this.closeGroupModal(), close: false },
+                    { label: 'Save Changes', variant: 'save', close: false, onClick: () => this.saveGroup() },
+                ],
+                size: 'medium',
+                closable: false,
+            });
+            this.modalId = modalId;
+            
+            const modalContent = document.querySelector(`#${modalId} .modal-content`);
+            if (window.disableButtonsInContainer) window.disableButtonsInContainer(modalContent);
+            
+            if (isNew) {
+                this.modalGroupCopy = {
+                    group_name: '',
+                    group_description: '',
+                    topic_id: null,
+                    fallback_id: null,
+                    questions: [],
+                    answers: [],
+                };
+                this.populateForm();
+                this.initEditors();
+                if (window.enableButtonsInContainer) window.enableButtonsInContainer(modalContent);
+            } else {
                 const idx = parseInt(index, 10);
                 if (isNaN(idx)) throw new Error('Invalid group index');
                 const fullGroup = await api.get(`${this.getApiPath()}/${idx}/full`);
@@ -143,9 +143,10 @@ export class GroupManager extends BaseManager {
                 this.populateForm();
                 this.initEditors();
                 if (window.enableButtonsInContainer) window.enableButtonsInContainer(modalContent);
-            } catch (err) {
-                retryUI.show(modalContent, `Failed to load group: ${err.message}`, () => this.openGroupModal(index));
             }
+        } catch (err) {
+            modalLock.unlock('groupModal');
+            throw err;
         }
     }
     
@@ -166,13 +167,9 @@ export class GroupManager extends BaseManager {
                     <select id="modalGroupTopic"></select>
                 </div>
                 <div style="flex:1;">
-                    <label>Section</label>
-                    <select id="modalGroupSection"></select>
+                    <label>Fallback (custom default response)</label>
+                    <select id="modalGroupFallback"></select>
                 </div>
-            </div>
-            <div class="form-row">
-                <label>Fallback (custom default response)</label>
-                <select id="modalGroupFallback"></select>
             </div>
             <div class="qa-section">
                 <h3>Questions</h3>
@@ -202,14 +199,6 @@ export class GroupManager extends BaseManager {
         });
         topicSelect.innerHTML = topicOptions;
         topicSelect.value = this.modalGroupCopy.topic_id || '';
-        
-        const sectionSelect = modalEl.querySelector('#modalGroupSection');
-        let sectionOptions = '<option value="">(Uncategorized)</option>';
-        (state.get('sections') || []).forEach(s => {
-            sectionOptions += `<option value="${s.id}">${dom.escapeHtml(s.name)}</option>`;
-        });
-        sectionSelect.innerHTML = sectionOptions;
-        sectionSelect.value = this.modalGroupCopy.section_id || '';
         
         const fallbackSelect = modalEl.querySelector('#modalGroupFallback');
         let fbOptions = '<option value="">(None)</option>';
@@ -280,8 +269,6 @@ export class GroupManager extends BaseManager {
         this.modalGroupCopy.group_description = modalEl.querySelector('#modalGroupDesc').value;
         const topicId = modalEl.querySelector('#modalGroupTopic').value;
         this.modalGroupCopy.topic_id = topicId ? parseInt(topicId, 10) : null;
-        const sectionId = modalEl.querySelector('#modalGroupSection').value;
-        this.modalGroupCopy.section_id = sectionId ? parseInt(sectionId, 10) : null;
         const fallbackId = modalEl.querySelector('#modalGroupFallback').value;
         this.modalGroupCopy.fallback_id = fallbackId ? parseInt(fallbackId, 10) : null;
         this.modalGroupCopy.questions = this.questionEditor.getItems();
@@ -304,7 +291,6 @@ export class GroupManager extends BaseManager {
             }
             await this.load();
             await window.managers.topics?.load();
-            await window.managers.sections?.load();
             this.closeGroupModal();
         } catch (err) {
             error.alert(`Save failed: ${err.message}`);
@@ -317,19 +303,14 @@ export class GroupManager extends BaseManager {
         modal.close(this.modalId);
         this.modalGroupCopy = null;
         this.currentGroupIndex = null;
+        modalLock.unlock('groupModal');
     }
     
-    async ensureTopicsAndSections() {
+    async ensureTopics() {
         if (state.get('topics').length === 0 && state.get('currentModel')) {
             try {
                 const topics = await api.get(`/api/models/${state.get('currentModel')}/topics`);
                 state.set('topics', topics);
-            } catch (e) { /* ignore */ }
-        }
-        if (state.get('sections').length === 0 && state.get('currentModel')) {
-            try {
-                const sections = await api.get(`/api/models/${state.get('currentModel')}/sections`);
-                state.set('sections', sections);
             } catch (e) { /* ignore */ }
         }
     }
@@ -352,7 +333,6 @@ export class GroupManager extends BaseManager {
             await api.delete(`${this.getApiPath()}/${index}`);
             await this.load();
             await window.managers.topics?.load();
-            await window.managers.sections?.load();
         } catch (err) {
             error.alert(err.message);
         }

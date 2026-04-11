@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     'storage': {
         'compression_enabled': 'True',
         'compression_level': '6',
+        'min_blob_size_for_compression': '200',
     }
 }
 

@@ -6,6 +6,7 @@ import { dom } from '../core/dom.js';
 import { ListEditor } from '../../components/ListEditor.js';
 import events from '../core/events.js';
 import { error } from '../ui/error.js';
+import { modalLock } from '../ui/modalLock.js';
 
 export class FallbackManager extends BaseManager {
     constructor() {
@@ -71,27 +72,33 @@ export class FallbackManager extends BaseManager {
     }
     
     async openFallbackModal(fallback) {
-        const isNew = (fallback === null);
-        const modalId = modal.show({
-            title: isNew ? 'Add Fallback' : 'Edit Fallback',
-            content: this.buildFallbackModalContent(fallback),
-            actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                { label: 'Save', variant: 'save', close: false, onClick: () => this.saveFallback(isNew ? null : fallback.id, modalId) },
-            ],
-            size: 'medium',
-            closable: false,
-        });
-        this.initAnswerEditor(fallback?.answers || [], modalId);
-        const modalEl = document.getElementById(modalId);
-        if (modalEl) {
-            if (fallback) {
-                modalEl.querySelector('#fallbackName').value = fallback.name || '';
-                modalEl.querySelector('#fallbackDescription').value = fallback.description || '';
-            } else {
-                modalEl.querySelector('#fallbackName').value = '';
-                modalEl.querySelector('#fallbackDescription').value = '';
+        if (!modalLock.lock('fallbackModal')) return;
+        try {
+            const isNew = (fallback === null);
+            const modalId = modal.show({
+                title: isNew ? 'Add Fallback' : 'Edit Fallback',
+                content: this.buildFallbackModalContent(fallback),
+                actions: [
+                    { label: 'Cancel', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('fallbackModal'); }, close: false },
+                    { label: 'Save', variant: 'save', close: false, onClick: () => this.saveFallback(isNew ? null : fallback.id, modalId) },
+                ],
+                size: 'medium',
+                closable: false,
+            });
+            this.initAnswerEditor(fallback?.answers || [], modalId);
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) {
+                if (fallback) {
+                    modalEl.querySelector('#fallbackName').value = fallback.name || '';
+                    modalEl.querySelector('#fallbackDescription').value = fallback.description || '';
+                } else {
+                    modalEl.querySelector('#fallbackName').value = '';
+                    modalEl.querySelector('#fallbackDescription').value = '';
+                }
             }
+        } catch (err) {
+            modalLock.unlock('fallbackModal');
+            throw err;
         }
     }
     
@@ -138,6 +145,7 @@ export class FallbackManager extends BaseManager {
         
         if (answers.length === 0) {
             error.alert('At least one answer is required.');
+            modalLock.unlock('fallbackModal');
             return;
         }
         const data = { name, description, answers };
@@ -149,9 +157,11 @@ export class FallbackManager extends BaseManager {
             }
             await this.load();
             modal.close(modalId);
+            modalLock.unlock('fallbackModal');
             events.emit('fallbacks:updated');
         } catch (err) {
             error.alert(err.message);
+            modalLock.unlock('fallbackModal');
         }
     }
     

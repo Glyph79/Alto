@@ -2,6 +2,7 @@
 import { state } from '../lib/core/state.js';
 import { dom } from '../lib/core/dom.js';
 import { events } from '../lib/core/events.js';
+import { api } from '../lib/core/api.js';
 
 const sortOptions = {
     groups: [
@@ -12,12 +13,6 @@ const sortOptions = {
         { value: 'answers-desc', label: 'Most answers' },
         { value: 'answers-asc', label: 'Least answers' }
     ],
-    sections: [
-        { value: 'name-asc', label: 'Name (A-Z)' },
-        { value: 'name-desc', label: 'Name (Z-A)' },
-        { value: 'groups-desc', label: 'Most groups' },
-        { value: 'groups-asc', label: 'Least groups' }
-    ],
     topics: [
         { value: 'name-asc', label: 'Name (A-Z)' },
         { value: 'name-desc', label: 'Name (Z-A)' },
@@ -27,8 +22,6 @@ const sortOptions = {
     variants: [
         { value: 'name-asc', label: 'Name (A-Z)' },
         { value: 'name-desc', label: 'Name (Z-A)' },
-        { value: 'section-asc', label: 'Section (A-Z)' },
-        { value: 'section-desc', label: 'Section (Z-A)' },
         { value: 'words-desc', label: 'Most words' },
         { value: 'words-asc', label: 'Least words' }
     ],
@@ -44,6 +37,19 @@ const sortOptions = {
 
 let currentTab = null;
 let currentManager = null;
+
+async function ensureTopicsLoaded() {
+    const currentModel = state.get('currentModel');
+    if (!currentModel) return;
+    let topics = state.get('topics');
+    if (topics && topics.length > 0) return;
+    try {
+        const topicsData = await api.get(`/api/models/${currentModel}/topics`);
+        state.set('topics', topicsData);
+    } catch (err) {
+        console.error('Failed to load topics for sidebar:', err);
+    }
+}
 
 function updateSidebarForTab(tabName) {
     currentTab = tabName;
@@ -74,7 +80,6 @@ function updateSidebarForTab(tabName) {
     if (addBtn) {
         const labels = {
             groups: '+ Add Group',
-            sections: '+ Add Section',
             topics: '+ Add Topic',
             variants: '+ Add Variant',
             fallbacks: '+ Add Fallback'
@@ -94,7 +99,10 @@ function updateSidebarForTab(tabName) {
     if (addButton) addButton.disabled = !hasModel;
     
     if (tabName === 'groups' && hasModel) {
-        populateTopicFilter();
+        // Ensure topics are loaded before populating the filter
+        ensureTopicsLoaded().then(() => {
+            populateTopicFilter();
+        });
     }
     
     if (currentManager && currentManager._searchTerm && searchInput) {
@@ -116,7 +124,8 @@ function populateTopicFilter() {
     const topics = state.get('topics') || [];
     let options = '<option value="">All Topics</option>';
     topics.forEach(topic => {
-        options += `<option value="${dom.escapeHtml(topic)}">${dom.escapeHtml(topic)}</option>`;
+        const topicName = topic.name || topic; // handle both object and string
+        options += `<option value="${dom.escapeHtml(topicName)}">${dom.escapeHtml(topicName)}</option>`;
     });
     options += '<option value="__NO_TOPIC__">(No Topic)</option>';
     topicSelect.innerHTML = options;
@@ -190,10 +199,15 @@ export function resetSidebarFilters() {
 
 export function initSidebar() {
     attachGlobalEvents();
-    // Re‑evaluate sidebar whenever the model changes
     events.on('state:currentModel:changed', () => {
         if (currentTab) {
             updateSidebarForTab(currentTab);
+        }
+    });
+    // Also listen for topics loaded event in case they are loaded later
+    events.on('state:topics:changed', () => {
+        if (currentTab === 'groups') {
+            populateTopicFilter();
         }
     });
 }

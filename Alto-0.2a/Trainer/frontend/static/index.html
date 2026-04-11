@@ -11,7 +11,6 @@
     <link rel="stylesheet" href="/static/styles/core/utilities.css">
     <!-- Feature CSS (minimal overrides) -->
     <link rel="stylesheet" href="/static/styles/features/groups.css">
-    <link rel="stylesheet" href="/static/styles/features/sections.css">
     <link rel="stylesheet" href="/static/styles/features/topics.css">
     <link rel="stylesheet" href="/static/styles/features/variants.css">
     <link rel="stylesheet" href="/static/styles/features/fallbacks.css">
@@ -59,7 +58,6 @@
         <div class="content">
             <div class="tab-bar">
                 <button id="groupsTab" class="tab active">Groups</button>
-                <button id="sectionsTab" class="tab" disabled>Sections</button>
                 <button id="topicsTab" class="tab" disabled>Topics</button>
                 <button id="variantsTab" class="tab" disabled>Variants</button>
                 <button id="fallbacksTab" class="tab" disabled>Fallbacks</button>
@@ -75,15 +73,6 @@
                 <div id="noModelsEmptyState" class="empty-state" style="display: none;">
                     <p>No models found. Create your first model to get started.</p>
                     <button id="createFirstModelBtn">Create Model</button>
-                </div>
-            </div>
-
-            <!-- Sections content -->
-            <div id="sectionsContent" style="display: none;">
-                <div id="sectionsGridContainer"></div>
-                <div id="noSectionsEmptyState" class="empty-state" style="display: none;">
-                    <p>This model has no sections yet.</p>
-                    <button id="createFirstSectionBtn">Add First Section</button>
                 </div>
             </div>
 

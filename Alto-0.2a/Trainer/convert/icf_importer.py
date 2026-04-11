@@ -45,24 +45,13 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
                     items.append(batch)
         return items
 
-    sections = read_batches("sections")
-    for sec in sections:
-        name = sec["name"]
-        if name == "Uncategorized":
-            continue
-        try:
-            model.add_section(name)
-        except Exception as e:
-            if "already exists" not in str(e):
-                print(f"  Warning: could not add section '{name}': {e}")
-    print(f"  Imported {len(sections)} sections")
+    # Sections are ignored – they are not imported
 
     topics = read_batches("topics")
     for topic in topics:
         name = topic["name"]
-        section_name = topic.get("section", "")
         try:
-            model.add_topic(name, section_name if section_name else None)
+            model.add_topic(name)
         except Exception as e:
             if "already exists" not in str(e):
                 print(f"  Warning: could not add topic '{name}': {e}")
@@ -71,10 +60,9 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
     variants = read_batches("variants")
     for variant in variants:
         name = variant["name"]
-        section_name = variant.get("section", "")
         words = variant.get("words", [])
         try:
-            model.add_variant(name, section_name if section_name else None, words)
+            model.add_variant(name, words)
         except Exception as e:
             print(f"  Warning: could not add variant '{name}': {e}")
     print(f"  Imported {len(variants)} variants")
@@ -84,7 +72,6 @@ def import_icf(icf_dir: Path, new_model_name: str, models_dir: Path, create_miss
         group_dict = {
             "group_name": group["group_name"],
             "topic": group.get("topic", ""),
-            "section": group.get("section", ""),
             "fallback": group.get("fallback", ""),
             "questions": group.get("questions", []),
             "answers": group.get("answers", []),

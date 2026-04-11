@@ -5,6 +5,7 @@ import { modal } from '../ui/modal.js';
 import { dom } from '../core/dom.js';
 import events from '../core/events.js';
 import { error } from '../ui/error.js';
+import { modalLock } from '../ui/modalLock.js';
 
 export class TopicManager extends BaseManager {
     constructor() {
@@ -71,180 +72,204 @@ export class TopicManager extends BaseManager {
     }
     
     async openCreateModal() {
-        let modalId = null;
-        const content = dom.createElement('div', {});
-        const formRow = dom.createElement('div', { class: 'form-row' });
-        const label = dom.createElement('label', {}, ['Topic Name']);
-        const input = dom.createElement('input', { id: 'newTopicName', type: 'text', placeholder: 'Topic name', autocomplete: 'off' });
-        formRow.appendChild(label);
-        formRow.appendChild(input);
-        content.appendChild(formRow);
-        
-        modalId = modal.show({
-            title: 'Add Topic',
-            content: content,
-            actions: [
-                { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                {
-                    label: 'Create',
-                    variant: 'save',
-                    close: false,
-                    onClick: async () => {
-                        const modalEl = document.getElementById(modalId);
-                        if (!modalEl) return;
-                        let name = modalEl.querySelector('#newTopicName').value.trim();
-                        if (!name) name = 'Unnamed Topic';
-                        if (name.toLowerCase() === 'null' || name === '(No Topic)') {
-                            error.alert(`"${name}" is a reserved name.`);
-                            return;
-                        }
-                        try {
-                            const result = await api.post(this.getApiPath(), { topic: name });
-                            if (result.topic) {
-                                const currentTopics = state.get('topics') || [];
-                                state.set('topics', [...currentTopics, result.topic]);
+        if (!modalLock.lock('topicModal')) return;
+        try {
+            let modalId = null;
+            const content = dom.createElement('div', {});
+            const formRow = dom.createElement('div', { class: 'form-row' });
+            const label = dom.createElement('label', {}, ['Topic Name']);
+            const input = dom.createElement('input', { id: 'newTopicName', type: 'text', placeholder: 'Topic name', autocomplete: 'off' });
+            formRow.appendChild(label);
+            formRow.appendChild(input);
+            content.appendChild(formRow);
+            
+            modalId = modal.show({
+                title: 'Add Topic',
+                content: content,
+                actions: [
+                    { label: 'Cancel', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
+                    {
+                        label: 'Create',
+                        variant: 'save',
+                        close: false,
+                        onClick: async () => {
+                            const modalEl = document.getElementById(modalId);
+                            if (!modalEl) return;
+                            let name = modalEl.querySelector('#newTopicName').value.trim();
+                            if (!name) name = 'Unnamed Topic';
+                            if (name.toLowerCase() === 'null' || name === '(No Topic)') {
+                                error.alert(`"${name}" is a reserved name.`);
+                                return;
                             }
-                            await this.load();
-                            modal.close(modalId);
-                        } catch (err) {
-                            error.alert(err.message);
+                            try {
+                                const result = await api.post(this.getApiPath(), { topic: name });
+                                if (result.topic) {
+                                    const currentTopics = state.get('topics') || [];
+                                    state.set('topics', [...currentTopics, result.topic]);
+                                }
+                                await this.load();
+                                modal.close(modalId);
+                                modalLock.unlock('topicModal');
+                            } catch (err) {
+                                error.alert(err.message);
+                            }
                         }
-                    }
-                },
-            ],
-            size: 'small',
-            closable: false,
-        });
+                    },
+                ],
+                size: 'small',
+                closable: false,
+            });
+        } catch (err) {
+            modalLock.unlock('topicModal');
+            throw err;
+        }
     }
     
     async openEditModal(item) {
         if (item.isNoTopic) {
-            const groupsWithoutTopic = state.get('groups').filter(g => !g.topic_id);
-            let groupsHtml = '';
-            if (groupsWithoutTopic.length === 0) {
-                groupsHtml = '<li style="justify-content:center; color:#888;">No groups without a topic</li>';
-            } else {
-                groupsHtml = groupsWithoutTopic.map(g => `
-                    <li class="group-usage-item" data-group-id="${g.id}">
-                        <span class="group-name">${dom.escapeHtml(g.group_name || 'Unnamed')}</span>
-                        <div class="group-usage-actions">
-                            <button class="edit-group-from-topic" data-group-id="${g.id}" title="Edit Group">✎</button>
-                            <button class="delete-group-from-topic" data-group-id="${g.id}" title="Delete Group">🗑</button>
-                        </div>
-                    </li>
-                `).join('');
-            }
-            const content = dom.createElement('div', {});
-            const infoRow = dom.createElement('div', { class: 'form-row' });
-            const infoLabel = dom.createElement('label', {}, ['Topic']);
-            const infoValue = dom.createElement('div', { style: 'padding: 8px; background: #2d2d5a; border-radius: 6px;' }, ['(No Topic)']);
-            infoRow.appendChild(infoLabel);
-            infoRow.appendChild(infoValue);
-            content.appendChild(infoRow);
-            const readonlyNote = dom.createElement('p', { style: 'color:#888; margin-bottom: 16px;' }, ['This is a pseudo‑topic and cannot be renamed or deleted. It represents groups without a topic.']);
-            content.appendChild(readonlyNote);
-            const groupsRow = dom.createElement('div', { class: 'form-row' });
-            const groupsLabel = dom.createElement('label', {}, ['Groups without a topic']);
-            const ul = dom.createElement('ul', { class: 'group-usage-list' });
-            ul.innerHTML = groupsHtml;
-            groupsRow.appendChild(groupsLabel);
-            groupsRow.appendChild(ul);
-            content.appendChild(groupsRow);
-            const modalId = modal.show({
-                title: '(No Topic)',
-                content: content,
-                actions: [{ label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false }],
-                size: 'medium',
-                closable: false,
-            });
-            setTimeout(() => {
-                document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
-                        const groupId = parseInt(btn.dataset.groupId);
-                        const index = state.get('groups').findIndex(g => g.id === groupId);
-                        if (index !== -1) {
-                            await window.managers.groups.openEditModal(state.get('groups')[index], index);
-                            modal.close(modalId);
-                        }
-                    });
+            // No lock needed for read-only view, but we still use lock to prevent duplicate
+            if (!modalLock.lock('topicModal')) return;
+            try {
+                const groupsWithoutTopic = state.get('groups').filter(g => !g.topic_id);
+                let groupsHtml = '';
+                if (groupsWithoutTopic.length === 0) {
+                    groupsHtml = '<li style="justify-content:center; color:#888;">No groups without a topic</li>';
+                } else {
+                    groupsHtml = groupsWithoutTopic.map(g => `
+                        <li class="group-usage-item" data-group-id="${g.id}">
+                            <span class="group-name">${dom.escapeHtml(g.group_name || 'Unnamed')}</span>
+                            <div class="group-usage-actions">
+                                <button class="edit-group-from-topic" data-group-id="${g.id}" title="Edit Group">✎</button>
+                                <button class="delete-group-from-topic" data-group-id="${g.id}" title="Delete Group">🗑</button>
+                            </div>
+                        </li>
+                    `).join('');
+                }
+                const content = dom.createElement('div', {});
+                const infoRow = dom.createElement('div', { class: 'form-row' });
+                const infoLabel = dom.createElement('label', {}, ['Topic']);
+                const infoValue = dom.createElement('div', { style: 'padding: 8px; background: #2d2d5a; border-radius: 6px;' }, ['(No Topic)']);
+                infoRow.appendChild(infoLabel);
+                infoRow.appendChild(infoValue);
+                content.appendChild(infoRow);
+                const readonlyNote = dom.createElement('p', { style: 'color:#888; margin-bottom: 16px;' }, ['This is a pseudo‑topic and cannot be renamed or deleted. It represents groups without a topic.']);
+                content.appendChild(readonlyNote);
+                const groupsRow = dom.createElement('div', { class: 'form-row' });
+                const groupsLabel = dom.createElement('label', {}, ['Groups without a topic']);
+                const ul = dom.createElement('ul', { class: 'group-usage-list' });
+                ul.innerHTML = groupsHtml;
+                groupsRow.appendChild(groupsLabel);
+                groupsRow.appendChild(ul);
+                content.appendChild(groupsRow);
+                const modalId = modal.show({
+                    title: '(No Topic)',
+                    content: content,
+                    actions: [{ label: 'Close', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('topicModal'); }, close: false }],
+                    size: 'medium',
+                    closable: false,
                 });
-                document.querySelectorAll('.delete-group-from-topic').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
-                        const groupId = parseInt(btn.dataset.groupId);
-                        const confirmed = await modal.confirm('Delete this group?');
-                        if (confirmed) {
+                setTimeout(() => {
+                    document.querySelectorAll('.edit-group-from-topic').forEach(btn => {
+                        btn.addEventListener('click', async (e) => {
+                            const groupId = parseInt(btn.dataset.groupId);
                             const index = state.get('groups').findIndex(g => g.id === groupId);
                             if (index !== -1) {
-                                try {
-                                    await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
-                                    await window.managers.groups.load();
-                                    await this.load();
-                                    modal.close(modalId);
-                                } catch (err) {
-                                    error.alert(err.message);
+                                await window.managers.groups.openEditModal(state.get('groups')[index], index);
+                                modal.close(modalId);
+                                modalLock.unlock('topicModal');
+                            }
+                        });
+                    });
+                    document.querySelectorAll('.delete-group-from-topic').forEach(btn => {
+                        btn.addEventListener('click', async (e) => {
+                            const groupId = parseInt(btn.dataset.groupId);
+                            const confirmed = await modal.confirm('Delete this group?');
+                            if (confirmed) {
+                                const index = state.get('groups').findIndex(g => g.id === groupId);
+                                if (index !== -1) {
+                                    try {
+                                        await api.delete(`/api/models/${state.get('currentModel')}/groups/${index}`);
+                                        await window.managers.groups.load();
+                                        await this.load();
+                                        modal.close(modalId);
+                                        modalLock.unlock('topicModal');
+                                    } catch (err) {
+                                        error.alert(err.message);
+                                    }
                                 }
                             }
-                        }
+                        });
                     });
-                });
-            }, 100);
+                }, 100);
+            } catch (err) {
+                modalLock.unlock('topicModal');
+                throw err;
+            }
             return;
         }
         
-        const groupsUsing = await api.get(`/api/models/${state.get('currentModel')}/topics/${item.name}/groups`);
-        const groupsHtml = this.renderGroupsList(groupsUsing.groups || [], item.name);
-        const content = dom.createElement('div', {});
-        const formRow1 = dom.createElement('div', { class: 'form-row' });
-        const label1 = dom.createElement('label', {}, ['Topic Name']);
-        const input = dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.name });
-        formRow1.appendChild(label1);
-        formRow1.appendChild(input);
-        content.appendChild(formRow1);
-        const formRow2 = dom.createElement('div', { class: 'form-row' });
-        const label2 = dom.createElement('label', {}, ['Groups using this topic']);
-        const ul = dom.createElement('ul', { class: 'group-usage-list', id: 'topicGroupList' });
-        ul.innerHTML = groupsHtml;
-        formRow2.appendChild(label2);
-        formRow2.appendChild(ul);
-        content.appendChild(formRow2);
-        const modalId = modal.show({
-            title: 'Edit Topic',
-            content: content,
-            actions: [
-                { label: 'Close', variant: 'cancel', onClick: () => modal.close(modalId), close: false },
-                {
-                    label: 'Save',
-                    variant: 'save',
-                    close: false,
-                    onClick: async () => {
-                        const modalEl = document.getElementById(modalId);
-                        if (!modalEl) return;
-                        const newName = modalEl.querySelector('#editTopicName').value.trim();
-                        if (!newName || newName.toLowerCase() === 'null' || newName === '(No Topic)') {
-                            error.alert('Invalid topic name');
-                            return;
-                        }
-                        if (newName !== item.name) {
-                            try {
-                                const result = await api.put(`/api/models/${state.get('currentModel')}/topics/${item.name}`, { new_name: newName });
-                                if (result.topics) {
-                                    state.set('topics', result.topics);
-                                }
-                                await this.load();
-                                modal.close(modalId);
-                            } catch (err) {
-                                error.alert(err.message);
+        if (!modalLock.lock('topicModal')) return;
+        try {
+            const groupsUsing = await api.get(`/api/models/${state.get('currentModel')}/topics/${item.name}/groups`);
+            const groupsHtml = this.renderGroupsList(groupsUsing.groups || [], item.name);
+            const content = dom.createElement('div', {});
+            const formRow1 = dom.createElement('div', { class: 'form-row' });
+            const label1 = dom.createElement('label', {}, ['Topic Name']);
+            const input = dom.createElement('input', { id: 'editTopicName', type: 'text', value: item.name });
+            formRow1.appendChild(label1);
+            formRow1.appendChild(input);
+            content.appendChild(formRow1);
+            const formRow2 = dom.createElement('div', { class: 'form-row' });
+            const label2 = dom.createElement('label', {}, ['Groups using this topic']);
+            const ul = dom.createElement('ul', { class: 'group-usage-list', id: 'topicGroupList' });
+            ul.innerHTML = groupsHtml;
+            formRow2.appendChild(label2);
+            formRow2.appendChild(ul);
+            content.appendChild(formRow2);
+            const modalId = modal.show({
+                title: 'Edit Topic',
+                content: content,
+                actions: [
+                    { label: 'Close', variant: 'cancel', onClick: () => { modal.close(modalId); modalLock.unlock('topicModal'); }, close: false },
+                    {
+                        label: 'Save',
+                        variant: 'save',
+                        close: false,
+                        onClick: async () => {
+                            const modalEl = document.getElementById(modalId);
+                            if (!modalEl) return;
+                            const newName = modalEl.querySelector('#editTopicName').value.trim();
+                            if (!newName || newName.toLowerCase() === 'null' || newName === '(No Topic)') {
+                                error.alert('Invalid topic name');
+                                return;
                             }
-                        } else {
-                            modal.close(modalId);
+                            if (newName !== item.name) {
+                                try {
+                                    const result = await api.put(`/api/models/${state.get('currentModel')}/topics/${item.name}`, { new_name: newName });
+                                    if (result.topics) {
+                                        state.set('topics', result.topics);
+                                    }
+                                    await this.load();
+                                    modal.close(modalId);
+                                    modalLock.unlock('topicModal');
+                                } catch (err) {
+                                    error.alert(err.message);
+                                }
+                            } else {
+                                modal.close(modalId);
+                                modalLock.unlock('topicModal');
+                            }
                         }
-                    }
-                },
-            ],
-            size: 'medium',
-            closable: false,
-        });
-        setTimeout(() => this.attachGroupHandlers(item.name), 100);
+                    },
+                ],
+                size: 'medium',
+                closable: false,
+            });
+            setTimeout(() => this.attachGroupHandlers(item.name), 100);
+        } catch (err) {
+            modalLock.unlock('topicModal');
+            throw err;
+        }
     }
     
     renderGroupsList(groups, topic) {

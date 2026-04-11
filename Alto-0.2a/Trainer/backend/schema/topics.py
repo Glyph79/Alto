@@ -1,21 +1,17 @@
 import sqlite3
 from typing import List, Dict, Optional
-from .helpers import _get_topic_id, _get_section_id
+from .helpers import _get_topic_id
 
 def get_topics_list(conn: sqlite3.Connection) -> List[str]:
     cur = conn.execute("SELECT name FROM topics ORDER BY name")
     return [row[0] for row in cur]
 
-def add_topic(conn: sqlite3.Connection, name: str, section_name: Optional[str] = None) -> int:
-    section_id = _get_section_id(conn, section_name) if section_name else None
+def add_topic(conn: sqlite3.Connection, name: str) -> int:
     try:
         cur = conn.execute("SELECT id FROM topics WHERE name = ?", (name,))
         if cur.fetchone() is not None:
             raise ValueError(f"Topic '{name}' already exists")
-        cur = conn.execute(
-            "INSERT INTO topics (name, section_id) VALUES (?, ?) RETURNING id",
-            (name, section_id)
-        )
+        cur = conn.execute("INSERT INTO topics (name) VALUES (?) RETURNING id", (name,))
         new_id = cur.fetchone()[0]
         conn.commit()
         return new_id
@@ -59,10 +55,8 @@ def get_topic_groups(conn: sqlite3.Connection, topic_name: str) -> List[Dict]:
     cur = conn.execute("""
         SELECT g.id, g.group_name,
                (SELECT COUNT(*) FROM group_questions WHERE group_id = g.id) as question_count,
-               g.answer_count,
-               COALESCE(s.name, '') as section
+               g.answer_count
         FROM groups g
-        LEFT JOIN sections s ON g.section_id = s.id
         WHERE g.topic_id = ?
         ORDER BY g.id
     """, (topic_id,))
@@ -72,7 +66,6 @@ def get_topic_groups(conn: sqlite3.Connection, topic_name: str) -> List[Dict]:
             "id": row[0],
             "group_name": row[1],
             "question_count": row[2],
-            "answer_count": row[3],
-            "section": row[4]
+            "answer_count": row[3]
         })
     return groups

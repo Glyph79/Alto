@@ -213,51 +213,7 @@ async def get_group_full(name, index):
         return jsonify(result), 404
     return jsonify(result)
 
-# Section endpoints
-@app.route('/api/models/<name>/sections', methods=['GET'])
-async def get_sections(name):
-    result = await send_command("get-sections", name=name)
-    if "error" in result:
-        return jsonify(result), 404
-    return jsonify(result)
-
-@app.route('/api/models/<name>/sections', methods=['POST'])
-async def add_section(name):
-    data = await request.get_json()
-    section = data.get('section')
-    if not section:
-        return jsonify({"error": "Section name required"}), 400
-    result = await send_command("add-section", name=name, section=section)
-    if "error" in result:
-        return jsonify(result), 400
-    # Fetch the updated sections list (objects with id & name)
-    sections_result = await send_command("get-sections", name=name)
-    if "error" in sections_result:
-        return jsonify(sections_result), 500
-    return jsonify({"status": "ok", "sections": sections_result})
-
-@app.route('/api/models/<name>/sections/<old_name>', methods=['PUT'])
-async def rename_section(name, old_name):
-    data = await request.get_json()
-    new_name = data.get('new_name')
-    if not new_name:
-        return jsonify({"error": "New name required"}), 400
-    result = await send_command("rename-section", name=name, old=old_name, new=new_name)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
-
-@app.route('/api/models/<name>/sections/<section>', methods=['DELETE'])
-async def delete_section(name, section):
-    action = request.args.get('action', 'uncategorized')
-    target = request.args.get('target')
-    kwargs = {"name": name, "section": section, "action": action}
-    if target:
-        kwargs["target"] = target
-    result = await send_command("delete-section", **kwargs)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify({"status": "ok"})
+# No section routes
 
 # Topic endpoints
 @app.route('/api/models/<name>/topics', methods=['GET'])

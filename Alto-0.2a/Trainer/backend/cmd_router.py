@@ -8,9 +8,7 @@ from .groups.commands import (
     cmd_get_followups, cmd_save_followups, cmd_get_node_details,
     cmd_get_group_summaries, cmd_get_group_full
 )
-from .sections.commands import (
-    cmd_add_section, cmd_rename_section, cmd_delete_section, cmd_get_sections
-)
+# No sections import
 from .topics.commands import (
     cmd_get_topics, cmd_add_topic, cmd_rename_topic, cmd_delete_topic,
     cmd_get_topic_groups
@@ -41,10 +39,7 @@ COMMANDS = {
     "get-node-details": cmd_get_node_details,
     "get-group-summaries": cmd_get_group_summaries,
     "get-group-full":      cmd_get_group_full,
-    "add-section":      cmd_add_section,
-    "rename-section":   cmd_rename_section,
-    "delete-section":   cmd_delete_section,
-    "get-sections":     cmd_get_sections,
+    # No section commands
     "get-topics":       cmd_get_topics,
     "add-topic":        cmd_add_topic,
     "rename-topic":     cmd_rename_topic,

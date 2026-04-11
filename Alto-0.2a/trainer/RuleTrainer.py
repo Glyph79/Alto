@@ -101,24 +101,7 @@ def main():
     p.add_argument("node_id", type=int)
     p.set_defaults(func=COMMANDS["get-node-details"])
 
-    # Section commands
-    p = subparsers.add_parser("add-section")
-    p.add_argument("name")
-    p.add_argument("--section", required=True)
-    p.set_defaults(func=COMMANDS["add-section"])
-
-    p = subparsers.add_parser("rename-section")
-    p.add_argument("name")
-    p.add_argument("--old", required=True)
-    p.add_argument("--new", required=True)
-    p.set_defaults(func=COMMANDS["rename-section"])
-
-    p = subparsers.add_parser("delete-section")
-    p.add_argument("name")
-    p.add_argument("--section", required=True)
-    p.add_argument("--action", choices=["uncategorized", "delete", "move"], default="uncategorized")
-    p.add_argument("--target")
-    p.set_defaults(func=COMMANDS["delete-section"])
+    # Section commands removed
 
     # Topic commands
     p = subparsers.add_parser("get-topics")

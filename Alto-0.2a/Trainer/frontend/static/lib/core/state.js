@@ -4,7 +4,6 @@ import { events } from './events.js';
 const store = {
     currentModel: null,
     groups: [],
-    sections: [],
     topics: [],
     variants: [],
     fallbacks: [],
@@ -45,7 +44,6 @@ export const state = {
         if (modelName) {
             await Promise.all([
                 window.managers?.groups?.load(),
-                window.managers?.sections?.load(),
                 window.managers?.topics?.load(),
                 window.managers?.variants?.load(),
                 window.managers?.fallbacks?.load(),
