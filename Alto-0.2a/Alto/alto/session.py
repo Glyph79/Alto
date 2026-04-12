@@ -1,12 +1,12 @@
+# alto/session.py
 import os
 import json
 import time
 import threading
 import gc
 from typing import Dict, Tuple, Optional
-from ..config import config
+from .config import config
 
-# Read timeouts as minutes, convert to seconds
 HOT_TIMEOUT_MIN = config.getint('session', 'hot_timeout')
 COLD_TIMEOUT_MIN = config.getint('session', 'cold_timeout')
 CLEANUP_INTERVAL_MIN = config.getint('session', 'cleanup_interval')
@@ -27,14 +27,12 @@ def _cold_path(session_id: str) -> str:
 def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
     with _lock:
         now = time.time()
-
         if session_id in _hot:
             state, _ = _hot[session_id]
             if "active_trees" not in state:
                 state["active_trees"] = {}
             if "topics" not in state:
                 state["topics"] = {}
-            # Migrate old format (group_id, path) to active_trees
             if "group_id" in state and state["group_id"] is not None:
                 gid = state["group_id"]
                 path = state.get("path", [])
@@ -91,13 +89,11 @@ def _cleanup():
     while True:
         time.sleep(CLEANUP_INTERVAL)
         now = time.time()
-
         with _lock:
             expired_hot = []
             for sid, (state, last_used) in _hot.items():
                 if now - last_used > HOT_TIMEOUT:
                     expired_hot.append((sid, state, last_used))
-
             for sid, state, last_used in expired_hot:
                 _hot.pop(sid, None)
                 cold_file = _cold_path(sid)
@@ -125,8 +121,6 @@ def _cleanup():
                         pass
         except Exception:
             pass
-
-        # Run garbage collection every cleanup cycle (every minute for testing)
         gc.collect()
 
 _cleaner_thread = threading.Thread(target=_cleanup, daemon=True)

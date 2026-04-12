@@ -1,4 +1,4 @@
-# Alto/backend/adapters/versions/v0_1a.py
+# alto/core/adapters/versions/v0_1a.py
 import os
 import hashlib
 import sqlite3
@@ -155,7 +155,6 @@ class AdapterV0_1a(BaseAdapter):
     def expand_synonyms(self, words: List[str]) -> Set[str]:
         return set(words)
 
-    # ----- Feature support for 0.1a -----
     def get_supported_features(self) -> dict:
         return {
             FEATURE_FULL_TEXT_SEARCH: True,

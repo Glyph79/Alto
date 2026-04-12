@@ -1,17 +1,27 @@
+# web/layer/layer.py
 import asyncio
-from ..engine.handler import process_message as pipeline_process
-from ..session.session import get_session, save_session
-from ..config import config
+from alto.core.dispatcher import Dispatcher
+from alto.session import get_session, save_session
+from alto.config import config
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')
 
 class AltoLayer:
+    def __init__(self):
+        self.dispatcher = None
+
+    def _get_dispatcher(self):
+        if self.dispatcher is None:
+            model_name = config.get('DEFAULT', 'default_model')
+            self.dispatcher = Dispatcher(model_name)
+        return self.dispatcher
+
     async def process_message(self, user_message: str, session_id: str = "default", user_id: int = None):
         state = get_session(session_id, user_id)
         loop = asyncio.get_event_loop()
         final_response, new_state = await loop.run_in_executor(
-            None, pipeline_process, user_message, state
+            None, self._get_dispatcher().process, user_message, state
         )
         save_session(session_id, new_state)
 

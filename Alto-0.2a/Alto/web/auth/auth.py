@@ -1,10 +1,10 @@
+# web/auth/auth.py
 import sqlite3
 import os
 import hashlib
 import secrets
 from typing import Optional
 
-# Get project root and resources directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 DB_PATH = os.path.join(RESOURCES_DIR, 'users.db')
@@ -70,5 +70,4 @@ def user_exists(user_id: int) -> bool:
         row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
         return row is not None
 
-# Initialize the database when module loads
 init_db()

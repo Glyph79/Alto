@@ -1,10 +1,10 @@
-# Alto/backend/adapters/model.py – pure matcher
+# alto/core/adapters/model.py
 import re
 from collections import OrderedDict
 from rapidfuzz import fuzz
 from typing import Dict, List, Optional, Tuple
-from .base import BaseAdapter, get_adapter, FEATURE_CUSTOM_FALLBACKS
-from ..config import config
+from .base import get_adapter, FEATURE_CUSTOM_FALLBACKS
+from ...config import config
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 
@@ -28,7 +28,6 @@ class Model:
         return self._version
 
     def supports_feature(self, feature: str) -> bool:
-        """Return True if the model's version supports the given feature."""
         features = self.adapter.get_supported_features()
         return features.get(feature, False)
 
@@ -121,7 +120,6 @@ class Model:
         return None, 0
 
     def get_fallback_answers(self, fallback_id: int) -> List[str]:
-        """Return custom fallback answers if the feature is supported."""
         if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
             return []
         return self.adapter.get_fallback_answers(fallback_id)

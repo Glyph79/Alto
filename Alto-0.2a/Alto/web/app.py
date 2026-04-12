@@ -1,15 +1,22 @@
+# web/app.py
+import sys
 import os
+
+# Add the project root to Python's path so that 'web' and 'alto' are importable
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from quart import Quart, request, Response, send_from_directory, redirect
 import uuid
 import json
-from backend.layer.layer import process_message
-from backend.auth.auth import register_user, authenticate_user, user_exists
-from backend.config import config
-from backend.adapters.base import get_adapter   # changed: use adapter directly
+from web.layer.layer import process_message
+from web.auth.auth import register_user, authenticate_user, user_exists
+from alto.config import config
+from alto.core.adapters import get_adapter
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVE_WEBUI = config.getboolean('DEFAULT', 'serve_webui', fallback=True)
-FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, 'frontend')
 
 app = Quart(__name__, static_folder=None)
 
@@ -39,7 +46,6 @@ async def login():
         session_id = str(uuid.uuid4())
         response_data = {"message": "Login successful"}
         resp = Response(json.dumps(response_data), status=200, mimetype='application/json')
-        # Set cookies with max_age (30 days) for persistence
         resp.set_cookie('session_id', session_id, path='/', httponly=False, samesite='Lax', max_age=2592000)
         resp.set_cookie('user_id', str(user_id), path='/', httponly=False, samesite='Lax', max_age=2592000)
         return resp
@@ -95,12 +101,10 @@ async def chat():
         response.set_cookie('user_id', str(user_id), path='/', httponly=False, samesite='Lax', max_age=2592000)
     return response
 
-# ========== Network visualizer endpoint (fixed) ==========
+# ========== Network visualizer endpoint ==========
 @app.route('/api/network')
 async def network_data():
     import sqlite3
-    from backend.adapters.base import get_adapter   # use adapter directly
-
     model_name = config.get('DEFAULT', 'default_model')
     try:
         adapter = get_adapter(model_name)
@@ -135,7 +139,6 @@ async def network_data():
             "section": section
         })
 
-    # Groups
     cur = conn.execute("""
         SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, COALESCE(s.name, '') as section
         FROM groups g
@@ -147,7 +150,6 @@ async def network_data():
         group_id = f"group_{row['id']}"
         add_node(group_id, row['group_name'], 'group', row['topic'], row['section'])
 
-    # Follow-up nodes
     cur = conn.execute("""
         SELECT id, group_id, parent_id, branch_name
         FROM followup_nodes
@@ -162,7 +164,6 @@ async def network_data():
         add_node(node_id, row['branch_name'] or 'Unnamed', node_type)
         followup_nodes[row['id']] = (node_id, group_id, parent_id)
 
-    # Links
     for (node_id, group_id, parent_id) in followup_nodes.values():
         if parent_id is None:
             links.append({"source": group_id, "target": node_id})

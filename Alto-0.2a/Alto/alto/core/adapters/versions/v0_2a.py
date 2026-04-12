@@ -1,4 +1,4 @@
-# Alto/backend/adapters/versions/v0_2a.py
+# alto/core/adapters/versions/v0_2a.py
 import os
 import hashlib
 import tarfile

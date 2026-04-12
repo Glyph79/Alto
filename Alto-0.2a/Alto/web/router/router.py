@@ -1,16 +1,25 @@
+# web/router/router.py
+import sys
+import os
 import importlib
 import re
 import sqlite3
 import json
-import os
 from rapidfuzz import fuzz
-from ..config import config
+from alto.config import config
+from alto.core.dispatcher import Dispatcher
+
+# Add resources directory to sys.path so modules inside resources/modules can be imported
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+if RESOURCES_DIR not in sys.path:
+    sys.path.insert(0, RESOURCES_DIR)
 
 ROUTER_THRESHOLD = config.getint('router', 'threshold')
 MIN_WORD_SCORE = config.getint('router', 'min_word_score')
 WORD_SCORER = fuzz.ratio
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'routing', 'router.db')
+DB_PATH = os.path.join(PROJECT_ROOT, 'routing', 'router.db')
 
 def normalize_word(word: str) -> str:
     return re.sub(r'[^\w\s]', '', word.lower())
@@ -68,6 +77,7 @@ class Router:
     def __init__(self):
         self.modules = {}
         self.route_entries = load_routes()
+        self.dispatcher = None
 
     def _load_module(self, module_name):
         if module_name in self.modules:
@@ -142,11 +152,15 @@ class Router:
                 return module.handle(text, state)
             except Exception as e:
                 print(f"--- Router: module '{module.__name__}' raised error: {e}")
-                from ..engine.ai_engine import handle as fallback_handle
-                return fallback_handle(text, state)
+                return self._fallback_handle(text, state)
         else:
             print("--- Router: no module matched, falling back to bot")
-            from ..engine.ai_engine import handle as fallback_handle
-            return fallback_handle(text, state)
+            return self._fallback_handle(text, state)
+
+    def _fallback_handle(self, text, state):
+        if self.dispatcher is None:
+            model_name = config.get('DEFAULT', 'default_model')
+            self.dispatcher = Dispatcher(model_name)
+        return self.dispatcher.process(text, state)
 
 router = Router()

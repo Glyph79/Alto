@@ -1,4 +1,4 @@
-# Alto/backend/adapters/base.py
+# alto/core/adapters/base.py
 import os
 import re
 import json
@@ -10,16 +10,15 @@ import importlib.util
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Set, Type
 
-# -------- Feature constants (shared across adapters) --------
 FEATURE_CUSTOM_FALLBACKS = "custom_fallbacks"
 FEATURE_VARIANTS = "variants"
 FEATURE_FULL_TEXT_SEARCH = "full_text_search"
 FEATURE_TOPICS = "topics"
 FEATURE_FOLLOWUP_TREES = "followup_trees"
-FEATURE_SECTIONS = "sections"  # deprecated in 0.2a
+FEATURE_SECTIONS = "sections"
 
-# -------- Path utilities --------
-MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
+# Updated path: now inside resources/
+MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "resources", "models")
 CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
 os.makedirs(CACHE_ROOT, exist_ok=True)
 
@@ -89,7 +88,6 @@ def get_db_alto_version(db_path: str) -> Optional[str]:
     except Exception:
         return None
 
-# -------- Abstract Adapter --------
 class BaseAdapter(ABC):
     @abstractmethod
     def get_version(self) -> str:
@@ -143,29 +141,17 @@ class BaseAdapter(ABC):
     def expand_synonyms(self, words: List[str]) -> Set[str]:
         pass
 
-    # ----- Default implementations for optional features (fallbacks) -----
-    # These are concrete methods so older adapters do not need to implement them.
     def get_fallback_answers(self, fallback_id: int) -> List[str]:
-        """Return the list of answer strings for a given fallback ID.
-        Default implementation returns empty list (no fallbacks).
-        """
         return []
 
     def get_supported_features(self) -> dict:
-        """Return a dictionary of features supported by this adapter's version.
-        Default implementation returns an empty dict (no advertised features).
-        Adapters that support feature reporting should override this.
-        """
         return {}
 
-
-# -------- Automatic adapter discovery (static mapping from filenames) --------
 def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
     adapters = {}
     versions_dir = os.path.join(os.path.dirname(__file__), 'versions')
     if not os.path.isdir(versions_dir):
         return adapters
-
     for filename in os.listdir(versions_dir):
         if not filename.endswith('.py') or filename == '__init__.py':
             continue
@@ -173,7 +159,7 @@ def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
             continue
         version_part = filename[1:-3]
         version = version_part.replace('_', '.')
-        module_name = f"backend.adapters.versions.{filename[:-3]}"
+        module_name = f"alto.core.adapters.versions.{filename[:-3]}"
         try:
             spec = importlib.util.spec_from_file_location(
                 module_name,
