@@ -5,7 +5,8 @@ import sqlite3
 import msgpack
 import re
 from typing import List, Dict, Set
-from ..base import BaseAdapter, CACHE_ROOT, get_legacy_db_path
+from ..base import BaseAdapter, CACHE_ROOT, get_legacy_db_path, \
+                   FEATURE_FULL_TEXT_SEARCH, FEATURE_TOPICS, FEATURE_FOLLOWUP_TREES, FEATURE_SECTIONS
 
 class AdapterV0_1a(BaseAdapter):
     VERSION = "0.1a"
@@ -153,3 +154,12 @@ class AdapterV0_1a(BaseAdapter):
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
         return set(words)
+
+    # ----- Feature support for 0.1a -----
+    def get_supported_features(self) -> dict:
+        return {
+            FEATURE_FULL_TEXT_SEARCH: True,
+            FEATURE_TOPICS: True,
+            FEATURE_FOLLOWUP_TREES: True,
+            FEATURE_SECTIONS: True,
+        }

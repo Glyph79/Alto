@@ -84,9 +84,14 @@ def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, 
                 "INSERT INTO group_questions (group_id, question_id, sort_order) VALUES (?, ?, ?)",
                 (group_id, qid, idx)
             )
-        delete_followup_tree(conn, group_id)
-        if "follow_ups" in group_dict and group_dict["follow_ups"]:
-            insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+
+        # CHANGED: only replace follow‑ups if the field is explicitly provided
+        if "follow_ups" in group_dict:
+            delete_followup_tree(conn, group_id)
+            if group_dict["follow_ups"]:
+                insert_followup_tree(conn, group_id, group_dict["follow_ups"])
+        # otherwise leave existing tree untouched
+
         conn.commit()
     except Exception:
         conn.rollback()
@@ -150,11 +155,9 @@ def get_group_summaries(conn: sqlite3.Connection) -> List[Dict]:
     return summaries
 
 def get_group_summaries_with_counts(conn: sqlite3.Connection, limit: int, offset: int) -> Tuple[List[Dict], int]:
-    # First get total count
     cur = conn.execute("SELECT COUNT(*) FROM groups")
     total = cur.fetchone()[0]
 
-    # Then get paginated summaries
     cur = conn.execute("""
         SELECT g.id, g.group_name,
                COALESCE(t.name, '') as topic,

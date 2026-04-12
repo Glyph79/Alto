@@ -3,7 +3,7 @@ import re
 from collections import OrderedDict
 from rapidfuzz import fuzz
 from typing import Dict, List, Optional, Tuple
-from .base import BaseAdapter, get_adapter
+from .base import BaseAdapter, get_adapter, FEATURE_CUSTOM_FALLBACKS
 from ..config import config
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
@@ -19,9 +19,18 @@ class Model:
         self.fallback = config.get('DEFAULT', 'fallback')
         self.adapter = get_adapter(model_name)
         self.adapter.get_connection(model_name)
-        debug_print(f"🤖 Initialized matcher for '{model_name}', version {self.adapter.get_version()}")
+        self._version = self.adapter.get_version()
+        debug_print(f"🤖 Initialized matcher for '{model_name}', version {self._version}")
         self._group_cache = OrderedDict()
         self.GROUP_CACHE_SIZE = 3
+
+    def get_version(self) -> str:
+        return self._version
+
+    def supports_feature(self, feature: str) -> bool:
+        """Return True if the model's version supports the given feature."""
+        features = self.adapter.get_supported_features()
+        return features.get(feature, False)
 
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
@@ -57,7 +66,7 @@ class Model:
         if not qids:
             return None, None, 0
 
-        if self.adapter.get_version() == "0.2a":
+        if self._version == "0.2a":
             placeholders = ','.join(['?'] * len(qids))
             cur = conn.execute(f"SELECT DISTINCT group_id FROM group_questions WHERE question_id IN ({placeholders})", qids)
         else:
@@ -110,3 +119,9 @@ class Model:
         if best_score >= self.threshold:
             return best_node, best_score
         return None, 0
+
+    def get_fallback_answers(self, fallback_id: int) -> List[str]:
+        """Return custom fallback answers if the feature is supported."""
+        if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
+            return []
+        return self.adapter.get_fallback_answers(fallback_id)

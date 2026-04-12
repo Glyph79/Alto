@@ -142,7 +142,8 @@ def cmd_get_group_full(name: str, index: int, **kwargs) -> Dict:
         if index < 0 or index >= len(summaries):
             return {"error": "Group index out of range"}
         group_id = summaries[index]["id"]
-        group = model.get_group_by_id(group_id, include_followups=False)
+        # CHANGED: include_followups=True to preserve follow-up trees when editing
+        group = model.get_group_by_id(group_id, include_followups=True)
         del group["id"]
         return group
     except FileNotFoundError:

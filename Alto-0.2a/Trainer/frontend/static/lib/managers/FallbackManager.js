@@ -41,6 +41,12 @@ export class FallbackManager extends BaseManager {
         };
     }
     
+    // CHANGED: update global state after loading
+    async load(reset = true) {
+        await super.load(reset);
+        state.set('fallbacks', this.allItems);
+    }
+    
     renderItem(fb, idx) {
         return `
             <div class="fallback-card" data-card-index="${idx}" data-fallback-id="${fb.id}">
@@ -169,5 +175,11 @@ export class FallbackManager extends BaseManager {
         await api.delete(`${this.getApiPath()}/${item.id}`);
         await this.load(true);
         events.emit('fallbacks:updated');
+    }
+    
+    // CHANGED: clear global state when model is unloaded
+    clear() {
+        super.clear();
+        state.set('fallbacks', []);
     }
 }

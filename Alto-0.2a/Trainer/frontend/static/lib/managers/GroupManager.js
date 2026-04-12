@@ -195,7 +195,19 @@ export class GroupManager extends BaseManager {
             fbOptions += `<option value="${fb.id}">${dom.escapeHtml(fb.name || '(Unnamed)')}</option>`;
         });
         fallbackSelect.innerHTML = fbOptions;
-        fallbackSelect.value = this.modalGroupCopy.fallback_id || '';
+        
+        // CHANGED: map fallback name to its ID for correct selection
+        const fallbackName = this.modalGroupCopy.fallback;
+        if (fallbackName) {
+            const matchedOption = Array.from(fallbackSelect.options).find(opt => opt.text === fallbackName);
+            if (matchedOption) {
+                fallbackSelect.value = matchedOption.value;
+            } else {
+                fallbackSelect.value = '';
+            }
+        } else {
+            fallbackSelect.value = '';
+        }
     }
     
     initEditors() {

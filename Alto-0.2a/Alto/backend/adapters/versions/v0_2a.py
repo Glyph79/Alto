@@ -7,7 +7,9 @@ import msgpack
 import re
 import zstandard as zstd
 from typing import List, Dict, Set
-from ..base import BaseAdapter, CACHE_ROOT, get_model_container_path
+from ..base import BaseAdapter, CACHE_ROOT, get_model_container_path, \
+                   FEATURE_CUSTOM_FALLBACKS, FEATURE_VARIANTS, FEATURE_FULL_TEXT_SEARCH, \
+                   FEATURE_TOPICS, FEATURE_FOLLOWUP_TREES
 
 class AdapterV0_2a(BaseAdapter):
     VERSION = "0.2a"
@@ -58,7 +60,6 @@ class AdapterV0_2a(BaseAdapter):
         return msgpack.unpackb(data, raw=False)
 
     def _decompress_blob(self, blob_id: int) -> bytes:
-        """Retrieve and decompress a blob from blob_store."""
         if blob_id == 0:
             return b''
         conn = self._get_conn()
@@ -67,7 +68,6 @@ class AdapterV0_2a(BaseAdapter):
         if not row:
             return b''
         compressed = row[0]
-        # First byte is flag (0 = raw, 1 = zstd)
         if not compressed:
             return b''
         flag = compressed[0]
@@ -99,8 +99,7 @@ class AdapterV0_2a(BaseAdapter):
     def get_group_data(self, group_id: int) -> Dict:
         conn = self._get_conn()
         cur = conn.execute("""
-            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic,
-                   g.created_at, g.updated_at
+            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, g.fallback_id
             FROM groups g
             LEFT JOIN topics t ON g.topic_id = t.id
             WHERE g.id = ?
@@ -114,29 +113,28 @@ class AdapterV0_2a(BaseAdapter):
             "topic": row[2],
             "questions": self.get_group_questions(group_id),
             "answers": self.get_group_answers(group_id),
-            "created_at": row[3],
-            "updated_at": row[4]
+            "fallback_id": row[3]
         }
 
     def get_root_nodes(self, group_id: int) -> List[Dict]:
         conn = self._get_conn()
         cur = conn.execute("""
-            SELECT id, branch_name
+            SELECT id, branch_name, fallback_id
             FROM followup_nodes
             WHERE group_id = ? AND parent_id IS NULL
             ORDER BY id
         """, (group_id,))
-        return [{"id": row[0], "branch_name": row[1]} for row in cur]
+        return [{"id": row[0], "branch_name": row[1], "fallback_id": row[2]} for row in cur]
 
     def get_node_children(self, node_id: int) -> List[Dict]:
         conn = self._get_conn()
         cur = conn.execute("""
-            SELECT id, branch_name
+            SELECT id, branch_name, fallback_id
             FROM followup_nodes
             WHERE parent_id = ?
             ORDER BY id
         """, (node_id,))
-        return [{"id": row[0], "branch_name": row[1]} for row in cur]
+        return [{"id": row[0], "branch_name": row[1], "fallback_id": row[2]} for row in cur]
 
     def get_node_questions(self, node_id: int) -> List[str]:
         conn = self._get_conn()
@@ -162,25 +160,27 @@ class AdapterV0_2a(BaseAdapter):
         return [row[0] for row in cur]
 
     def get_sections(self) -> List[str]:
-        conn = self._get_conn()
-        cur = conn.execute("SELECT name FROM sections ORDER BY sort_order")
-        return [row[0] for row in cur]
+        try:
+            conn = self._get_conn()
+            cur = conn.execute("SELECT name FROM sections ORDER BY sort_order")
+            return [row[0] for row in cur]
+        except sqlite3.OperationalError:
+            return []
 
     def get_variants(self) -> List[Dict]:
         conn = self._get_conn()
         cur = conn.execute("""
-            SELECT vg.id, vg.name, COALESCE(s.name, '') as section,
+            SELECT vg.id, vg.name,
                    GROUP_CONCAT(vw.word, ',') as words
             FROM variant_groups vg
-            LEFT JOIN sections s ON vg.section_id = s.id
             LEFT JOIN variant_words vw ON vw.group_id = vg.id
             GROUP BY vg.id
             ORDER BY vg.id
         """)
         variants = []
         for row in cur:
-            words = row[3].split(',') if row[3] else []
-            variants.append({"id": row[0], "name": row[1], "section": row[2], "words": words})
+            words = row[2].split(',') if row[2] else []
+            variants.append({"id": row[0], "name": row[1], "words": words})
         return variants
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
@@ -199,3 +199,23 @@ class AdapterV0_2a(BaseAdapter):
             else:
                 expanded.add(w)
         return expanded
+
+    def get_fallback_answers(self, fallback_id: int) -> List[str]:
+        if not fallback_id:
+            return []
+        conn = self._get_conn()
+        cur = conn.execute("SELECT answers_blob_id FROM fallbacks WHERE id = ?", (fallback_id,))
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return []
+        blob_data = self._decompress_blob(row[0])
+        return self._unpack(blob_data) if blob_data else []
+
+    def get_supported_features(self) -> dict:
+        return {
+            FEATURE_CUSTOM_FALLBACKS: True,
+            FEATURE_VARIANTS: True,
+            FEATURE_FULL_TEXT_SEARCH: True,
+            FEATURE_TOPICS: True,
+            FEATURE_FOLLOWUP_TREES: True,
+        }

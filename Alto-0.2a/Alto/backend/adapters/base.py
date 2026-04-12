@@ -10,6 +10,14 @@ import importlib.util
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Set, Type
 
+# -------- Feature constants (shared across adapters) --------
+FEATURE_CUSTOM_FALLBACKS = "custom_fallbacks"
+FEATURE_VARIANTS = "variants"
+FEATURE_FULL_TEXT_SEARCH = "full_text_search"
+FEATURE_TOPICS = "topics"
+FEATURE_FOLLOWUP_TREES = "followup_trees"
+FEATURE_SECTIONS = "sections"  # deprecated in 0.2a
+
 # -------- Path utilities --------
 MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models")
 CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
@@ -135,14 +143,24 @@ class BaseAdapter(ABC):
     def expand_synonyms(self, words: List[str]) -> Set[str]:
         pass
 
+    # ----- Default implementations for optional features (fallbacks) -----
+    # These are concrete methods so older adapters do not need to implement them.
+    def get_fallback_answers(self, fallback_id: int) -> List[str]:
+        """Return the list of answer strings for a given fallback ID.
+        Default implementation returns empty list (no fallbacks).
+        """
+        return []
+
+    def get_supported_features(self) -> dict:
+        """Return a dictionary of features supported by this adapter's version.
+        Default implementation returns an empty dict (no advertised features).
+        Adapters that support feature reporting should override this.
+        """
+        return {}
+
 
 # -------- Automatic adapter discovery (static mapping from filenames) --------
 def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
-    """Scan the 'versions' folder and return a dict version -> adapter class.
-    Expects files named v{version}.py (e.g., v0_1a.py) containing a class named
-    AdapterV{version} (e.g., AdapterV0_1a). The version string is extracted by
-    removing the 'AdapterV' prefix and converting underscores back to dots.
-    """
     adapters = {}
     versions_dir = os.path.join(os.path.dirname(__file__), 'versions')
     if not os.path.isdir(versions_dir):
@@ -151,11 +169,9 @@ def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
     for filename in os.listdir(versions_dir):
         if not filename.endswith('.py') or filename == '__init__.py':
             continue
-        # Extract version from filename: v0_1a.py -> "0_1a"
         if not filename.startswith('v'):
             continue
-        version_part = filename[1:-3]  # remove 'v' and '.py'
-        # Convert underscores to dots for version string: "0_1a" -> "0.1a"
+        version_part = filename[1:-3]
         version = version_part.replace('_', '.')
         module_name = f"backend.adapters.versions.{filename[:-3]}"
         try:
@@ -165,7 +181,6 @@ def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
             )
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            # Find the adapter class (should be named AdapterV{version_part})
             class_name = f"AdapterV{version_part}"
             adapter_class = getattr(module, class_name, None)
             if adapter_class and issubclass(adapter_class, BaseAdapter):
@@ -177,7 +192,6 @@ def _discover_adapters() -> Dict[str, Type[BaseAdapter]]:
 _ADAPTER_MAP = _discover_adapters()
 
 def get_adapter(model_name: str) -> BaseAdapter:
-    """Return the appropriate adapter for the given model."""
     container_path = get_model_container_path(model_name)
     if container_path and os.path.isfile(container_path):
         manifest = read_manifest(container_path)

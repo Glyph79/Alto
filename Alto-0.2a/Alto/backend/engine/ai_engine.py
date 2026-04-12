@@ -1,9 +1,10 @@
-# Alto/backend/engine/ai_engine.py – full conversation orchestrator
+# Alto/backend/engine/ai_engine.py – full conversation orchestrator with custom fallbacks
 import time
 import re
 from collections import OrderedDict
 from ..config import config
 from ..adapters.model import Model
+from ..adapters.base import FEATURE_CUSTOM_FALLBACKS
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 
@@ -95,6 +96,11 @@ class SessionTree:
     def roots(self):
         return self._roots
 
+    def current_node(self):
+        if not self.path:
+            return None
+        return self._nodes.get(self.path[-1])
+
 
 class RuleBot:
     DEFAULT = "Alto"
@@ -104,8 +110,8 @@ class RuleBot:
         self.threshold = threshold if threshold is not None else config.getint('ai', 'threshold')
         self.fallback = config.get('DEFAULT', 'fallback')
         debug_print(f"🤖 Initializing RuleBot with model '{self.model_name}', threshold={self.threshold}")
-        self.matcher = Model(self.model_name, self.threshold)   # pure matcher
-        debug_print(f"✅ Matcher loaded")
+        self.matcher = Model(self.model_name, self.threshold)
+        debug_print(f"✅ Matcher loaded, version {self.matcher.get_version()}")
 
     def _update_topics(self, session_topics: dict, selected_topic: str):
         TOPIC_DECAY = config.getint('ai', 'topic_decay')
@@ -136,6 +142,16 @@ class RuleBot:
             return obj["answers"][0]
         return self.fallback
 
+    def _use_custom_fallback(self, fallback_id, state):
+        """Try to get a custom fallback answer. Returns (answer, state) or (None, None)."""
+        if not self.matcher.supports_feature(FEATURE_CUSTOM_FALLBACKS):
+            return None, None
+        if fallback_id:
+            answers = self.matcher.get_fallback_answers(fallback_id)
+            if answers:
+                return answers[0], state
+        return None, None
+
     def get_response(self, text, state=None):
         if state is None:
             state = {}
@@ -147,6 +163,8 @@ class RuleBot:
             state["topics"] = {}
         if "active_trees" not in state:
             state["active_trees"] = {}
+        if "current_fallback_id" not in state:
+            state["current_fallback_id"] = None
 
         words = [self.matcher._norm_word(w) for w in text.split() if w]
         exp = self.matcher.adapter.expand_synonyms(words)
@@ -167,9 +185,22 @@ class RuleBot:
                 debug_print(f"✅ Matched node in existing tree, new path {new_path}")
                 tree.ensure_answers(node["id"])
                 state["active_trees"][gid] = {"path": new_path, "last_used": now}
+                state["current_fallback_id"] = node.get("fallback_id")
                 return self._random_answer(node), state
+            else:
+                # No child matched – try custom fallback of current node
+                current_node = tree.current_node()
+                if current_node and current_node.get("fallback_id"):
+                    debug_print(f"   No child matched, using custom fallback of node '{current_node.get('branch_name', 'unnamed')}'")
+                    resp, new_state = self._use_custom_fallback(current_node["fallback_id"], state)
+                    if resp:
+                        # Stay in the same tree, do not change path
+                        state["active_trees"][gid] = {"path": path, "last_used": now}
+                        return resp, state
+                debug_print(f"   No child matched and no custom fallback on current node")
+                # Fall through to group-level fallback later
 
-        # Step 2: Search groups
+        # Step 2: Search groups (only if no active tree matched)
         if exp:
             debug_print(f"🔎 Expanded synonyms: {exp}")
             gid, group_data, score = self.matcher.match_groups(text, state["topics"])
@@ -188,21 +219,35 @@ class RuleBot:
                     if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
                         self._evict_lru_tree(state["active_trees"], MAX_ACTIVE_TREES)
                     state["active_trees"][gid] = {"path": [node["id"]], "last_used": now}
+                    state["current_fallback_id"] = node.get("fallback_id")
                     return self._random_answer(node), state
                 else:
                     debug_print(f"  ➡️ No root node matched, using group answer")
                     if len(state["active_trees"]) >= MAX_ACTIVE_TREES:
                         self._evict_lru_tree(state["active_trees"], MAX_ACTIVE_TREES)
                     state["active_trees"][gid] = {"path": [], "last_used": now}
+                    state["current_fallback_id"] = group_data.get("fallback_id")
                     return self._random_answer(group_data), state
             else:
                 debug_print("   No group matched")
         else:
             debug_print("   No expanded synonyms to search")
 
-        debug_print("❌ No match found, using fallback")
+        # Step 3: No match – try custom fallback from current context (group or node)
+        if state.get("current_fallback_id"):
+            debug_print(f"🔄 Using custom fallback from current context (fallback_id {state['current_fallback_id']})")
+            resp, new_state = self._use_custom_fallback(state["current_fallback_id"], state)
+            if resp:
+                # Keep the current tree/path unchanged
+                return resp, state
+
+        # Step 4: Global fallback
+        debug_print("❌ No match found, using global fallback")
         return self.fallback, state
 
+
+# Module‑level handle function for router compatibility
+_bot = None
 
 def handle(text, state=None):
     global _bot
@@ -227,5 +272,3 @@ def handle(text, state=None):
         except Exception as e2:
             debug_print(f"⚠️ Second exception: {e2}")
             return "I'm sorry, I encountered an error. Please try again later.", state
-
-_bot = None
