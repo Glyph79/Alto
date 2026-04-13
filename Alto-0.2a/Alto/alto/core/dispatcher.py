@@ -65,25 +65,28 @@ class Dispatcher:
         for gid, tree_info in list(state.get("active_trees", {}).items()):
             path = tree_info["path"]
             tree = SessionTree(self.matcher, gid, path)
-            candidates = tree.candidates(path)
-            node, score = self.matcher.match_nodes(text, candidates)
-            if node and score >= self.threshold:
-                new_path = tree.move_to(node["id"], path)
-                tree.ensure_answers(node["id"])
-                state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
-                state["current_fallback_id"] = node.get("fallback_id")
-                response = node.get("answers", [self.global_fallback])[0]
-                response, state = self._run_hook("post_process", response, state) or (response, state)
-                return response, state
-            else:
-                # No child matched – try custom fallback from current node
-                current_node = tree.current_node()
-                if current_node and current_node.get("fallback_id"):
-                    resp = self._run_hook("get_custom_fallback", current_node["fallback_id"], state)
-                    if resp:
-                        state["active_trees"][gid] = {"path": path, "last_used": time.time()}
-                        response, state = self._run_hook("post_process", resp, state) or (resp, state)
-                        return response, state
+            try:
+                candidates = tree.candidates(path)
+                node, score = self.matcher.match_nodes(text, candidates)
+                if node and score >= self.threshold:
+                    new_path = tree.move_to(node["id"], path)
+                    tree.ensure_answers(node["id"])
+                    state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
+                    state["current_fallback_id"] = node.get("fallback_id")
+                    response = node.get("answers", [self.global_fallback])[0]
+                    response, state = self._run_hook("post_process", response, state) or (response, state)
+                    return response, state
+                else:
+                    # No child matched – try custom fallback from current node
+                    current_node = tree.current_node()
+                    if current_node and current_node.get("fallback_id"):
+                        resp = self._run_hook("get_custom_fallback", current_node["fallback_id"], state)
+                        if resp:
+                            state["active_trees"][gid] = {"path": path, "last_used": time.time()}
+                            response, state = self._run_hook("post_process", resp, state) or (resp, state)
+                            return response, state
+            finally:
+                tree.release()
 
         # Step 2: Group matching
         words = [self.matcher._norm_word(w) for w in text.split() if w]
@@ -94,18 +97,21 @@ class Dispatcher:
                 if group_data.get("topic"):
                     self._update_topics(state, group_data["topic"])
                 tree = SessionTree(self.matcher, group_data["id"], [])
-                node, root_score = self.matcher.match_nodes(text, tree.roots())
-                if node and root_score >= self.threshold:
-                    tree.ensure_answers(node["id"])
-                    state["active_trees"][group_data["id"]] = {"path": [node["id"]], "last_used": time.time()}
-                    state["current_fallback_id"] = node.get("fallback_id")
-                    response = node.get("answers", [self.global_fallback])[0]
-                else:
-                    state["active_trees"][group_data["id"]] = {"path": [], "last_used": time.time()}
-                    state["current_fallback_id"] = group_data.get("fallback_id")
-                    response = group_data.get("answers", [self.global_fallback])[0]
-                response, state = self._run_hook("post_process", response, state) or (response, state)
-                return response, state
+                try:
+                    node, root_score = self.matcher.match_nodes(text, tree.roots())
+                    if node and root_score >= self.threshold:
+                        tree.ensure_answers(node["id"])
+                        state["active_trees"][group_data["id"]] = {"path": [node["id"]], "last_used": time.time()}
+                        state["current_fallback_id"] = node.get("fallback_id")
+                        response = node.get("answers", [self.global_fallback])[0]
+                    else:
+                        state["active_trees"][group_data["id"]] = {"path": [], "last_used": time.time()}
+                        state["current_fallback_id"] = group_data.get("fallback_id")
+                        response = group_data.get("answers", [self.global_fallback])[0]
+                    response, state = self._run_hook("post_process", response, state) or (response, state)
+                    return response, state
+                finally:
+                    tree.release()
 
         # Step 3: Fallback from features
         fallback_answer = self._run_hook("get_fallback_answer", state)

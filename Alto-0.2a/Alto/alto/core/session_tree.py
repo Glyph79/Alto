@@ -1,91 +1,105 @@
 # alto/core/session_tree.py
 from collections import OrderedDict
+from typing import List, Dict, Optional
+from .cache import SharedDataCache
 
 class SessionTree:
-    MAX_LOADED_NODES = 10
-
-    def __init__(self, matcher, group_id, path=None):
+    def __init__(self, matcher, group_id: int, path: List[int] = None):
         self.matcher = matcher
         self.group_id = group_id
-        self._nodes = {}
-        self._roots = []
+        self.cache: SharedDataCache = matcher.cache
         self.path = path or []
-        self._loaded_nodes = OrderedDict()
+        
+        # Track which node IDs we hold references to (for cleanup)
+        self._referenced_nodes: List[int] = []
+        
+        # Roots are lightweight references
+        self._roots: List[Dict] = []
         self._load_roots()
 
+    def __del__(self):
+        self.release()
+
+    def release(self):
+        """Release all node references held by this tree."""
+        if hasattr(self, '_referenced_nodes') and self._referenced_nodes:
+            self.cache.release_many_nodes(self._referenced_nodes)
+            self._referenced_nodes.clear()
+
     def _load_roots(self):
-        self._roots = self.matcher.adapter.get_root_nodes(self.group_id)
-        for node in self._roots:
-            self._nodes[node["id"]] = node
+        """Load root nodes from adapter, store references in cache."""
+        roots = self.matcher.adapter.get_root_nodes(self.group_id)
+        self._roots = []
+        for root_dict in roots:
+            node_id = root_dict['id']
+            node = self._get_node(node_id)
+            # Update with adapter-provided fields
+            node['branch_name'] = root_dict.get('branch_name', '')
+            node['fallback_id'] = root_dict.get('fallback_id')
+            self._roots.append(node)
 
-    def _load_children(self, node_id):
-        children = self.matcher.adapter.get_node_children(node_id)
-        if node_id in self._nodes:
-            self._nodes[node_id]["children"] = children
-        for child in children:
-            self._nodes[child["id"]] = child
+    def _get_node(self, node_id: int) -> Dict:
+        """Get node from shared cache and track reference."""
+        node = self.matcher.get_node_data(node_id)
+        self._referenced_nodes.append(node_id)
+        return node
 
-    def _ensure_questions(self, node_id):
-        node = self._nodes.get(node_id)
-        if not node:
-            return
-        if node_id in self._loaded_nodes:
-            self._loaded_nodes.move_to_end(node_id)
-            return
-        questions = self.matcher.adapter.get_node_questions(node_id)
-        node["questions"] = questions
-        self._loaded_nodes[node_id] = node
-        while len(self._loaded_nodes) > self.MAX_LOADED_NODES:
-            oldest_id, _ = self._loaded_nodes.popitem(last=False)
-            if oldest_id in self._nodes:
-                self._nodes[oldest_id]["questions"] = None
+    def _load_children(self, node_id: int):
+        """Children are already loaded as part of node data; no-op if cached."""
+        node = self._get_node(node_id)  # ensures children_ids are populated
+        return node.get('children', [])
 
-    def load_questions_for_node(self, node_id):
-        self._ensure_questions(node_id)
+    def _ensure_questions(self, node_id: int):
+        """Questions are lazy‑loaded in cache; just access to trigger load."""
+        node = self._get_node(node_id)
+        # Accessing 'questions' may trigger lazy load inside cache
+        _ = node.get('questions')
 
-    def ensure_answers(self, node_id):
-        node = self._nodes.get(node_id)
-        if node and not node.get("answers_loaded"):
-            answers = self.matcher.adapter.get_node_answers(node_id)
-            node["answers"] = answers
-            node["answers_loaded"] = True
-            if node_id not in self._loaded_nodes:
-                self._loaded_nodes[node_id] = node
-                while len(self._loaded_nodes) > self.MAX_LOADED_NODES:
-                    oldest_id, _ = self._loaded_nodes.popitem(last=False)
-                    if oldest_id in self._nodes:
-                        self._nodes[oldest_id]["answers"] = None
-                        self._nodes[oldest_id]["answers_loaded"] = False
+    def ensure_answers(self, node_id: int):
+        """Answers lazy‑loaded."""
+        node = self._get_node(node_id)
+        _ = node.get('answers')
 
-    def candidates(self, path):
+    def candidates(self, path: List[int]) -> List[Dict]:
+        """Return nodes that are candidates for matching."""
         if not path:
             for root in self._roots:
-                self._ensure_questions(root["id"])
+                self._ensure_questions(root['id'])
             return self._roots
-        if path[-1] not in self._nodes:
-            self._nodes[path[-1]] = {"id": path[-1], "questions": None, "children": []}
-        current = self._nodes[path[-1]]
-        if not current.get("children"):
-            self._load_children(current["id"])
-        result = [self._nodes[n] for n in path if n in self._nodes] + current.get("children", [])
+        
+        current_id = path[-1]
+        current = self._get_node(current_id)
+        if 'children' not in current or not current['children']:
+            children_dicts = self._load_children(current_id)
+            current['children'] = children_dicts
+        
+        # Build result: nodes on path + children
+        result = []
+        for nid in path:
+            result.append(self._get_node(nid))
+        for child in current['children']:
+            result.append(self._get_node(child['id']))
+        
         for node in result:
-            self._ensure_questions(node["id"])
+            self._ensure_questions(node['id'])
         return result
 
-    def move_to(self, nid, path):
+    def move_to(self, nid: int, path: List[int]) -> List[int]:
+        """Compute new path after moving to node nid."""
         if nid in path:
             return path[:path.index(nid)+1]
-        if path and self._nodes[path[-1]].get("children"):
-            if any(c["id"] == nid for c in self._nodes[path[-1]]["children"]):
+        if path:
+            current = self._get_node(path[-1])
+            if any(c['id'] == nid for c in current.get('children', [])):
                 return path + [nid]
-        if any(r["id"] == nid for r in self._roots):
+        if any(r['id'] == nid for r in self._roots):
             return [nid]
         return [nid]
 
-    def roots(self):
+    def roots(self) -> List[Dict]:
         return self._roots
 
-    def current_node(self):
+    def current_node(self) -> Optional[Dict]:
         if not self.path:
             return None
-        return self._nodes.get(self.path[-1])
+        return self._get_node(self.path[-1])

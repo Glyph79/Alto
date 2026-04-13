@@ -2,9 +2,10 @@
 import re
 from collections import OrderedDict
 from rapidfuzz import fuzz
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 from .base import get_adapter, FEATURE_CUSTOM_FALLBACKS
 from ...config import config
+from ..cache import SharedDataCache
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 
@@ -21,8 +22,7 @@ class Model:
         self.adapter.get_connection(model_name)
         self._version = self.adapter.get_version()
         debug_print(f"🤖 Initialized matcher for '{model_name}', version {self._version}")
-        self._group_cache = OrderedDict()
-        self.GROUP_CACHE_SIZE = 3
+        self._cache = SharedDataCache()
 
     def get_version(self) -> str:
         return self._version
@@ -34,21 +34,63 @@ class Model:
     def _norm_word(self, w: str) -> str:
         return re.sub(r'[^\w\s]', '', w.lower())
 
-    def _get_group_data(self, gid):
-        if gid in self._group_cache:
-            self._group_cache.move_to_end(gid)
-            return self._group_cache[gid]
-        data = self.adapter.get_group_data(gid)
-        self._group_cache[gid] = data
-        self._group_cache.move_to_end(gid)
-        if len(self._group_cache) > self.GROUP_CACHE_SIZE:
-            self._group_cache.popitem(last=False)
-        return data
+    def _get_group_data(self, gid: int) -> Dict:
+        """Fetch group data from shared cache."""
+        def loader(group_id):
+            return self.adapter.get_group_data(group_id)
+        return self._cache.get_group(gid, loader)
+
+    def get_node_data(self, node_id: int) -> Dict:
+        """Fetch complete node data (questions, answers, children, etc.) from cache."""
+        def loader(nid):
+            children = self.adapter.get_node_children(nid)
+            node = {
+                'id': nid,
+                'branch_name': '',
+                'questions': self.adapter.get_node_questions(nid),
+                'answers': self.adapter.get_node_answers(nid),
+                'fallback_id': None,
+                'children': children,
+                'children_ids': [c['id'] for c in children]
+            }
+            return node
+        return self._cache.get_node(node_id, loader)
+
+    def get_fallback_answers(self, fallback_id: int) -> List[str]:
+        """Fetch fallback answers from shared cache."""
+        if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
+            return []
+        def loader(fid):
+            return self.adapter.get_fallback_answers(fid)
+        return self._cache.get_fallback(fallback_id, loader)
+
+    def expand_synonyms(self, words: List[str]) -> Set[str]:
+        """Use cached variant map."""
+        def loader():
+            variants = self.adapter.get_variants()
+            mapping = {}
+            for vg in variants:
+                words_set = set(vg['words'])
+                for w in words_set:
+                    mapping[w] = words_set
+            return mapping
+        variants_map = self._cache.get_variants_map(loader)
+        expanded = set()
+        for w in words:
+            if w in variants_map:
+                expanded.update(variants_map[w])
+            else:
+                expanded.add(w)
+        return expanded
+
+    @property
+    def cache(self) -> SharedDataCache:
+        return self._cache
 
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
         import sqlite3
         words = [self._norm_word(w) for w in text.split() if w]
-        expanded = self.adapter.expand_synonyms(words)
+        expanded = self.expand_synonyms(words)
         if not expanded:
             return None, None, 0
 
@@ -118,8 +160,3 @@ class Model:
         if best_score >= self.threshold:
             return best_node, best_score
         return None, 0
-
-    def get_fallback_answers(self, fallback_id: int) -> List[str]:
-        if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
-            return []
-        return self.adapter.get_fallback_answers(fallback_id)
