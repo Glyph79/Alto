@@ -196,7 +196,6 @@ export class GroupManager extends BaseManager {
         });
         fallbackSelect.innerHTML = fbOptions;
         
-        // CHANGED: map fallback name to its ID for correct selection
         const fallbackName = this.modalGroupCopy.fallback;
         if (fallbackName) {
             const matchedOption = Array.from(fallbackSelect.options).find(opt => opt.text === fallbackName);
@@ -230,6 +229,7 @@ export class GroupManager extends BaseManager {
             container: answersContainer,
             items: this.modalGroupCopy.answers || [],
             placeholder: 'Answer',
+            multiline: true,
             onAdd: (val) => { this.modalGroupCopy.answers.push(val); },
             onEdit: (idx, oldVal, newVal) => { this.modalGroupCopy.answers[idx] = newVal; },
             onDelete: (idx) => { this.modalGroupCopy.answers.splice(idx, 1); },

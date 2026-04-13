@@ -41,7 +41,6 @@ export class FallbackManager extends BaseManager {
         };
     }
     
-    // CHANGED: update global state after loading
     async load(reset = true) {
         await super.load(reset);
         state.set('fallbacks', this.allItems);
@@ -136,6 +135,7 @@ export class FallbackManager extends BaseManager {
             container,
             items: answers || [],
             placeholder: 'Answer',
+            multiline: true,
             onAdd: (val) => { this.answerEditor.items.push(val); this.answerEditor.render(); },
             onEdit: (idx, old, newVal) => { this.answerEditor.items[idx] = newVal; this.answerEditor.render(); },
             onDelete: (idx) => { this.answerEditor.items.splice(idx, 1); this.answerEditor.render(); },
@@ -177,7 +177,6 @@ export class FallbackManager extends BaseManager {
         events.emit('fallbacks:updated');
     }
     
-    // CHANGED: clear global state when model is unloaded
     clear() {
         super.clear();
         state.set('fallbacks', []);

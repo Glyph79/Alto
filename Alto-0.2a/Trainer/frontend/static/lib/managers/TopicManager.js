@@ -24,6 +24,7 @@ export class TopicManager extends BaseManager {
             gridContainerId: 'topicsGridContainer',
             emptyStateDivId: 'noTopicsEmptyState',
         });
+        // Refresh topics whenever groups change (counts may update)
         events.on('state:groups:changed', () => this.refresh());
     }
     
@@ -38,12 +39,14 @@ export class TopicManager extends BaseManager {
     
     async load(reset = true) {
         await super.load(reset);
-        state.set('topics', this.allItems);
+        // After loading, update global topics state with the transformed items
+        // but only the real topics (excluding the pseudo "(No Topic)")
+        state.set('topics', this.allItems.filter(t => !t.isNoTopic).map(t => ({ id: t.id, name: t.name })));
     }
     
-    transformData(raw) {
-        // raw is the paginated topics list from API: [{id, name}, ...]
+    transformData(rawTopics) {
         const groups = state.get('groups') || [];
+        // Count groups per topic name
         const counts = {};
         groups.forEach(g => {
             const topicName = g.topic || '';
@@ -53,9 +56,11 @@ export class TopicManager extends BaseManager {
                 counts['(No Topic)'] = (counts['(No Topic)'] || 0) + 1;
             }
         });
+        
+        // Build the list: first the pseudo "(No Topic)" item, then each real topic
         const items = [];
         items.push({ id: null, name: '(No Topic)', count: counts['(No Topic)'] || 0, isNoTopic: true });
-        raw.forEach(topic => {
+        rawTopics.forEach(topic => {
             items.push({ id: topic.id, name: topic.name, count: counts[topic.name] || 0, isNoTopic: false });
         });
         return items;
@@ -114,12 +119,9 @@ export class TopicManager extends BaseManager {
                                 return;
                             }
                             try {
-                                const result = await api.post(this.getApiPath(), { topic: name });
-                                if (result.topic) {
-                                    const currentTopics = state.get('topics') || [];
-                                    state.set('topics', [...currentTopics, result.topic]);
-                                }
+                                await api.post(this.getApiPath(), { topic: name });
                                 await this.load(true);
+                                await window.managers.groups.load(true); // refresh groups to update topic counts
                                 modal.close(modalId);
                                 modalLock.unlock('topicModal');
                             } catch (err) {
@@ -256,11 +258,9 @@ export class TopicManager extends BaseManager {
                             }
                             if (newName !== item.name) {
                                 try {
-                                    const result = await api.put(`/api/models/${state.get('currentModel')}/topics/${item.name}`, { new_name: newName });
-                                    if (result.topics) {
-                                        state.set('topics', result.topics);
-                                    }
+                                    await api.put(`/api/models/${state.get('currentModel')}/topics/${item.name}`, { new_name: newName });
                                     await this.load(true);
+                                    await window.managers.groups.load(true);
                                     modal.close(modalId);
                                     modalLock.unlock('topicModal');
                                 } catch (err) {
@@ -345,8 +345,7 @@ export class TopicManager extends BaseManager {
         let url = `/api/models/${state.get('currentModel')}/topics/${item.name}?action=${action}`;
         if (target) url += `&target=${target}`;
         try {
-            const result = await api.delete(url);
-            if (result.topics) state.set('topics', result.topics);
+            await api.delete(url);
             await this.load(true);
             await window.managers.groups.load(true);
         } catch (err) {

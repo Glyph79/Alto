@@ -37,6 +37,11 @@ export class BaseManager {
     getItems() { throw new Error('getItems() must be implemented'); }
     renderItem(item, index) { throw new Error('renderItem() must be implemented'); }
     
+    // Optional hook to transform raw API data before storing
+    transformData(rawItems) {
+        return rawItems;
+    }
+    
     getApiPath() {
         const path = this.config.apiPath;
         return typeof path === 'function' ? path() : path;
@@ -53,7 +58,6 @@ export class BaseManager {
         };
     }
     
-    // Helper to get the scrollable ancestor of the grid container
     getScrollContainer() {
         const container = document.getElementById(this.config.gridContainerId);
         if (!container) return window;
@@ -68,13 +72,11 @@ export class BaseManager {
         return window;
     }
     
-    // Save current scroll position relative to the first visible item
     saveScrollPosition() {
         const scrollContainer = this.getScrollContainer();
         if (scrollContainer === window) {
             return { type: 'window', scrollY: window.scrollY };
         }
-        // Find the first visible grid card
         const container = document.getElementById(this.config.gridContainerId);
         const firstCard = container?.querySelector('.group-card, .topic-card, .variant-card, .fallback-card');
         if (!firstCard) {
@@ -123,7 +125,7 @@ export class BaseManager {
             if (reset) {
                 const { items, total } = await this.fetchPage(0, this.limit);
                 this.totalCount = total;
-                this.allItems = items;
+                this.allItems = this.transformData(items);
                 this.startOffset = 0;
                 this.endOffset = items.length;
             }
@@ -161,7 +163,8 @@ export class BaseManager {
         try {
             const { items, total } = await this.fetchPage(this.endOffset, this.limit);
             this.totalCount = total;
-            this.allItems.push(...items);
+            const transformed = this.transformData(items);
+            this.allItems.push(...transformed);
             let removedCount = 0;
             if (this.allItems.length > this.maxItems) {
                 const removeCount = this.allItems.length - this.maxItems;
@@ -175,7 +178,6 @@ export class BaseManager {
             this.grid.setItems(this.displayData);
             this.updateNavButtons();
             
-            // Restore scroll after DOM update
             setTimeout(() => this.restoreScrollPosition(savedScroll), 0);
         } catch (err) {
             error.alert(`Failed to load more: ${err.message}`);
@@ -199,7 +201,8 @@ export class BaseManager {
         try {
             const { items, total } = await this.fetchPage(newStart, newLimit);
             this.totalCount = total;
-            this.allItems.unshift(...items);
+            const transformed = this.transformData(items);
+            this.allItems.unshift(...transformed);
             let removedCount = 0;
             if (this.allItems.length > this.maxItems) {
                 const removeCount = this.allItems.length - this.maxItems;
@@ -213,7 +216,6 @@ export class BaseManager {
             this.grid.setItems(this.displayData);
             this.updateNavButtons();
             
-            // Restore scroll after DOM update
             setTimeout(() => this.restoreScrollPosition(savedScroll), 0);
         } catch (err) {
             error.alert(`Failed to load previous: ${err.message}`);

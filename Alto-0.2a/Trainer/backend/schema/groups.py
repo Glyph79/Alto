@@ -17,12 +17,22 @@ def insert_group(conn: sqlite3.Connection, model_name: str, group_dict: Dict[str
     group_dict.setdefault("group_name", "New Group")
     questions = group_dict.get("questions", [])
     answers = group_dict.get("answers", [])
-    topic_name = group_dict.get("topic", "")
+    
+    # Check for topic_id first, then topic name
+    topic_id = group_dict.get("topic_id")
+    if topic_id is None:
+        topic_name = group_dict.get("topic", "")
+        topic_id = _get_topic_id(conn, topic_name)
+    else:
+        if topic_id == "" or topic_id is None:
+            topic_id = None
+        else:
+            topic_id = int(topic_id) if isinstance(topic_id, str) else topic_id
+    
     fallback_id = group_dict.get("fallback_id")
     if fallback_id is None and "fallback" in group_dict:
         fallback_id = _get_fallback_id(conn, group_dict["fallback"])
 
-    topic_id = _get_topic_id(conn, topic_name)
     q_id, a_id = _store_qa_lists(conn, questions, answers)
     a_count = len(answers)
 
@@ -54,12 +64,22 @@ def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, 
     group_dict.setdefault("group_name", "New Group")
     questions = group_dict.get("questions", [])
     answers = group_dict.get("answers", [])
-    topic_name = group_dict.get("topic", "")
+    
+    # Check for topic_id first, then topic name
+    topic_id = group_dict.get("topic_id")
+    if topic_id is None:
+        topic_name = group_dict.get("topic", "")
+        topic_id = _get_topic_id(conn, topic_name)
+    else:
+        if topic_id == "" or topic_id is None:
+            topic_id = None
+        else:
+            topic_id = int(topic_id) if isinstance(topic_id, str) else topic_id
+    
     fallback_id = group_dict.get("fallback_id")
     if fallback_id is None and "fallback" in group_dict:
         fallback_id = _get_fallback_id(conn, group_dict["fallback"])
 
-    topic_id = _get_topic_id(conn, topic_name)
     a_count = len(answers)
 
     cur = conn.execute("SELECT questions_blob_id, answers_blob_id FROM groups WHERE id = ?", (group_id,))
@@ -85,12 +105,10 @@ def update_group(conn: sqlite3.Connection, group_id: int, group_dict: Dict[str, 
                 (group_id, qid, idx)
             )
 
-        # CHANGED: only replace follow‑ups if the field is explicitly provided
         if "follow_ups" in group_dict:
             delete_followup_tree(conn, group_id)
             if group_dict["follow_ups"]:
                 insert_followup_tree(conn, group_id, group_dict["follow_ups"])
-        # otherwise leave existing tree untouched
 
         conn.commit()
     except Exception:
@@ -126,6 +144,7 @@ def get_group_by_id(conn: sqlite3.Connection, group_id: int, include_followups: 
     group = {
         "id": row[0],
         "group_name": row[1],
+        "topic_id": row[2],
         "topic": _get_topic_name(conn, row[2]),
         "fallback": _get_fallback_name(conn, row[3]),
         "questions": questions,
