@@ -49,25 +49,25 @@ class AltoLayer:
         if command == '/help':
             return self._get_help_text()
         
-        if self._is_admin_authenticated(state):
-            return await self._execute_admin_command(command, parts[1:], state)
+        # Special case: /auth <password> to authenticate
+        if command == '/auth':
+            if len(parts) != 2:
+                return "Usage: /auth <password>"
+            password = parts[1]
+            if password != ADMIN_PASSWORD:
+                return "Incorrect admin password."
+            state = self._set_admin_authenticated(state)
+            save_session(session_id, state)
+            return "Authentication successful. You can now use admin commands without password."
         
-        if len(parts) < 2:
-            return f"Admin password required. Usage: {command} ... <password>"
+        # For all other admin commands, require authentication first
+        if not self._is_admin_authenticated(state):
+            return "Admin access required. Use /auth <password> first."
         
-        password = parts[-1]
-        if password != ADMIN_PASSWORD:
-            return "Incorrect admin password."
-        
-        state = self._set_admin_authenticated(state)
-        save_session(session_id, state)
-        
-        args = parts[1:-1]
-        return await self._execute_admin_command(command, args, state)
+        return await self._execute_admin_command(command, parts[1:], state)
 
     async def _execute_admin_command(self, command: str, args: list, state: dict) -> str:
         if command == '/reload':
-            # If args contains 'config', reload config only
             if args and args[0].lower() == 'config':
                 return await self._reload_config()
             else:
@@ -114,31 +114,37 @@ class AltoLayer:
 
     def _get_help_text(self) -> str:
         return (
-            "📖 Available commands (password required for all except /help, once per session):\n\n"
-            "/help - Show this help message\n\n"
-            "MODEL COMMANDS:\n"
+            "📖 Available commands:\n\n"
+            "/help - Show this help message\n"
+            "/auth <password> - Authenticate for admin commands (required once per session)\n\n"
+            "MODEL COMMANDS (require authentication):\n"
             "/reload - Reload current model and repair all sessions\n"
-            "/reload config - Reload configuration from disk\n"
+            "/reload config - Reload configuration from disk (reloads model if ram_only_mode changed)\n"
             "/load model <model_name> - Switch to a different model\n\n"
-            "BENCHMARK COMMANDS:\n"
+            "BENCHMARK COMMANDS (require authentication):\n"
             "/benchmark - Run comprehensive benchmark on current model (streaming)\n"
             "/accuracy - Show latest benchmark results\n"
             "/average - Show only the average confidence from latest benchmark\n"
             "/clear results <model_name> - Clear benchmark results for a model\n\n"
-            "SYSTEM COMMANDS:\n"
+            "SYSTEM COMMANDS (require authentication):\n"
             "/status - Show server uptime, memory, sessions, cache, request stats\n"
             "/sessions - List active hot sessions and count cold sessions\n\n"
-            "INFO COMMANDS:\n"
-            "/list info [model_name] - Show model information (groups, nodes, size)\n"
-            "/list all - List all available models\n\n"
-            "Note: Password is required only once per chat session."
+            "INFO COMMANDS (require authentication):\n"
+            "/list info [model_name] - Show model information (groups, nodes, size, mode)\n"
+            "/list all - List all available models"
         )
 
     async def _reload_config(self) -> str:
-        """Reload configuration from disk without restarting."""
+        """Reload configuration from disk and reload the model if ram_only_mode changed."""
         global config
+        old_ram_mode = config.getboolean('ai', 'ram_only_mode', fallback=False)
         config = load_config()
-        return "Configuration reloaded from disk."
+        new_ram_mode = config.getboolean('ai', 'ram_only_mode', fallback=False)
+        if old_ram_mode != new_ram_mode:
+            await self._reload_model()
+            return "Configuration reloaded and model reloaded to apply ram_only_mode change."
+        else:
+            return "Configuration reloaded (no model reload needed)."
 
     async def _reload_model(self) -> str:
         self.dispatcher = None
@@ -265,8 +271,12 @@ class AltoLayer:
             avg = results.get('average_confidence', 0)
             dt = results['datetime'][:19].replace('T', ' ')
             latest_str = f"\nLatest benchmark: {dt} - Avg confidence {avg:.1f}%"
+        # Determine mode
+        ram_mode = config.getboolean('ai', 'ram_only_mode', fallback=False)
+        mode_str = "RAM" if ram_mode else "Disk"
         return (
             f"📊 Model Info: {info['name']}\n"
+            f"  Mode: {mode_str}\n"
             f"  Groups: {info['groups']}\n"
             f"  Follow-up nodes: {info['followup_nodes']}\n"
             f"  Average tree size: {info['avg_tree_size']}\n"
@@ -298,22 +308,12 @@ class AltoLayer:
         try:
             # Benchmark command (streaming)
             if user_message.startswith('/benchmark'):
-                parts = user_message.strip().split()
                 state = get_session(session_id, user_id)
                 if not self._is_admin_authenticated(state):
-                    if len(parts) < 2:
-                        response = "Admin password required. Usage: /benchmark <password>"
-                        async for chunk in self._stream_string(response):
-                            yield chunk
-                        return
-                    password = parts[-1]
-                    if password != ADMIN_PASSWORD:
-                        response = "Incorrect admin password."
-                        async for chunk in self._stream_string(response):
-                            yield chunk
-                        return
-                    state = self._set_admin_authenticated(state)
-                    save_session(session_id, state)
+                    response = "Admin access required. Use /auth <password> first."
+                    async for chunk in self._stream_string(response):
+                        yield chunk
+                    return
                 dispatcher = self._get_dispatcher()
                 runner = BenchmarkRunner(dispatcher)
                 try:

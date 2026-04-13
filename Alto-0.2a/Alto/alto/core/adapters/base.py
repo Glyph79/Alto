@@ -10,7 +10,7 @@ import importlib.util
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Set, Type
 
-from ...config import MODELS_DIR   # import hardcoded path
+from ...config import MODELS_DIR
 
 FEATURE_CUSTOM_FALLBACKS = "custom_fallbacks"
 FEATURE_VARIANTS = "variants"
@@ -19,9 +19,20 @@ FEATURE_TOPICS = "topics"
 FEATURE_FOLLOWUP_TREES = "followup_trees"
 FEATURE_SECTIONS = "sections"
 
-MODELS_BASE_DIR = MODELS_DIR   # use the hardcoded absolute path
-CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
-os.makedirs(CACHE_ROOT, exist_ok=True)
+MODELS_BASE_DIR = MODELS_DIR
+
+# Choose a persistent cache directory (not tmpfs) to avoid RAM spikes
+def get_cache_root() -> str:
+    """Return a persistent cache directory for extracted model data."""
+    if os.name == 'nt':  # Windows
+        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+        cache_dir = os.path.join(base, 'alto', 'cache')
+    else:  # macOS, Linux, other Unix-like
+        cache_dir = os.path.expanduser('~/.cache/alto')
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+CACHE_ROOT = get_cache_root()
 
 def safe_filename(name: str) -> str:
     return re.sub(r'[^\w\-]', '_', name)

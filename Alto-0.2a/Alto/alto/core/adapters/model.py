@@ -1,6 +1,6 @@
 # alto/core/adapters/model.py
 import re
-from collections import OrderedDict
+import sqlite3
 from rapidfuzz import fuzz
 from typing import Dict, List, Optional, Tuple, Set
 from .base import get_adapter, FEATURE_CUSTOM_FALLBACKS
@@ -8,6 +8,7 @@ from ...config import config
 from ..cache import SharedDataCache
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
+RAM_ONLY_MODE = config.getboolean('ai', 'ram_only_mode', fallback=False)
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -23,8 +24,17 @@ class Model:
         self._version = self.adapter.get_version()
         debug_print(f"🤖 Initialized matcher for '{model_name}', version {self._version}")
         self._cache = SharedDataCache()
-        # NEW: read max candidate groups limit
         self.max_candidate_groups = config.getint('ai', 'max_candidate_groups', fallback=50)
+
+        # RAM‑only mode: copy the entire database into an in‑memory connection
+        self._ram_conn = None
+        if RAM_ONLY_MODE:
+            debug_print("🔧 RAM‑only mode enabled: copying database to memory...")
+            source_conn = self.adapter._get_conn()
+            # Allow the in‑memory connection to be used in any thread (read‑only)
+            self._ram_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            source_conn.backup(self._ram_conn)
+            debug_print("✅ Database copied to memory (FTS5 index preserved)")
 
     def get_version(self) -> str:
         return self._version
@@ -37,13 +47,11 @@ class Model:
         return re.sub(r'[^\w\s]', '', w.lower())
 
     def _get_group_data(self, gid: int) -> Dict:
-        """Fetch group data from shared cache."""
         def loader(group_id):
             return self.adapter.get_group_data(group_id)
         return self._cache.get_group(gid, loader)
 
     def get_node_data(self, node_id: int) -> Dict:
-        """Fetch complete node data (questions, answers, children, etc.) from cache."""
         def loader(nid):
             children = self.adapter.get_node_children(nid)
             node = {
@@ -59,7 +67,6 @@ class Model:
         return self._cache.get_node(node_id, loader)
 
     def get_fallback_answers(self, fallback_id: int) -> List[str]:
-        """Fetch fallback answers from shared cache."""
         if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
             return []
         def loader(fid):
@@ -67,7 +74,6 @@ class Model:
         return self._cache.get_fallback(fallback_id, loader)
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
-        """Use cached variant map."""
         def loader():
             variants = self.adapter.get_variants()
             mapping = {}
@@ -90,21 +96,24 @@ class Model:
         return self._cache
 
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
-        import sqlite3
         words = [self._norm_word(w) for w in text.split() if w]
         expanded = self.expand_synonyms(words)
         if not expanded:
             return None, None, 0
 
-        conn = self.adapter._get_conn()
-        match = ' OR '.join(f'"{w}"' for w in expanded)
+        # Use in‑memory connection if RAM‑only mode is enabled, otherwise the adapter's connection
+        if RAM_ONLY_MODE and self._ram_conn:
+            conn = self._ram_conn
+        else:
+            conn = self.adapter._get_conn()
 
-        # Step 1: Get matching question IDs, limited for performance
+        match = ' OR '.join(f'"{w}"' for w in expanded)
         limit = self.max_candidate_groups
+
         try:
             cur = conn.execute(
                 f"SELECT rowid FROM questions_fts WHERE questions_fts MATCH ? LIMIT ?",
-                (match, limit * 10)  # allow more questions since many map to same group
+                (match, limit * 10)
             )
             qids = [row[0] for row in cur]
         except sqlite3.OperationalError:
@@ -117,7 +126,6 @@ class Model:
         if not qids:
             return None, None, 0
 
-        # Step 2: Get distinct group IDs from those questions, with LIMIT
         if self._version == "0.2a":
             placeholders = ','.join(['?'] * len(qids))
             cur = conn.execute(
@@ -146,7 +154,6 @@ class Model:
         if not gids:
             return None, None, 0
 
-        # Step 3: Fetch group details for those IDs
         placeholders2 = ','.join(['?'] * len(gids))
         cur = conn.execute(f"""
             SELECT g.id, g.group_name, COALESCE(t.name, '') as topic

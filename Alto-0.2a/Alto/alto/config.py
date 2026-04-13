@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
         'threshold': '70',
         'debug': 'False',
         'max_candidate_groups': '50',
+        'ram_only_mode': 'False',          # NEW: load entire model into RAM (in-memory SQLite)
     },
     'admin': {
         'password': '7134',   # default admin password
