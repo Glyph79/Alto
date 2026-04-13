@@ -23,6 +23,8 @@ class Model:
         self._version = self.adapter.get_version()
         debug_print(f"🤖 Initialized matcher for '{model_name}', version {self._version}")
         self._cache = SharedDataCache()
+        # NEW: read max candidate groups limit
+        self.max_candidate_groups = config.getint('ai', 'max_candidate_groups', fallback=50)
 
     def get_version(self) -> str:
         return self._version
@@ -97,26 +99,54 @@ class Model:
         conn = self.adapter._get_conn()
         match = ' OR '.join(f'"{w}"' for w in expanded)
 
+        # Step 1: Get matching question IDs, limited for performance
+        limit = self.max_candidate_groups
         try:
-            cur = conn.execute("SELECT rowid FROM questions_fts WHERE questions_fts MATCH ?", (match,))
+            cur = conn.execute(
+                f"SELECT rowid FROM questions_fts WHERE questions_fts MATCH ? LIMIT ?",
+                (match, limit * 10)  # allow more questions since many map to same group
+            )
             qids = [row[0] for row in cur]
         except sqlite3.OperationalError:
-            cur = conn.execute("SELECT group_id FROM questions_fts WHERE questions_fts MATCH ?", (match,))
+            cur = conn.execute(
+                f"SELECT group_id FROM questions_fts WHERE questions_fts MATCH ? LIMIT ?",
+                (match, limit * 10)
+            )
             qids = [row[0] for row in cur]
 
         if not qids:
             return None, None, 0
 
+        # Step 2: Get distinct group IDs from those questions, with LIMIT
         if self._version == "0.2a":
             placeholders = ','.join(['?'] * len(qids))
-            cur = conn.execute(f"SELECT DISTINCT group_id FROM group_questions WHERE question_id IN ({placeholders})", qids)
+            cur = conn.execute(
+                f"""
+                SELECT DISTINCT group_id
+                FROM group_questions
+                WHERE question_id IN ({placeholders})
+                ORDER BY group_id
+                LIMIT ?
+                """,
+                qids + [limit]
+            )
         else:
             placeholders = ','.join(['?'] * len(qids))
-            cur = conn.execute(f"SELECT DISTINCT group_id FROM groups WHERE id IN ({placeholders})", qids)
+            cur = conn.execute(
+                f"""
+                SELECT DISTINCT group_id
+                FROM groups
+                WHERE id IN ({placeholders})
+                ORDER BY id
+                LIMIT ?
+                """,
+                qids + [limit]
+            )
         gids = [row[0] for row in cur]
         if not gids:
             return None, None, 0
 
+        # Step 3: Fetch group details for those IDs
         placeholders2 = ','.join(['?'] * len(gids))
         cur = conn.execute(f"""
             SELECT g.id, g.group_name, COALESCE(t.name, '') as topic

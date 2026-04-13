@@ -28,6 +28,21 @@ class Dispatcher:
                 self.optional_features.append(feature_class(self.adapter, config))
                 debug_print(f"✅ Loaded optional feature: {feature_class.feature_name}")
 
+    def reload(self, new_model_name: str = None):
+        """Reload the model, optionally switching to a different model name."""
+        if new_model_name:
+            self.model_name = new_model_name
+        # Recreate matcher with same threshold
+        self.matcher = Model(self.model_name, self.threshold)
+        self.adapter = self.matcher.adapter
+        # Reload optional features
+        self.optional_features = []
+        supported = self.adapter.get_supported_features()
+        for feature_class in get_optional_features():
+            if supported.get(feature_class.feature_name, False):
+                self.optional_features.append(feature_class(self.adapter, config))
+                debug_print(f"✅ Reloaded optional feature: {feature_class.feature_name}")
+
     def _run_hook(self, hook_name: str, *args, **kwargs):
         for feature in self.optional_features:
             method = getattr(feature, hook_name, None)
@@ -64,7 +79,7 @@ class Dispatcher:
         # Step 1: Active follow‑up trees
         for gid, tree_info in list(state.get("active_trees", {}).items()):
             path = tree_info["path"]
-            tree = SessionTree(self.matcher, gid, path)
+            tree = SessionTree(self.matcher, int(gid), path)
             try:
                 candidates = tree.candidates(path)
                 node, score = self.matcher.match_nodes(text, candidates)
@@ -101,11 +116,11 @@ class Dispatcher:
                     node, root_score = self.matcher.match_nodes(text, tree.roots())
                     if node and root_score >= self.threshold:
                         tree.ensure_answers(node["id"])
-                        state["active_trees"][group_data["id"]] = {"path": [node["id"]], "last_used": time.time()}
+                        state["active_trees"][str(group_data["id"])] = {"path": [node["id"]], "last_used": time.time()}
                         state["current_fallback_id"] = node.get("fallback_id")
                         response = node.get("answers", [self.global_fallback])[0]
                     else:
-                        state["active_trees"][group_data["id"]] = {"path": [], "last_used": time.time()}
+                        state["active_trees"][str(group_data["id"])] = {"path": [], "last_used": time.time()}
                         state["current_fallback_id"] = group_data.get("fallback_id")
                         response = group_data.get("answers", [self.global_fallback])[0]
                     response, state = self._run_hook("post_process", response, state) or (response, state)

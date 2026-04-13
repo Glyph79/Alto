@@ -2,11 +2,18 @@
 import os
 import configparser
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+CONFIG_PATH = os.path.join(RESOURCES_DIR, 'alto_config.cfg')
+
+# Hardcoded paths (no longer configurable)
+MODELS_DIR = os.path.join(RESOURCES_DIR, 'models')
+SESSIONS_DIR = os.path.join(RESOURCES_DIR, 'sessions')
+USERS_DIR = os.path.join(RESOURCES_DIR, 'users')
+
 DEFAULT_CONFIG = {
     'DEFAULT': {
         'default_model': 'Alto',
-        'models_dir': 'resources/models',
-        'sessions_dir': 'resources/sessions',   # <-- sessions now in resources/
         'fallback': "I'm sorry, I didn't understand that.",
         'serve_webui': 'True',
     },
@@ -31,15 +38,18 @@ DEFAULT_CONFIG = {
         'scan_interval': '5',
         'threshold': '70',
         'debug': 'False',
+        'max_candidate_groups': '50',
+    },
+    'admin': {
+        'password': '7134',   # default admin password
     }
 }
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
-CONFIG_PATH = os.path.join(RESOURCES_DIR, 'backend_config.cfg')
-
 def ensure_resources_dir():
     os.makedirs(RESOURCES_DIR, exist_ok=True)
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs(USERS_DIR, exist_ok=True)
 
 def load_config():
     ensure_resources_dir()

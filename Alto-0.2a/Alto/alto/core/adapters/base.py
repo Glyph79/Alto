@@ -10,6 +10,8 @@ import importlib.util
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Set, Type
 
+from ...config import MODELS_DIR   # import hardcoded path
+
 FEATURE_CUSTOM_FALLBACKS = "custom_fallbacks"
 FEATURE_VARIANTS = "variants"
 FEATURE_FULL_TEXT_SEARCH = "full_text_search"
@@ -17,8 +19,7 @@ FEATURE_TOPICS = "topics"
 FEATURE_FOLLOWUP_TREES = "followup_trees"
 FEATURE_SECTIONS = "sections"
 
-# Updated path: now inside resources/
-MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "resources", "models")
+MODELS_BASE_DIR = MODELS_DIR   # use the hardcoded absolute path
 CACHE_ROOT = os.path.join(tempfile.gettempdir(), "alto_cache")
 os.makedirs(CACHE_ROOT, exist_ok=True)
 

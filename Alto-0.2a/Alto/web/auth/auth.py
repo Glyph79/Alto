@@ -5,15 +5,15 @@ import hashlib
 import secrets
 from typing import Optional
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
-DB_PATH = os.path.join(RESOURCES_DIR, 'users.db')
+from alto.config import USERS_DIR   # import hardcoded path
 
-def ensure_resources_dir():
-    os.makedirs(RESOURCES_DIR, exist_ok=True)
+DB_PATH = os.path.join(USERS_DIR, 'users.db')
+
+def ensure_users_dir():
+    os.makedirs(USERS_DIR, exist_ok=True)
 
 def _get_connection():
-    ensure_resources_dir()
+    ensure_users_dir()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

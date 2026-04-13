@@ -1,0 +1,48 @@
+{
+  "timestamp": 1776051618.5023878,
+  "datetime": "2026-04-12T21:40:18.502390",
+  "model_name": "Alto",
+  "total_tests": 5,
+  "correct": 1,
+  "accuracy": 20.0,
+  "high_score": 100.0,
+  "low_score": 0.0,
+  "average_score": 20.0,
+  "details": [
+    {
+      "type": "group",
+      "question": "Hi",
+      "expected_group_id": 1,
+      "actual_response": "Hello how was the food",
+      "score": 100.0
+    },
+    {
+      "type": "node",
+      "question": "tasty",
+      "expected_node_id": 1,
+      "actual_response": "I'm sorry, I didn't understand that.",
+      "score": 0.0
+    },
+    {
+      "type": "node",
+      "question": "fine",
+      "expected_node_id": 2,
+      "actual_response": "I'm sorry, I didn't understand that.",
+      "score": 0.0
+    },
+    {
+      "type": "node",
+      "question": "fiyne",
+      "expected_node_id": 2,
+      "actual_response": "I'm sorry, I didn't understand that.",
+      "score": 0.0
+    },
+    {
+      "type": "node",
+      "question": "beans",
+      "expected_node_id": 3,
+      "actual_response": "I'm sorry, I didn't understand that.",
+      "score": 0.0
+    }
+  ]
+}
