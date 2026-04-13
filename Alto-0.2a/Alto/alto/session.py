@@ -15,14 +15,21 @@ HOT_TIMEOUT = HOT_TIMEOUT_MIN * 60
 COLD_TIMEOUT = COLD_TIMEOUT_MIN * 60
 CLEANUP_INTERVAL = CLEANUP_INTERVAL_MIN * 60
 
-os.makedirs(SESSIONS_DIR, exist_ok=True)
+# Create subdirectories
+USERS_SESSIONS_DIR = os.path.join(SESSIONS_DIR, 'users')
+TESTS_SESSIONS_DIR = os.path.join(SESSIONS_DIR, 'tests')
+os.makedirs(USERS_SESSIONS_DIR, exist_ok=True)
+os.makedirs(TESTS_SESSIONS_DIR, exist_ok=True)
 
 _hot: Dict[str, Tuple[dict, float]] = {}
 _lock = threading.Lock()
 _RELOAD_MARKER_PATH = os.path.join(os.path.dirname(SESSIONS_DIR), '.reload_marker')
 
 def _cold_path(session_id: str) -> str:
-    return os.path.join(SESSIONS_DIR, f"{session_id}.json")
+    if session_id.startswith('__benchmark__'):
+        return os.path.join(TESTS_SESSIONS_DIR, f"{session_id}.json")
+    else:
+        return os.path.join(USERS_SESSIONS_DIR, f"{session_id}.json")
 
 def get_reload_marker_time() -> float:
     if os.path.exists(_RELOAD_MARKER_PATH):
@@ -30,54 +37,37 @@ def get_reload_marker_time() -> float:
     return 0
 
 def validate_session_state(state: Dict, matcher) -> Dict:
-    """
-    Validate and repair a session state after model reload.
-    - Removes active_trees whose group no longer exists.
-    - Truncates paths to the deepest existing node.
-    - Clears invalid fallback_id.
-    """
     active_trees = state.get("active_trees", {})
     repaired_trees = {}
     for gid_str, tree_info in active_trees.items():
         gid = int(gid_str)
-        # Check if group exists
         try:
             group_data = matcher._get_group_data(gid)
         except Exception:
-            continue  # group gone → discard tree
-
+            continue
         path = tree_info.get("path", [])
         if not path:
             repaired_trees[gid_str] = tree_info
             continue
-
-        # Validate path nodes
         valid_path = []
         for nid in path:
             try:
                 node_data = matcher.get_node_data(nid)
                 if not valid_path:
-                    # first node must be a root of the group
                     roots = matcher.adapter.get_root_nodes(gid)
                     if not any(r["id"] == nid for r in roots):
                         raise ValueError("not a root")
                 else:
-                    # nid must be a child of the last valid node
                     parent_node = matcher.get_node_data(valid_path[-1])
                     if not any(c["id"] == nid for c in parent_node.get("children", [])):
                         raise ValueError("not a child")
                 valid_path.append(nid)
             except Exception:
                 break
-
         if valid_path:
             tree_info["path"] = valid_path
             repaired_trees[gid_str] = tree_info
-        # else: whole path invalid → discard tree
-
     state["active_trees"] = repaired_trees
-
-    # Validate current_fallback_id
     fb_id = state.get("current_fallback_id")
     if fb_id is not None:
         if not matcher.supports_feature("custom_fallbacks"):
@@ -87,7 +77,6 @@ def validate_session_state(state: Dict, matcher) -> Dict:
                 matcher.get_fallback_answers(fb_id)
             except Exception:
                 state["current_fallback_id"] = None
-
     state["_validated_after_reload"] = True
     return state
 
@@ -116,12 +105,10 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
                 with open(cold_file, 'r') as f:
                     data = json.load(f)
                 saved_at = data.get("saved_at", 0)
-                if now - saved_at <= COLD_TIMEOUT:
+                if now - saved_at <= COLD_TIMEOUT or session_id.startswith('__benchmark__'):
                     state = data["state"]
-                    # Check reload marker
                     marker_time = get_reload_marker_time()
                     if marker_time > saved_at and not state.get("_validated_after_reload"):
-                        # Need to validate – import here to avoid circular
                         from .core.dispatcher import Dispatcher
                         from .config import config
                         model_name = config.get('DEFAULT', 'default_model')
@@ -160,6 +147,56 @@ def save_session(session_id: str, state: dict) -> None:
         if "topics" not in state:
             state["topics"] = {}
         _hot[session_id] = (state, now)
+        # Immediately persist benchmark sessions to disk
+        if session_id.startswith('__benchmark__'):
+            cold_file = _cold_path(session_id)
+            try:
+                with open(cold_file, 'w') as f:
+                    json.dump({"state": state, "saved_at": now}, f)
+            except Exception as e:
+                print(f"Failed to write cold session {session_id}: {e}")
+
+def set_benchmark_result(model_name: str, result: dict) -> None:
+    """Store the latest benchmark result for a model (overwrites previous)."""
+    session_id = f"__benchmark__{model_name}"
+    state = get_session(session_id, None)
+    state["benchmark_result"] = result
+    state["active_trees"] = {}
+    state["topics"] = {}
+    save_session(session_id, state)
+
+def get_benchmark_result(model_name: str) -> Optional[dict]:
+    """Retrieve the latest benchmark result for a model."""
+    session_id = f"__benchmark__{model_name}"
+    state = get_session(session_id, None)
+    return state.get("benchmark_result")
+
+def clear_benchmark_result(model_name: str) -> bool:
+    """Clear benchmark result for a specific model."""
+    session_id = f"__benchmark__{model_name}"
+    with _lock:
+        if session_id in _hot:
+            state, last_used = _hot[session_id]
+            state.pop("benchmark_result", None)
+            state["active_trees"] = {}
+            state["topics"] = {}
+            _hot[session_id] = (state, last_used)
+            return True
+        else:
+            cold_file = _cold_path(session_id)
+            if os.path.exists(cold_file):
+                try:
+                    with open(cold_file, 'r') as f:
+                        data = json.load(f)
+                    data["state"].pop("benchmark_result", None)
+                    data["state"]["active_trees"] = {}
+                    data["state"]["topics"] = {}
+                    with open(cold_file, 'w') as f:
+                        json.dump(data, f)
+                    return True
+                except:
+                    pass
+            return False
 
 def _cleanup():
     while True:
@@ -168,6 +205,8 @@ def _cleanup():
         with _lock:
             expired_hot = []
             for sid, (state, last_used) in _hot.items():
+                if sid.startswith('__benchmark__'):
+                    continue
                 if now - last_used > HOT_TIMEOUT:
                     expired_hot.append((sid, state, last_used))
             for sid, state, last_used in expired_hot:
@@ -179,11 +218,13 @@ def _cleanup():
                 except Exception:
                     pass
 
-        try:
-            for fname in os.listdir(SESSIONS_DIR):
+        for dir_path in [USERS_SESSIONS_DIR]:
+            if not os.path.exists(dir_path):
+                continue
+            for fname in os.listdir(dir_path):
                 if not fname.endswith('.json'):
                     continue
-                path = os.path.join(SESSIONS_DIR, fname)
+                path = os.path.join(dir_path, fname)
                 try:
                     with open(path, 'r') as f:
                         data = json.load(f)
@@ -195,8 +236,6 @@ def _cleanup():
                         os.remove(path)
                     except Exception:
                         pass
-        except Exception:
-            pass
         gc.collect()
 
 _cleaner_thread = threading.Thread(target=_cleanup, daemon=True)

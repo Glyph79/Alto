@@ -86,10 +86,11 @@ body {
     border-bottom-right-radius: 18px;
     border-top-right-radius: 18px;
     min-height: 36px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    /* Use block display to preserve whitespace correctly */
+    display: block;
+    white-space: pre-wrap;
+    /* Remove flex gap which is not needed for block */
+    gap: 0;
 }
 .message.bot.red {
     background: #4a2a2a;

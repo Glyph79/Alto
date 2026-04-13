@@ -14,6 +14,17 @@ const SCROLL_THRESHOLD = 5;
 const ERROR_TITLE = 'Network error';
 const ERROR_DETAIL = 'Unable to reach server. Please check your internet connection or server status.';
 
+// Helper to escape HTML and convert newlines to <br>
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatForHTML(text) {
+    return escapeHtml(text).replace(/\n/g, '<br>');
+}
+
 // Logout
 document.getElementById('logoutBtn').addEventListener('click', async () => {
     await fetch('/api/logout', { method: 'POST' });
@@ -165,7 +176,8 @@ async function sendMessage(isRetry = false, reuseBubble = null) {
                 botDiv.innerHTML = '';
                 firstChunk = false;
             }
-            botDiv.insertAdjacentHTML('beforeend', chunk);
+            // Convert newlines to <br> and escape HTML
+            botDiv.insertAdjacentHTML('beforeend', formatForHTML(chunk));
 
             maybeScroll(wasAtBottom);
         }
