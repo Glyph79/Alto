@@ -180,13 +180,11 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-/Alto-0.1a/trainer/models
-/Alto-0.1a/alto/models
-/Alto-0.2a/Plugger/plugins
-/Alto-0.2a/Client/node_modules
-Alto-0.2a/Client/package-lock.json
-/Alto-0.2a/Client/static
-/Alto-0.2a/Trainer/models
-/Alto-0.2a/Alto/resources/models
-/Alto-0.2a/Alto/resources/sessions
-/Alto-0.2a/Alto/resources/users
+/Plugger/plugins
+/Client/node_modules
+/Client/package-lock.json
+/Client/static
+/Trainer/models
+/Alto/resources/models
+/Alto/resources/sessions
+/Alto/resources/users
