@@ -167,36 +167,25 @@ button:hover {
 .modal-content {
     background: #252547;
     border-radius: 16px;
-    width: 800px;
+    width: 700px;
     max-width: 90vw;
     max-height: 90vh;
     overflow-y: auto;
     padding: 28px;
     color: white;
     box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    animation: modalFadeIn 0.3s ease;
+}
+@keyframes modalFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.modal-large .modal-content {
+    width: 1000px;
 }
 .modal-content h2 {
     margin-bottom: 20px;
     font-weight: 500;
-}
-.modal-content details {
-    margin-top: 24px;
-    border-top: 1px solid #3d3d7a;
-    padding-top: 16px;
-}
-.modal-content details:first-of-type {
-    margin-top: 0;
-    border-top: none;
-    padding-top: 0;
-}
-.modal-content details summary {
-    cursor: pointer;
-    font-weight: 600;
-    color: #b0b0d0;
-    margin-bottom: 16px;
-}
-.modal-content details summary:hover {
-    color: white;
 }
 .form-row {
     margin-bottom: 20px;
@@ -214,25 +203,6 @@ button:hover {
     color: white;
     padding: 10px;
     border-radius: 6px;
-}
-.help-text {
-    font-size: 0.75rem;
-    color: #888;
-    margin-top: 4px;
-    margin-bottom: 12px;
-}
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 28px;
-}
-.modal-actions .save {
-    background: #00ff88;
-    color: black;
-}
-.modal-actions .cancel {
-    background: #ff4d7d;
 }
 .qa-list {
     list-style: none;
@@ -266,217 +236,68 @@ button:hover {
     margin-top: 8px;
     align-self: flex-start;
 }
-.radio-group {
+.modal-actions {
     display: flex;
-    gap: 20px;
-    margin-bottom: 16px;
-}
-.radio-group label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-}
-
-/* API config */
-.api-config {
-    background: #2d2d5a;
-    border-radius: 8px;
-    padding: 16px;
-}
-
-/* Mapping cards */
-.mappings-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    justify-content: flex-end;
     gap: 12px;
-    margin-top: 8px;
+    margin-top: 28px;
 }
-.mapping-card {
-    background: #2d2d5a;
-    border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
-    transition: all 0.2s ease;
+.modal-actions .save {
+    background: #00ff88;
+    color: black;
 }
-.mapping-card:hover {
-    background: #3d3d7a;
+.modal-actions .cancel {
+    background: #ff4d7d;
 }
-.mapping-card .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-}
-.mapping-card .mapping-details {
-    font-size: 0.8rem;
-    color: #b0b0d0;
-}
-.entry-row {
-    margin-bottom: 12px;
-    border-bottom: 1px solid #3d3d7a;
-    padding-bottom: 8px;
-}
-.entry-row:last-child {
-    border-bottom: none;
+hr {
+    margin: 20px 0;
+    border-color: #3d3d7a;
 }
 
-/* Conditional templates */
-.conditional-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 8px;
+/* Blockly dark theme overrides */
+.blocklyToolboxDiv {
+    background-color: #252547 !important;
+    border-right: 1px solid #2d2d5a !important;
 }
-.conditional-card {
-    background: #2d2d5a;
-    border-radius: 8px;
-    padding: 12px;
-    transition: all 0.2s ease;
+.blocklyTreeRow {
+    color: #fff !important;
 }
-.conditional-card:hover {
-    background: #3d3d7a;
+.blocklyTreeRow:hover {
+    background-color: #3d3d7a !important;
 }
-.conditional-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+.blocklyTreeSelected {
+    background-color: #6c63ff !important;
 }
-.condition {
-    font-family: monospace;
-    font-size: 0.85rem;
-    color: #b0b0d0;
+.blocklyFlyoutBackground {
+    fill: #2d2d5a !important;
 }
-.template-preview {
-    font-size: 0.85rem;
-    color: #ccc;
-    word-break: break-word;
-    white-space: pre-wrap;
+.blocklyScrollbarHandle {
+    fill: #4a4a7a !important;
 }
-
-/* Tree editor styles */
-.tree-modal-content {
-    width: 1000px;
-    max-width: 95vw;
+.blocklyScrollbarBackground {
+    fill: transparent !important;
 }
-.tree-layout {
-    display: flex;
-    gap: 20px;
-    min-height: 500px;
+.blocklyWidgetDiv .goog-menuitem {
+    background-color: #2d2d5a !important;
+    color: #fff !important;
 }
-.tree-column {
-    flex: 1;
-    min-width: 400px;
-    background: #2d2d5a;
-    border-radius: 12px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
+.blocklyWidgetDiv .goog-menuitem-highlight {
+    background-color: #6c63ff !important;
 }
-.tree-toolbar {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
+.blocklyDropDownDiv .goog-menuitem {
+    background-color: #2d2d5a !important;
+    color: #fff !important;
 }
-.tree-toolbar button {
-    background: #6c63ff;
-    color: white;
-    border: none;
-    padding: 8px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.9rem;
+.blocklyDropDownDiv .goog-menuitem-highlight {
+    background-color: #6c63ff !important;
 }
-.tree-toolbar button:hover:not(:disabled) {
-    background: #5a52d5;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(108,99,255,0.2);
+.blocklyEditableText > text {
+    fill: #fff !important;
 }
-.tree-toolbar button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+.blocklyDropdownArrow {
+    fill: #fff !important;
 }
-.tree-container {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: auto;
-}
-.tree-node {
-    margin-left: 20px;
-    border-left: 1px solid #4a4a7a;
-    padding-left: 12px;
-    margin-top: 6px;
-}
-.tree-node-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: #252547;
-    padding: 6px 12px;
-    border-radius: 6px;
-    margin-bottom: 4px;
-    cursor: pointer;
-}
-.tree-node-header:hover {
-    background: #3d3d7a;
-}
-.tree-node-header.selected {
-    background: #6c63ff;
-}
-.tree-node-header .expand-icon {
-    width: 20px;
-    text-align: center;
-    cursor: pointer;
-    user-select: none;
-}
-.tree-node-header .name {
-    flex: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.tree-node-header .node-actions {
-    display: flex;
-    gap: 4px;
-    opacity: 0.7;
-}
-.tree-node-header .node-actions button {
-    background: none;
-    border: none;
-    color: #b0b0d0;
-    cursor: pointer;
-    font-size: 0.9rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-}
-.tree-node-header .node-actions button:hover {
-    background: #5a5a9a;
-    color: white;
-}
-.tree-children {
-    margin-left: 24px;
-}
-.qa-panel {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-}
-.qa-panel .qa-section {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
-.qa-panel .qa-section .qa-list {
-    flex: 1;
-    max-height: none;
-}
-.no-node-message {
-    display: flex;
-    height: 100%;
-    align-items: center;
-    justify-content: center;
-    color: #aaa;
-    font-style: italic;
+.blocklyFieldDropdown {
+    background-color: #3d3d7a !important;
+    color: #fff !important;
 }

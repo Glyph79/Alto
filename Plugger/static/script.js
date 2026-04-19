@@ -4,6 +4,7 @@
 let plugins = [];
 let currentPluginName = null;
 let pluginCopy = null;
+let currentBlocklyWorkspace = null;
 
 // DOM elements
 const gridContainer = document.getElementById('pluginsGridContainer');
@@ -45,118 +46,68 @@ async function apiDelete(url) {
 }
 
 // ------------------------------------------------------------------
-// Retry & loading utilities (self-contained)
+// Modal helpers
 // ------------------------------------------------------------------
-const RETRY_CONFIG = {
-    maxAttempts: 3,
-    baseDelayMs: 200,
-    loadingDelayMs: 300,
-    backoffFactor: 2,
-};
-
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function showModal(id) {
+    document.getElementById(id).classList.add('visible');
+}
+function hideModal(id) {
+    document.getElementById(id).classList.remove('visible');
 }
 
-async function retryOperation(operation, options = {}) {
-    const config = { ...RETRY_CONFIG, ...options };
-    let lastError;
-    for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
-        try {
-            return await operation();
-        } catch (err) {
-            lastError = err;
-            if (attempt === config.maxAttempts) break;
-            const wait = config.baseDelayMs * Math.pow(config.backoffFactor, attempt - 1);
-            await delay(wait);
-        }
-    }
-    throw lastError;
+function showAlertModal(title, message) {
+    const modal = document.getElementById('simpleModal');
+    const content = document.getElementById('simpleModalContent');
+    content.innerHTML = `
+        <h2>${escapeHtml(title)}</h2>
+        <p style="margin: 20px 0;">${escapeHtml(message)}</p>
+        <div class="modal-actions">
+            <button class="save" id="alertOkBtn">OK</button>
+        </div>
+    `;
+    showModal('simpleModal');
+    document.getElementById('alertOkBtn').onclick = () => hideModal('simpleModal');
 }
 
-function showInlineLoading(container, text = "Loading", delayMs = null) {
-    const delayTime = delayMs !== null ? delayMs : RETRY_CONFIG.loadingDelayMs;
-    let timeout = null;
-    let loadingElement = null;
-
-    const clear = () => {
-        if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
-        }
-        if (loadingElement && loadingElement.parentNode) {
-            loadingElement.remove();
-            loadingElement = null;
-        }
+function showConfirmModal(message, onConfirm) {
+    const modal = document.getElementById('simpleModal');
+    const content = document.getElementById('simpleModalContent');
+    content.innerHTML = `
+        <h2>Confirm</h2>
+        <p style="margin: 20px 0;">${escapeHtml(message)}</p>
+        <div class="modal-actions">
+            <button class="cancel" id="confirmCancel">Cancel</button>
+            <button class="save" id="confirmOk">OK</button>
+        </div>
+    `;
+    showModal('simpleModal');
+    document.getElementById('confirmCancel').onclick = () => hideModal('simpleModal');
+    document.getElementById('confirmOk').onclick = () => {
+        hideModal('simpleModal');
+        onConfirm();
     };
-
-    timeout = setTimeout(() => {
-        loadingElement = document.createElement('div');
-        loadingElement.className = 'inline-loading';
-        loadingElement.innerHTML = `
-            <div class="inline-spinner"></div>
-            <span>${text}...</span>
-        `;
-        container.appendChild(loadingElement);
-        timeout = null;
-    }, delayTime);
-
-    return { clear };
 }
 
-function showInlineListRetry(listElement, itemType, retryCallback) {
-    listElement.innerHTML = '';
-    const li = document.createElement('li');
-    li.className = 'retry-list-item';
-    li.innerHTML = `
-        <span style="color:#ffaa66;">⚠️ Failed to load ${itemType}.</span>
-        <button class="retry-list-btn" style="margin-left:12px; background:#6c63ff; border:none; border-radius:4px; padding:4px 12px; color:white; cursor:pointer;">Retry</button>
+function showTextInputModal(title, initialValue, onSave) {
+    const modal = document.getElementById('simpleModal');
+    const content = document.getElementById('simpleModalContent');
+    content.innerHTML = `
+        <h2>${escapeHtml(title)}</h2>
+        <input type="text" id="modalInput" value="${escapeHtml(initialValue)}" style="width:100%; margin:16px 0;">
+        <div class="modal-actions">
+            <button class="cancel" id="modalCancel">Cancel</button>
+            <button class="save" id="modalSave">Save</button>
+        </div>
     `;
-    const btn = li.querySelector('.retry-list-btn');
-    btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        btn.disabled = true;
-        btn.textContent = '...';
-        try {
-            await retryCallback();
-        } catch (err) {
-            btn.disabled = false;
-            btn.textContent = 'Retry';
-            const span = li.querySelector('span');
-            span.textContent = `⚠️ Failed: ${err.message}`;
-        }
-    });
-    listElement.appendChild(li);
-}
-
-function showRetryError(container, message, retryCallback) {
-    const existing = container.querySelector('.retry-error');
-    if (existing) existing.remove();
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'retry-error';
-    errorDiv.innerHTML = `
-        <div class="error-icon">⚠️</div>
-        <div class="error-message">${escapeHtml(message)}</div>
-        <button class="retry-btn">Retry</button>
-    `;
-    const btn = errorDiv.querySelector('.retry-btn');
-    btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        btn.disabled = true;
-        btn.textContent = 'Retrying...';
-        try {
-            await retryCallback();
-            errorDiv.remove();
-        } catch (err) {
-            btn.disabled = false;
-            btn.textContent = 'Retry';
-            const msgDiv = errorDiv.querySelector('.error-message');
-            msgDiv.textContent = `Failed: ${err.message}`;
-        }
-    });
-    container.appendChild(errorDiv);
-    return errorDiv;
+    showModal('simpleModal');
+    const input = document.getElementById('modalInput');
+    document.getElementById('modalSave').onclick = () => {
+        const val = input.value.trim();
+        if (val) onSave(val);
+        hideModal('simpleModal');
+    };
+    document.getElementById('modalCancel').onclick = () => hideModal('simpleModal');
+    input.focus();
 }
 
 function escapeHtml(str) {
@@ -167,92 +118,6 @@ function escapeHtml(str) {
         if (m === '>') return '&gt;';
         return m;
     });
-}
-
-// ------------------------------------------------------------------
-// Modal helpers
-// ------------------------------------------------------------------
-function showAlertModal(title, message, onClose) {
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = `
-        <h2>${escapeHtml(title)}</h2>
-        <p style="margin: 20px 0; color: #ccc;">${escapeHtml(message)}</p>
-        <div class="modal-actions">
-            <button class="save" id="alertOkBtn">OK</button>
-        </div>
-    `;
-    showModal('simpleModal');
-    document.getElementById('alertOkBtn').onclick = () => {
-        hideModal('simpleModal');
-        if (onClose) onClose();
-    };
-}
-
-function showTextInputModal(title, initialValue, onSave) {
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = `
-        <h2>${escapeHtml(title)}</h2>
-        <div class="form-row">
-            <input type="text" id="modalInput" value="${escapeHtml(initialValue)}" style="width:100%;">
-        </div>
-        <div id="modalError" style="color:#ff6b9d; margin-bottom:12px; display:none;"></div>
-        <div class="modal-actions">
-            <button class="cancel" id="modalCancel">Cancel</button>
-            <button class="save" id="modalSave">Save</button>
-        </div>
-    `;
-    showModal('simpleModal');
-
-    const input = document.getElementById('modalInput');
-    const errorDiv = document.getElementById('modalError');
-    const saveBtn = document.getElementById('modalSave');
-    const cancelBtn = document.getElementById('modalCancel');
-
-    saveBtn.onclick = () => {
-        const value = input.value.trim();
-        if (!value) {
-            errorDiv.textContent = 'Value cannot be empty.';
-            errorDiv.style.display = 'block';
-            return;
-        }
-        onSave(value);
-        hideModal('simpleModal');
-    };
-    cancelBtn.onclick = () => hideModal('simpleModal');
-}
-
-function showConfirmModal(message, onConfirm) {
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = `
-        <h2>Confirm</h2>
-        <p style="margin: 20px 0; color: #ccc;">${escapeHtml(message)}</p>
-        <div class="modal-actions">
-            <button class="cancel" id="confirmCancel">Cancel</button>
-            <button class="save" id="confirmDelete">Delete</button>
-        </div>
-    `;
-    showModal('simpleModal');
-
-    const cancelBtn = document.getElementById('confirmCancel');
-    const deleteBtn = document.getElementById('confirmDelete');
-
-    cancelBtn.onclick = () => hideModal('simpleModal');
-    deleteBtn.onclick = () => {
-        hideModal('simpleModal');
-        onConfirm();
-    };
-}
-
-function showModal(id) {
-    const modal = document.getElementById(id);
-    modal.classList.add('visible');
-}
-function hideModal(id) {
-    const modal = document.getElementById(id);
-    modal.classList.remove('visible');
 }
 
 // ------------------------------------------------------------------
@@ -337,8 +202,7 @@ function renderPlugins() {
 async function openPluginModal(name) {
     currentPluginName = name;
     const isNew = name === null;
-    const title = isNew ? 'Create New Plugin' : 'Edit Plugin';
-    document.getElementById('pluginModalTitle').innerText = title;
+    document.getElementById('pluginModalTitle').innerText = isNew ? 'Create New Plugin' : 'Edit Plugin';
 
     if (isNew) {
         pluginCopy = {
@@ -346,9 +210,7 @@ async function openPluginModal(name) {
             version: '1.0.0',
             description: '',
             triggers: [],
-            response: { type: 'static', answers: [] },
-            mappings: {},
-            tree: []
+            script_json: '{}'
         };
         document.getElementById('pluginName').value = '';
         document.getElementById('pluginVersion').value = '1.0.0';
@@ -365,854 +227,238 @@ async function openPluginModal(name) {
             return;
         }
     }
-
-    renderQuestionsList();
-    renderAnswersList();
-    renderApiFields();
-    renderMappingsList();
-
-    const responseType = pluginCopy.response?.type || 'static';
-    document.querySelector(`input[name="responseType"][value="${responseType}"]`).checked = true;
-    toggleResponseSections(responseType);
-
+    renderTriggersList(pluginCopy.triggers || []);
+    initBlockly(pluginCopy.script_json || '{}');
     showModal('pluginModal');
 }
 
-// ------------------------------------------------------------------
-// Questions list management (no inline onclick)
-// ------------------------------------------------------------------
-function renderQuestionsList() {
-    const list = document.getElementById('questionsList');
-    list.innerHTML = '';
-    (pluginCopy.triggers || []).forEach((trigger, idx) => {
+function renderTriggersList(triggers) {
+    const container = document.getElementById('triggersList');
+    container.innerHTML = '';
+    if (!triggers || triggers.length === 0) {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(trigger)}</span> <span><button class="edit-question" data-idx="${idx}">✎</button><button class="delete-question" data-idx="${idx}">🗑</button></span>`;
-        list.appendChild(li);
-    });
-    list.querySelectorAll('.edit-question').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const current = pluginCopy.triggers[idx];
-            showTextInputModal('Edit Question', current, (newVal) => {
-                pluginCopy.triggers[idx] = newVal;
-                renderQuestionsList();
-            });
-        });
-    });
-    list.querySelectorAll('.delete-question').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            showConfirmModal('Delete this question?', () => {
-                pluginCopy.triggers.splice(idx, 1);
-                renderQuestionsList();
-            });
-        });
-    });
-}
-document.getElementById('addQuestionBtn').onclick = () => {
-    showTextInputModal('Add Question', '', (newVal) => {
-        if (!pluginCopy.triggers) pluginCopy.triggers = [];
-        pluginCopy.triggers.push(newVal);
-        renderQuestionsList();
-    });
-};
-
-// ------------------------------------------------------------------
-// Static answers list management (no inline onclick)
-// ------------------------------------------------------------------
-function renderAnswersList() {
-    const list = document.getElementById('answersList');
-    list.innerHTML = '';
-    const answers = pluginCopy.response?.answers || [];
-    answers.forEach((ans, idx) => {
-        const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(ans)}</span> <span><button class="edit-answer" data-idx="${idx}">✎</button><button class="delete-answer" data-idx="${idx}">🗑</button></span>`;
-        list.appendChild(li);
-    });
-    list.querySelectorAll('.edit-answer').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const current = pluginCopy.response.answers[idx];
-            showTextInputModal('Edit Answer', current, (newVal) => {
-                pluginCopy.response.answers[idx] = newVal;
-                renderAnswersList();
-            });
-        });
-    });
-    list.querySelectorAll('.delete-answer').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            showConfirmModal('Delete this answer?', () => {
-                pluginCopy.response.answers.splice(idx, 1);
-                renderAnswersList();
-            });
-        });
-    });
-}
-document.getElementById('addAnswerBtn').onclick = () => {
-    showTextInputModal('Add Answer', '', (newVal) => {
-        if (!pluginCopy.response) pluginCopy.response = { type: 'static', answers: [] };
-        if (!pluginCopy.response.answers) pluginCopy.response.answers = [];
-        pluginCopy.response.answers.push(newVal);
-        renderAnswersList();
-    });
-};
-
-// ------------------------------------------------------------------
-// API fields (conditional templates) – no inline onclick
-// ------------------------------------------------------------------
-function renderApiFields() {
-    const resp = pluginCopy.response || { type: 'static' };
-    document.getElementById('apiUrl').value = resp.url || '';
-    renderConditionalTemplates();
-}
-
-function renderConditionalTemplates() {
-    const container = document.getElementById('conditionalTemplatesList');
-    const templates = pluginCopy.response?.conditionalTemplates || [];
-    if (templates.length === 0) {
-        container.innerHTML = '<div style="color:#888; text-align:center; padding:16px;">No conditional templates. Add one to handle different API responses.</div>';
-        return;
-    }
-    let html = '<div class="conditional-grid">';
-    templates.forEach((item, idx) => {
-        html += `
-            <div class="conditional-card" data-index="${idx}">
-                <div class="conditional-header">
-                    <span class="condition">${escapeHtml(item.condition) || '(always)'}</span>
-                    <div class="card-actions">
-                        <button class="move-up" data-idx="${idx}" title="Move Up" ${idx === 0 ? 'disabled' : ''}>↑</button>
-                        <button class="move-down" data-idx="${idx}" title="Move Down" ${idx === templates.length-1 ? 'disabled' : ''}>↓</button>
-                        <button class="edit-conditional" data-idx="${idx}" title="Edit">✎</button>
-                        <button class="delete-conditional" data-idx="${idx}" title="Delete">🗑</button>
-                    </div>
-                </div>
-                <div class="template-preview">${escapeHtml(item.template)}</div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-
-    container.querySelectorAll('.move-up').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = parseInt(btn.dataset.idx);
-            if (idx > 0) {
-                const arr = pluginCopy.response.conditionalTemplates;
-                [arr[idx-1], arr[idx]] = [arr[idx], arr[idx-1]];
-                renderConditionalTemplates();
-            }
-        });
-    });
-    container.querySelectorAll('.move-down').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = parseInt(btn.dataset.idx);
-            const arr = pluginCopy.response.conditionalTemplates;
-            if (idx < arr.length-1) {
-                [arr[idx], arr[idx+1]] = [arr[idx+1], arr[idx]];
-                renderConditionalTemplates();
-            }
-        });
-    });
-    container.querySelectorAll('.edit-conditional').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = parseInt(btn.dataset.idx);
-            editConditionalTemplate(idx);
-        });
-    });
-    container.querySelectorAll('.delete-conditional').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = parseInt(btn.dataset.idx);
-            showConfirmModal('Delete this conditional template?', () => {
-                pluginCopy.response.conditionalTemplates.splice(idx, 1);
-                renderConditionalTemplates();
-            });
-        });
-    });
-}
-
-function editConditionalTemplate(idx) {
-    const item = pluginCopy.response.conditionalTemplates[idx];
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = `
-        <h2>Edit Conditional Template</h2>
-        <div class="form-row">
-            <label>Condition (leave empty for default)</label>
-            <input type="text" id="condCondition" value="${escapeHtml(item.condition || '')}" placeholder="e.g., {temperature} > 80 or {weathercode} == 0">
-        </div>
-        <div class="form-row">
-            <label>Template</label>
-            <textarea id="condTemplate" rows="3">${escapeHtml(item.template)}</textarea>
-        </div>
-        <div class="modal-actions">
-            <button class="cancel" id="condCancel">Cancel</button>
-            <button class="save" id="condSave">Save</button>
-        </div>
-    `;
-    showModal('simpleModal');
-
-    document.getElementById('condCancel').onclick = () => hideModal('simpleModal');
-    document.getElementById('condSave').onclick = () => {
-        const condition = document.getElementById('condCondition').value.trim();
-        const template = document.getElementById('condTemplate').value.trim();
-        if (!template) {
-            showAlertModal('Error', 'Template cannot be empty');
-            return;
-        }
-        pluginCopy.response.conditionalTemplates[idx] = { condition, template };
-        renderConditionalTemplates();
-        hideModal('simpleModal');
-    };
-}
-
-document.getElementById('addConditionalTemplateBtn').onclick = () => {
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = `
-        <h2>Add Conditional Template</h2>
-        <div class="form-row">
-            <label>Condition (leave empty for default)</label>
-            <input type="text" id="condCondition" placeholder="e.g., {temperature} > 80 or {weathercode} == 0">
-        </div>
-        <div class="form-row">
-            <label>Template</label>
-            <textarea id="condTemplate" rows="3" placeholder="The weather is {temperature}°C and {conditions}."></textarea>
-        </div>
-        <div class="modal-actions">
-            <button class="cancel" id="condCancel">Cancel</button>
-            <button class="save" id="condSave">Add</button>
-        </div>
-    `;
-    showModal('simpleModal');
-
-    document.getElementById('condCancel').onclick = () => hideModal('simpleModal');
-    document.getElementById('condSave').onclick = () => {
-        const condition = document.getElementById('condCondition').value.trim();
-        const template = document.getElementById('condTemplate').value.trim();
-        if (!template) {
-            showAlertModal('Error', 'Template cannot be empty');
-            return;
-        }
-        if (!pluginCopy.response.conditionalTemplates) pluginCopy.response.conditionalTemplates = [];
-        pluginCopy.response.conditionalTemplates.push({ condition, template });
-        renderConditionalTemplates();
-        hideModal('simpleModal');
-    };
-};
-
-function getApiFields() {
-    return {
-        url: document.getElementById('apiUrl').value.trim(),
-        conditionalTemplates: pluginCopy.response?.conditionalTemplates || []
-    };
-}
-
-// ------------------------------------------------------------------
-// Response type toggle
-// ------------------------------------------------------------------
-function toggleResponseSections(type) {
-    const staticDiv = document.getElementById('staticResponseSection');
-    const apiDiv = document.getElementById('apiResponseSection');
-    if (type === 'static') {
-        staticDiv.style.display = 'block';
-        apiDiv.style.display = 'none';
+        li.style.justifyContent = 'center';
+        li.style.color = '#888';
+        li.textContent = 'No triggers. Add one below.';
+        container.appendChild(li);
     } else {
-        staticDiv.style.display = 'none';
-        apiDiv.style.display = 'block';
+        triggers.forEach((trigger, idx) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${escapeHtml(trigger)}</span> <span><button class="edit-trigger" data-idx="${idx}">✎</button><button class="delete-trigger" data-idx="${idx}">🗑</button></span>`;
+            container.appendChild(li);
+        });
     }
-}
-document.querySelectorAll('input[name="responseType"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            const type = e.target.value;
-            toggleResponseSections(type);
-            if (!pluginCopy.response) pluginCopy.response = {};
-            pluginCopy.response.type = type;
-        }
-    });
-});
-
-// ------------------------------------------------------------------
-// Mappings management (no inline onclick)
-// ------------------------------------------------------------------
-function renderMappingsList() {
-    const container = document.getElementById('mappingsList');
-    const mappings = pluginCopy.mappings || {};
-    if (Object.keys(mappings).length === 0) {
-        container.innerHTML = '<div style="color:#888;">No mapping tables yet. Add one to capture values.</div>';
-        return;
-    }
-    let html = '<div class="mappings-grid">';
-    for (let [tableName, table] of Object.entries(mappings)) {
-        const fieldNames = table.fields || [];
-        const entryCount = Object.keys(table.entries || {}).length;
-        html += `
-            <div class="mapping-card" data-table="${escapeHtml(tableName)}">
-                <div class="header">
-                    <strong>${escapeHtml(tableName)}</strong>
-                    <div class="card-actions">
-                        <button class="edit-mapping" data-table="${escapeHtml(tableName)}" title="Edit">✎</button>
-                        <button class="delete-mapping" data-table="${escapeHtml(tableName)}" title="Delete">🗑</button>
-                    </div>
-                </div>
-                <div class="mapping-details">
-                    <span>${entryCount} entr${entryCount !== 1 ? 'ies' : 'y'}</span> · 
-                    <span>fields: ${fieldNames.map(f => escapeHtml(f)).join(', ')}</span>
-                </div>
-            </div>
-        `;
-    }
-    html += '</div>';
-    container.innerHTML = html;
-
-    container.querySelectorAll('.edit-mapping').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const tableName = btn.dataset.table;
-            openMappingEditor(tableName);
+    // Attach events after render
+    document.querySelectorAll('.edit-trigger').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            showTextInputModal('Edit Trigger', triggers[idx], (newVal) => {
+                triggers[idx] = newVal;
+                renderTriggersList(triggers);
+            });
         });
     });
-    container.querySelectorAll('.delete-mapping').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const tableName = btn.dataset.table;
-            showConfirmModal(`Delete mapping table "${tableName}"?`, () => {
-                delete pluginCopy.mappings[tableName];
-                renderMappingsList();
+    document.querySelectorAll('.delete-trigger').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            showConfirmModal('Delete this trigger?', () => {
+                triggers.splice(idx, 1);
+                renderTriggersList(triggers);
             });
         });
     });
 }
 
-function openMappingEditor(tableName = null) {
-    const mappings = pluginCopy.mappings || {};
-    let table = tableName ? mappings[tableName] : null;
-    const isNew = !table;
-
-    let html = `
-        <div style="min-width: 500px;">
-            <h3>${isNew ? 'Add Mapping Table' : 'Edit Mapping Table'}</h3>
-            <div class="form-row">
-                <label>Table Name</label>
-                <input type="text" id="mappingName" value="${tableName ? escapeHtml(tableName) : ''}" ${!isNew ? 'disabled' : ''}>
-            </div>
-            <div class="form-row">
-                <label>Field Names (comma‑separated)</label>
-                <input type="text" id="mappingFields" value="${table ? (table.fields || []).join(', ') : ''}" placeholder="e.g., latitude, longitude">
-            </div>
-            <div class="form-row">
-                <label>Entries</label>
-                <div id="entriesContainer"></div>
-                <button class="add-btn" id="addEntryBtn">+ Add Entry</button>
-            </div>
-            <div class="modal-actions">
-                <button class="cancel" id="mappingCancelBtn">Cancel</button>
-                <button class="save" id="mappingSaveBtn">Save</button>
-            </div>
-        </div>
-    `;
-
-    const modal = document.getElementById('simpleModal');
-    const content = document.getElementById('simpleModalContent');
-    content.innerHTML = html;
-    showModal('simpleModal');
-
-    function renderEntriesList(entries) {
-        const container = document.getElementById('entriesContainer');
-        if (!container) return;
-        const fields = document.getElementById('mappingFields').value.split(',').map(s => s.trim()).filter(s => s);
-        let entriesHtml = '<div style="background:#2d2d5a; border-radius:8px; padding:8px;">';
-        for (let [key, values] of Object.entries(entries)) {
-            entriesHtml += `
-                <div class="entry-row" style="margin-bottom:12px; border-bottom:1px solid #3d3d7a; padding-bottom:8px;">
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <input type="text" placeholder="Key (word to match)" value="${escapeHtml(key)}" style="flex:1;">
-                        ${fields.map(f => `
-                            <input type="text" placeholder="${f}" value="${escapeHtml(values[f] || '')}" style="flex:1;">
-                        `).join('')}
-                        <button class="delete-entry" style="background:none; border:none; color:#ff6b9d;">🗑</button>
-                    </div>
-                </div>
-            `;
-        }
-        entriesHtml += '</div>';
-        container.innerHTML = entriesHtml;
-
-        container.querySelectorAll('.delete-entry').forEach(btn => {
-            btn.addEventListener('click', () => {
-                btn.closest('.entry-row').remove();
-            });
-        });
-    }
-
-    const fieldsInput = document.getElementById('mappingFields');
-    fieldsInput.addEventListener('change', () => {
-        const entries = getCurrentEntries();
-        renderEntriesList(entries);
+document.getElementById('addTriggerBtn').onclick = () => {
+    let triggers = pluginCopy.triggers || [];
+    showTextInputModal('Add Trigger', '', (newVal) => {
+        triggers.push(newVal);
+        pluginCopy.triggers = triggers;
+        renderTriggersList(triggers);
     });
+};
 
-    function getCurrentEntries() {
-        const entries = {};
-        const rows = document.querySelectorAll('.entry-row');
-        rows.forEach(row => {
-            const inputs = row.querySelectorAll('input');
-            if (!inputs.length) return;
-            const key = inputs[0].value.trim();
-            if (!key) return;
-            const values = {};
-            const fields = document.getElementById('mappingFields').value.split(',').map(s => s.trim()).filter(s => s);
-            const inputArray = Array.from(inputs);
-            inputArray.slice(1, 1 + fields.length).forEach((input, idx) => {
-                values[fields[idx]] = input.value.trim();
-            });
-            entries[key] = values;
+// ------------------------------------------------------------------
+// Blockly integration with dark theme
+// ------------------------------------------------------------------
+function initBlockly(scriptJson) {
+    if (currentBlocklyWorkspace) {
+        currentBlocklyWorkspace.dispose();
+        currentBlocklyWorkspace = null;
+    }
+    setTimeout(() => {
+        // Define custom dark theme
+        const darkTheme = Blockly.Theme.defineTheme('darkTheme', {
+            'base': Blockly.Themes.Classic,
+            'componentStyles': {
+                'workspaceBackgroundColour': '#1a1a2e',
+                'toolboxBackgroundColour': '#252547',
+                'toolboxForegroundColour': '#fff',
+                'flyoutBackgroundColour': '#2d2d5a',
+                'flyoutForegroundColour': '#fff',
+                'flyoutOpacity': 0.9,
+                'scrollbarColour': '#4a4a7a',
+                'scrollbarOpacity': 0.6,
+                'cursorColour': '#6c63ff',
+            },
+            'blockStyles': {
+                'logic_blocks': {
+                    'colourPrimary': '#ffaa66',
+                    'colourSecondary': '#ffaa66',
+                    'colourTertiary': '#cc8844',
+                },
+                'loop_blocks': {
+                    'colourPrimary': '#ffaa66',
+                    'colourSecondary': '#ffaa66',
+                    'colourTertiary': '#cc8844',
+                },
+                'math_blocks': {
+                    'colourPrimary': '#6c63ff',
+                    'colourSecondary': '#6c63ff',
+                    'colourTertiary': '#4a3fcc',
+                },
+                'text_blocks': {
+                    'colourPrimary': '#00ff88',
+                    'colourSecondary': '#00ff88',
+                    'colourTertiary': '#00aa55',
+                },
+                'list_blocks': {
+                    'colourPrimary': '#ff6b9d',
+                    'colourSecondary': '#ff6b9d',
+                    'colourTertiary': '#cc5577',
+                },
+                'colour_blocks': {
+                    'colourPrimary': '#ffaa66',
+                    'colourSecondary': '#ffaa66',
+                    'colourTertiary': '#cc8844',
+                },
+                'variable_blocks': {
+                    'colourPrimary': '#a78bfa',
+                    'colourSecondary': '#a78bfa',
+                    'colourTertiary': '#8a5cf0',
+                },
+                'procedure_blocks': {
+                    'colourPrimary': '#a78bfa',
+                    'colourSecondary': '#a78bfa',
+                    'colourTertiary': '#8a5cf0',
+                },
+            },
+            'categoryStyles': {
+                'api_category': {
+                    'colour': '#6c63ff',
+                },
+                'logic_category': {
+                    'colour': '#ffaa66',
+                },
+                'response_category': {
+                    'colour': '#00ff88',
+                },
+            },
         });
-        return entries;
-    }
 
-    if (!isNew && table && table.entries) {
-        renderEntriesList(table.entries);
-    } else {
-        renderEntriesList({});
-    }
-
-    document.getElementById('mappingSaveBtn').onclick = () => {
-        const name = document.getElementById('mappingName').value.trim();
-        if (!name) {
-            showAlertModal('Validation Error', 'Table name is required.');
-            return;
+        currentBlocklyWorkspace = Blockly.inject('blocklyDiv', {
+            toolbox: `<xml xmlns="https://developers.google.com/blockly/xml" id="toolbox" style="display: none">
+                <category name="API" colour="#6c63ff">
+                    <block type="call_api"></block>
+                </category>
+                <category name="Logic" colour="#ffaa66">
+                    <block type="controls_if"></block>
+                </category>
+                <category name="Response" colour="#00ff88">
+                    <block type="respond"></block>
+                </category>
+            </xml>`,
+            grid: { spacing: 20, length: 3, colour: '#4a4a7a' },
+            zoom: { controls: true, wheel: true },
+            theme: darkTheme,
+        });
+        defineCustomBlocks();
+        if (scriptJson && scriptJson !== '{}') {
+            try {
+                const xml = Blockly.Xml.textToDom(scriptJson);
+                Blockly.Xml.domToWorkspace(xml, currentBlocklyWorkspace);
+            } catch(e) { console.error('Failed to load script', e); }
         }
-        const fieldsStr = document.getElementById('mappingFields').value;
-        const fields = fieldsStr.split(',').map(s => s.trim()).filter(s => s);
-        if (fields.length === 0) {
-            showAlertModal('Validation Error', 'At least one field name is required.');
-            return;
-        }
-        const entries = getCurrentEntries();
+    }, 100);
+}
 
-        if (isNew && pluginCopy.mappings[name]) {
-            showAlertModal('Validation Error', 'A mapping table with that name already exists.');
-            return;
+function defineCustomBlocks() {
+    // Block: call_api
+    Blockly.Blocks['call_api'] = {
+        init: function() {
+            this.appendValueInput('URL')
+                .setCheck('String')
+                .appendField('call API');
+            this.appendDummyInput()
+                .appendField('method')
+                .appendField(new Blockly.FieldDropdown([['GET','GET'],['POST','POST'],['PUT','PUT'],['DELETE','DELETE']]), 'METHOD');
+            this.appendValueInput('HEADERS')
+                .setCheck('Object')
+                .appendField('headers (JSON)');
+            this.appendValueInput('BODY')
+                .setCheck('String')
+                .appendField('body');
+            this.appendValueInput('STORE')
+                .setCheck('String')
+                .appendField('store result in variable');
+            this.setPreviousStatement(true, null);
+            this.setNextStatement(true, null);
+            this.setColour(108, 99, 255);
         }
-
-        if (!pluginCopy.mappings) pluginCopy.mappings = {};
-        pluginCopy.mappings[name] = { fields, entries };
-        renderMappingsList();
-        hideModal('simpleModal');
     };
-    document.getElementById('mappingCancelBtn').onclick = () => {
-        hideModal('simpleModal');
+    Blockly.JavaScript['call_api'] = function(block) {
+        var url = Blockly.JavaScript.valueToCode(block, 'URL', Blockly.JavaScript.ORDER_ATOMIC);
+        var method = block.getFieldValue('METHOD');
+        var headers = Blockly.JavaScript.valueToCode(block, 'HEADERS', Blockly.JavaScript.ORDER_ATOMIC);
+        var body = Blockly.JavaScript.valueToCode(block, 'BODY', Blockly.JavaScript.ORDER_ATOMIC);
+        var store = Blockly.JavaScript.valueToCode(block, 'STORE', Blockly.JavaScript.ORDER_ATOMIC);
+        return `call_api(${url}, '${method}', ${headers}, ${body}, ${store});\n`;
     };
-    document.getElementById('addEntryBtn').onclick = () => {
-        const entries = getCurrentEntries();
-        entries[''] = {};
-        renderEntriesList(entries);
+
+    // Block: respond
+    Blockly.Blocks['respond'] = {
+        init: function() {
+            this.appendValueInput('TEXT')
+                .setCheck('String')
+                .appendField('respond with');
+            this.setPreviousStatement(true, null);
+            this.setNextStatement(false);
+            this.setColour(0, 255, 136);
+        }
+    };
+    Blockly.JavaScript['respond'] = function(block) {
+        var text = Blockly.JavaScript.valueToCode(block, 'TEXT', Blockly.JavaScript.ORDER_ATOMIC);
+        return `respond(${text});\n`;
     };
 }
 
-document.getElementById('addMappingBtn').onclick = () => {
-    openMappingEditor(null);
-};
-
 // ------------------------------------------------------------------
-// Tree editor (fixed – no inline onclick, clean loading)
-// ------------------------------------------------------------------
-let currentTree = [];
-let nodeMap = new Map();
-let nodeDetailsCache = new Map();
-let nextNodeId = 0;
-let selectedNodeId = null;
-let treeUnsaved = false;
-
-function openTreeEditor() {
-    currentTree = JSON.parse(JSON.stringify(pluginCopy.tree || []));
-    nodeMap.clear();
-    nodeDetailsCache.clear();
-    nextNodeId = 0;
-    function buildMap(nodes) {
-        nodes.forEach(node => {
-            node.dbId = node.id;
-            node.id = `node_${nextNodeId++}`;
-            nodeMap.set(node.id, node);
-            if (node.children) buildMap(node.children);
-        });
-    }
-    buildMap(currentTree);
-    selectedNodeId = null;
-    treeUnsaved = false;
-    renderTree();
-    showModal('treeModal');
-    updateToolbarButtons();
-    document.getElementById('nodeQAPanel').style.display = 'none';
-    document.getElementById('noNodeSelected').style.display = 'flex';
-}
-
-function renderTree() {
-    const container = document.getElementById('treeContainer');
-    container.innerHTML = renderTreeNodes(currentTree, 0);
-    document.querySelectorAll('.tree-node-header').forEach(header => {
-        const nodeId = header.dataset.nodeId;
-        const expandIcon = header.querySelector('.expand-icon');
-        if (expandIcon) {
-            expandIcon.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const childrenDiv = header.parentElement.querySelector('.tree-children');
-                if (childrenDiv) {
-                    if (childrenDiv.style.display === 'none') {
-                        childrenDiv.style.display = 'block';
-                        expandIcon.textContent = '▼';
-                    } else {
-                        childrenDiv.style.display = 'none';
-                        expandIcon.textContent = '▶';
-                    }
-                }
-            });
-        }
-        header.addEventListener('click', (e) => {
-            if (e.target.closest('.node-actions')) return;
-            selectNode(nodeId);
-        });
-    });
-    if (selectedNodeId) {
-        const selectedHeader = document.querySelector(`.tree-node-header[data-node-id="${selectedNodeId}"]`);
-        if (selectedHeader) {
-            selectedHeader.classList.add('selected');
-            showNodeQAPanel(selectedNodeId);
-        } else {
-            selectedNodeId = null;
-            document.getElementById('nodeQAPanel').style.display = 'none';
-            document.getElementById('noNodeSelected').style.display = 'flex';
-        }
-    } else {
-        document.getElementById('nodeQAPanel').style.display = 'none';
-        document.getElementById('noNodeSelected').style.display = 'flex';
-    }
-}
-
-function renderTreeNodes(nodes, level) {
-    if (!nodes || nodes.length === 0) return '';
-    let html = '';
-    nodes.forEach(node => {
-        const hasChildren = node.children && node.children.length > 0;
-        const expandIcon = hasChildren ? '▼' : '';
-        html += `<div class="tree-node">`;
-        html += `<div class="tree-node-header" data-node-id="${node.id}">`;
-        html += `<span class="expand-icon">${expandIcon}</span>`;
-        html += `<span class="name">${escapeHtml(node.branch_name || 'Unnamed')}</span>`;
-        html += `<span class="node-actions"></span>`;
-        html += `</div>`;
-        if (hasChildren) {
-            html += `<div class="tree-children">${renderTreeNodes(node.children, level+1)}</div>`;
-        }
-        html += `</div>`;
-    });
-    return html;
-}
-
-function selectNode(nodeId) {
-    if (selectedNodeId) {
-        const prev = document.querySelector(`.tree-node-header[data-node-id="${selectedNodeId}"]`);
-        if (prev) prev.classList.remove('selected');
-    }
-    selectedNodeId = nodeId;
-    const current = document.querySelector(`.tree-node-header[data-node-id="${selectedNodeId}"]`);
-    if (current) current.classList.add('selected');
-    showNodeQAPanel(nodeId);
-    updateToolbarButtons();
-}
-
-function showNodeQAPanel(nodeId) {
-    const node = nodeMap.get(nodeId);
-    if (!node) return;
-
-    document.getElementById('nodeQAPanel').style.display = 'block';
-    document.getElementById('noNodeSelected').style.display = 'none';
-
-    if (!node.dbId) {
-        node.questions = node.questions || [];
-        node.answers = node.answers || [];
-        renderNodeQAPanel(node);
-        return;
-    }
-
-    if (nodeDetailsCache.has(nodeId)) {
-        const details = nodeDetailsCache.get(nodeId);
-        node.questions = details.questions;
-        node.answers = details.answers;
-        renderNodeQAPanel(node);
-        return;
-    }
-
-    const addQuestionBtn = document.getElementById('treeAddQuestionBtn');
-    const addAnswerBtn = document.getElementById('treeAddAnswerBtn');
-    if (addQuestionBtn) addQuestionBtn.disabled = true;
-    if (addAnswerBtn) addAnswerBtn.disabled = true;
-
-    const qList = document.getElementById('treeQuestionsList');
-    const aList = document.getElementById('treeAnswersList');
-    qList.innerHTML = '';
-    aList.innerHTML = '';
-
-    const qLoading = showInlineLoading(qList, "Loading questions");
-    const aLoading = showInlineLoading(aList, "Loading answers");
-
-    (async () => {
-        try {
-            const details = await retryOperation(async () => {
-                return await apiGet(`/api/plugins/${encodeURIComponent(currentPluginName)}/node/${node.dbId}`);
-            });
-            qLoading.clear();
-            aLoading.clear();
-            node.questions = details.questions;
-            node.answers = details.answers;
-            nodeDetailsCache.set(nodeId, details);
-            renderNodeQAPanel(node);
-            if (addQuestionBtn) addQuestionBtn.disabled = false;
-            if (addAnswerBtn) addAnswerBtn.disabled = false;
-        } catch (err) {
-            qLoading.clear();
-            aLoading.clear();
-            showInlineListRetry(qList, 'questions', async () => {
-                await showNodeQAPanel(nodeId);
-            });
-            showInlineListRetry(aList, 'answers', async () => {
-                await showNodeQAPanel(nodeId);
-            });
-        }
-    })();
-}
-
-function renderNodeQAPanel(node) {
-    const qList = document.getElementById('treeQuestionsList');
-    qList.innerHTML = '';
-    (node.questions || []).forEach((q, i) => {
-        const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(q)}</span> <span><button class="edit-tree-question" data-idx="${i}">✎</button><button class="delete-tree-question" data-idx="${i}">🗑</button></span>`;
-        qList.appendChild(li);
-    });
-    qList.querySelectorAll('.edit-tree-question').forEach(btn => {
-        btn.addEventListener('click', () => editTreeNodeQuestion(parseInt(btn.dataset.idx)));
-    });
-    qList.querySelectorAll('.delete-tree-question').forEach(btn => {
-        btn.addEventListener('click', () => deleteTreeNodeQuestion(parseInt(btn.dataset.idx)));
-    });
-
-    const aList = document.getElementById('treeAnswersList');
-    aList.innerHTML = '';
-    (node.answers || []).forEach((a, i) => {
-        const li = document.createElement('li');
-        li.innerHTML = `<span>${escapeHtml(a)}</span> <span><button class="edit-tree-answer" data-idx="${i}">✎</button><button class="delete-tree-answer" data-idx="${i}">🗑</button></span>`;
-        aList.appendChild(li);
-    });
-    aList.querySelectorAll('.edit-tree-answer').forEach(btn => {
-        btn.addEventListener('click', () => editTreeNodeAnswer(parseInt(btn.dataset.idx)));
-    });
-    aList.querySelectorAll('.delete-tree-answer').forEach(btn => {
-        btn.addEventListener('click', () => deleteTreeNodeAnswer(parseInt(btn.dataset.idx)));
-    });
-}
-
-function updateToolbarButtons() {
-    const hasSelection = selectedNodeId !== null;
-    document.getElementById('addChildBtn').disabled = !hasSelection;
-    document.getElementById('editNodeBtn').disabled = !hasSelection;
-    document.getElementById('deleteNodeBtn').disabled = !hasSelection;
-}
-
-document.getElementById('addRootBtn').onclick = () => {
-    const newNode = { branch_name: 'New Root', questions: [], answers: [], children: [] };
-    newNode.id = `node_${nextNodeId++}`;
-    nodeMap.set(newNode.id, newNode);
-    currentTree.push(newNode);
-    treeUnsaved = true;
-    renderTree();
-    selectNode(newNode.id);
-};
-
-document.getElementById('addChildBtn').onclick = () => {
-    if (!selectedNodeId) return;
-    const parentNode = nodeMap.get(selectedNodeId);
-    if (!parentNode) return;
-    if (!parentNode.children) parentNode.children = [];
-    const newNode = { branch_name: 'New Branch', questions: [], answers: [], children: [] };
-    newNode.id = `node_${nextNodeId++}`;
-    nodeMap.set(newNode.id, newNode);
-    parentNode.children.push(newNode);
-    treeUnsaved = true;
-    renderTree();
-    selectNode(newNode.id);
-};
-
-document.getElementById('editNodeBtn').onclick = () => {
-    if (!selectedNodeId) return;
-    const node = nodeMap.get(selectedNodeId);
-    showTextInputModal('Edit Node Name', node.branch_name || '', (newName) => {
-        node.branch_name = newName;
-        treeUnsaved = true;
-        renderTree();
-    });
-};
-
-document.getElementById('deleteNodeBtn').onclick = () => {
-    if (!selectedNodeId) return;
-    const node = nodeMap.get(selectedNodeId);
-    showConfirmModal(`Delete '${node.branch_name || 'Unnamed'}' and all its children?`, () => {
-        function removeNode(nodes, nodeId) {
-            for (let i = 0; i < nodes.length; i++) {
-                if (nodes[i].id === nodeId) {
-                    nodes.splice(i, 1);
-                    return true;
-                }
-                if (nodes[i].children && removeNode(nodes[i].children, nodeId)) return true;
-            }
-            return false;
-        }
-        removeNode(currentTree, selectedNodeId);
-        nodeMap.delete(selectedNodeId);
-        selectedNodeId = null;
-        treeUnsaved = true;
-        renderTree();
-        updateToolbarButtons();
-    });
-};
-
-function editTreeNodeQuestion(qIdx) {
-    const node = nodeMap.get(selectedNodeId);
-    const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: node.questions || [], answers: node.answers || [] };
-    showTextInputModal('Edit Question', fullNode.questions[qIdx], (newVal) => {
-        fullNode.questions[qIdx] = newVal;
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-}
-
-function deleteTreeNodeQuestion(qIdx) {
-    showConfirmModal('Delete this question?', () => {
-        const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
-        fullNode.questions.splice(qIdx, 1);
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-}
-
-function editTreeNodeAnswer(aIdx) {
-    const node = nodeMap.get(selectedNodeId);
-    const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: node.questions || [], answers: node.answers || [] };
-    showTextInputModal('Edit Answer', fullNode.answers[aIdx], (newVal) => {
-        fullNode.answers[aIdx] = newVal;
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-}
-
-function deleteTreeNodeAnswer(aIdx) {
-    showConfirmModal('Delete this answer?', () => {
-        const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
-        fullNode.answers.splice(aIdx, 1);
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-}
-
-document.getElementById('treeAddQuestionBtn').onclick = () => {
-    if (!selectedNodeId) return;
-    showTextInputModal('Add Question', '', (newQ) => {
-        const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
-        if (!fullNode.questions) fullNode.questions = [];
-        fullNode.questions.push(newQ);
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-};
-
-document.getElementById('treeAddAnswerBtn').onclick = () => {
-    if (!selectedNodeId) return;
-    showTextInputModal('Add Answer', '', (newA) => {
-        const fullNode = nodeDetailsCache.get(selectedNodeId) || { questions: [], answers: [] };
-        if (!fullNode.answers) fullNode.answers = [];
-        fullNode.answers.push(newA);
-        nodeDetailsCache.set(selectedNodeId, fullNode);
-        treeUnsaved = true;
-        showNodeQAPanel(selectedNodeId);
-    });
-};
-
-document.getElementById('treeModalSaveBtn').onclick = () => {
-    function buildFullTree(nodes) {
-        return nodes.map(node => {
-            const cached = nodeDetailsCache.get(node.id);
-            return {
-                id: node.dbId,
-                branch_name: node.branch_name,
-                questions: cached ? cached.questions : (node.questions || []),
-                answers: cached ? cached.answers : (node.answers || []),
-                children: buildFullTree(node.children || [])
-            };
-        });
-    }
-    const fullTree = buildFullTree(currentTree);
-    pluginCopy.tree = fullTree;
-    treeUnsaved = false;
-    hideModal('treeModal');
-};
-
-document.getElementById('treeModalCancelBtn').onclick = () => {
-    if (treeUnsaved && !confirm('You have unsaved changes. Discard them?')) return;
-    hideModal('treeModal');
-};
-
-document.getElementById('editTreeBtn').onclick = () => {
-    openTreeEditor();
-};
-
-// ------------------------------------------------------------------
-// Save plugin modal
+// Save plugin
 // ------------------------------------------------------------------
 document.getElementById('pluginSaveBtn').onclick = async () => {
     const name = document.getElementById('pluginName').value.trim();
     const version = document.getElementById('pluginVersion').value.trim();
     const description = document.getElementById('pluginDescription').value.trim();
     if (!name) {
-        showAlertModal('Validation Error', 'Name is required');
+        showAlertModal('Validation Error', 'Plugin name is required');
         return;
     }
     const triggers = pluginCopy.triggers || [];
-    const responseType = document.querySelector('input[name="responseType"]:checked').value;
-    let response = { type: responseType };
-    if (responseType === 'static') {
-        response.answers = pluginCopy.response?.answers || [];
-    } else {
-        const api = getApiFields();
-        response.url = api.url;
-        response.conditionalTemplates = api.conditionalTemplates;
-        if (!response.url) {
-            showAlertModal('Validation Error', 'URL is required for API response');
-            return;
-        }
-        if (!response.conditionalTemplates || response.conditionalTemplates.length === 0) {
-            showAlertModal('Validation Error', 'At least one conditional template is required for API response');
-            return;
-        }
+    if (triggers.length === 0) {
+        showAlertModal('Validation Error', 'At least one trigger is required');
+        return;
     }
-
+    if (!currentBlocklyWorkspace) {
+        showAlertModal('Error', 'Blockly workspace not initialized');
+        return;
+    }
+    const xml = Blockly.Xml.workspaceToDom(currentBlocklyWorkspace);
+    const scriptJson = Blockly.Xml.domToText(xml);
     const data = {
         name, version, description,
-        triggers,
-        response,
-        mappings: pluginCopy.mappings || {},
-        tree: pluginCopy.tree
+        triggers: triggers,
+        script_json: scriptJson
     };
-
     try {
         if (currentPluginName === null) {
             await apiPost('/api/plugins', data);
@@ -1228,6 +474,10 @@ document.getElementById('pluginSaveBtn').onclick = async () => {
 
 document.getElementById('pluginCancelBtn').onclick = () => {
     hideModal('pluginModal');
+    if (currentBlocklyWorkspace) {
+        currentBlocklyWorkspace.dispose();
+        currentBlocklyWorkspace = null;
+    }
 };
 
 // ------------------------------------------------------------------
@@ -1251,78 +501,4 @@ searchInput.addEventListener('input', () => renderPlugins());
 sortSelect.addEventListener('change', () => renderPlugins());
 newPluginBtn.onclick = () => openPluginModal(null);
 
-// Start
 loadPlugins();
-
-// Inject inline-loading styles (if not already present)
-if (!document.querySelector('#inline-loading-styles')) {
-    const style = document.createElement('style');
-    style.id = 'inline-loading-styles';
-    style.textContent = `
-        .inline-loading {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px;
-            background: transparent;
-            color: #aaa;
-            font-size: 0.85rem;
-        }
-        .inline-spinner {
-            width: 16px;
-            height: 16px;
-            border: 2px solid #6c63ff;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .retry-list-item {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 12px;
-            background: #2d2d5a;
-            border-radius: 6px;
-            color: #ffe0e0;
-        }
-        .retry-list-btn {
-            background: #6c63ff;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 12px;
-            color: white;
-            cursor: pointer;
-            font-size: 0.8rem;
-        }
-        .retry-list-btn:hover { background: #5a52d5; }
-        .retry-list-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .retry-error {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 12px;
-            background: #2d2d5a;
-            border: 1px solid #ff6b9d;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px;
-            text-align: center;
-            color: #ffe0e0;
-        }
-        .retry-error .error-icon { font-size: 32px; }
-        .retry-error .error-message { font-size: 0.9rem; }
-        .retry-error .retry-btn {
-            background: #6c63ff;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-        .retry-error .retry-btn:hover { background: #5a52d5; }
-        .retry-error .retry-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    `;
-    document.head.appendChild(style);
-}
