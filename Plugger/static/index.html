@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alto Plugin Crafter 0.3a</title>
+    <title>Alto Plugin Crafter 0.2a</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/blockly/blockly.min.js"></script>
-    <script src="https://unpkg.com/blockly/blocks.js"></script>
-    <script src="https://unpkg.com/blockly/javascript.js"></script>
+    <script type="module" src="/static/js/main.js"></script>
 </head>
 <body>
     <header>
-        <h1>Alto Plugin Crafter 0.3a</h1>
+        <h1>Alto Plugin Crafter 0.2a</h1>
         <button id="newPluginBtn">+ New Plugin</button>
     </header>
 
@@ -58,8 +57,10 @@
                 <button id="addTriggerBtn" class="add-btn">+ Add Trigger</button>
             </div>
             <div class="form-row">
-                <label>Response Script (Blockly)</label>
-                <div id="blocklyDiv" style="height: 400px; width: 100%; border: 1px solid #4a4a7a;"></div>
+                <button id="editRootScriptBtn" class="add-btn">✎ Edit Root Response Script</button>
+            </div>
+            <div class="form-row">
+                <button id="editTreeBtn" class="add-btn">🌳 Edit Follow‑up Tree</button>
             </div>
             <div class="modal-actions">
                 <button class="cancel" id="pluginCancelBtn">Cancel</button>
@@ -68,11 +69,46 @@
         </div>
     </div>
 
-    <!-- Simple Modal for confirmations -->
+    <!-- Tree Editor Modal -->
+    <div id="treeModal" class="modal">
+        <div class="modal-content tree-modal-content">
+            <h2>Follow‑up Tree Editor</h2>
+            <div class="tree-layout">
+                <div class="tree-column">
+                    <div id="nodeEditorPanel" style="display: none;">
+                        <h3>Node Details</h3>
+                        <div class="form-row">
+                            <label>Questions (activation phrases)</label>
+                            <ul id="nodeQuestionsList" class="qa-list"></ul>
+                            <button id="addNodeQuestionBtn" class="add-btn">+ Add Question</button>
+                        </div>
+                    </div>
+                    <div id="noNodeSelectedMsg" class="no-node-message">
+                        Select a node to edit its details.
+                    </div>
+                </div>
+                <div class="tree-column">
+                    <div class="tree-toolbar">
+                        <button id="addRootNodeBtn">+ Add Root Node</button>
+                        <button id="addChildNodeBtn" disabled>+ Add Child</button>
+                        <button id="deleteNodeBtn" disabled>🗑 Delete</button>
+                    </div>
+                    <div class="tree-container" id="treeContainer"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="cancel" id="treeCancelBtn">Cancel</button>
+                <button class="save" id="treeSaveBtn">Save Tree</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Modal -->
     <div id="simpleModal" class="modal">
         <div class="modal-content" id="simpleModalContent"></div>
     </div>
 
-    <script src="/static/script.js"></script>
+    <!-- Root Script Modal (created dynamically) -->
+    <!-- Node Script Modal (created dynamically) -->
 </body>
 </html>
