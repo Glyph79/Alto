@@ -6,6 +6,10 @@ let currentPluginName = null;
 let codeEditor = null;
 
 const DEFAULT_CODE = `plugin name "Example Bot"
+plugin version "1.0"
+plugin author "Your Name"
+
+fuzzy = true
 
 define input "start"
 

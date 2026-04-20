@@ -26,7 +26,7 @@
                         "define input", "define wrong",
                         "root", "state",
                         "say", "next", "stop", "back",
-                        "if", "elif", "else", "or"
+                        "if", "elif", "else", "or", "fuzzy"
                     ];
                     var matched = false;
                     for (var kw of keywords) {
@@ -85,6 +85,9 @@
                 <div class="info-text">
                     <strong>DSL Reference:</strong><br>
                     <code>plugin name "Name"</code><br>
+                    <code>plugin version "1.0"</code><br>
+                    <code>plugin author "Your Name"</code><br>
+                    <code>fuzzy = true</code><br>
                     <code>define input "trigger"</code><br>
                     <code>root name:</code><br>
                     <code>&nbsp;&nbsp;&nbsp;&nbsp;say "Welcome"</code><br>
@@ -92,8 +95,12 @@
                     <code>state name:</code><br>
                     <code>&nbsp;&nbsp;&nbsp;&nbsp;define wrong "Fallback message"</code><br>
                     <code>&nbsp;&nbsp;&nbsp;&nbsp;define input "pattern" or "pattern2"</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;set var = value</code><br>
                     <code>&nbsp;&nbsp;&nbsp;&nbsp;say "Prompt"</code><br>
                     <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;next state_name</code><br>
+                    <code>call api "url"</code><br>
+                    <code>if condition: ... elif ... else:</code><br>
+                    <code>stop</code><br>
                     <code># comments start with #</code>
                 </div>
             </div>
