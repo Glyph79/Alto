@@ -6,15 +6,19 @@ PLUGINS_DIR = os.path.join(os.path.dirname(__file__), 'plugins')
 os.makedirs(PLUGINS_DIR, exist_ok=True)
 
 def _safe_filename(name: str) -> str:
-    import re
-    return re.sub(r'[^\w\-]', '_', name)
+    if not name:
+        return None
+    safe = re.sub(r'[^\w\-]', '_', name)
+    safe = re.sub(r'_+', '_', safe)
+    return safe
 
 def _get_plugin_path(plugin_name: str) -> str:
     safe = _safe_filename(plugin_name)
+    if not safe:
+        return None
     return os.path.join(PLUGINS_DIR, f"{safe}.plug")
 
 def _extract_metadata_and_triggers(code: str):
-    """Extract name, version, author, description, triggers from code."""
     lines = code.split('\n')
     name = version = author = description = ""
     triggers = []
@@ -39,20 +43,21 @@ def list_plugins() -> List[Dict]:
     if not os.path.exists(PLUGINS_DIR):
         return plugins
     for f in os.listdir(PLUGINS_DIR):
-        if f.endswith('.plug'):
-            path = os.path.join(PLUGINS_DIR, f)
-            try:
-                with open(path, 'r', encoding='utf-8') as file:
-                    code = file.read()
-                name, version, author, description, _ = _extract_metadata_and_triggers(code)
-                if name:
-                    plugins.append({"name": name, "version": version or "0.0.0", "description": description or ""})
-                else:
-                    # fallback: use filename without extension
-                    name = os.path.splitext(f)[0]
-                    plugins.append({"name": name, "version": "0.0.0", "description": ""})
-            except Exception:
-                continue
+        if not f.endswith('.plug'):
+            continue
+        path = os.path.join(PLUGINS_DIR, f)
+        try:
+            with open(path, 'r', encoding='utf-8') as file:
+                code = file.read()
+            name, version, author, description, _ = _extract_metadata_and_triggers(code)
+            if name:
+                plugins.append({
+                    "name": name,
+                    "version": version or "0.0.0",
+                    "description": description or ""
+                })
+        except Exception:
+            continue
     return sorted(plugins, key=lambda x: x['name'])
 
 def create_plugin(code: str) -> Dict:
@@ -63,8 +68,9 @@ def create_plugin(code: str) -> Dict:
         return {"error": "At least one 'define input' required"}
 
     path = _get_plugin_path(name)
-    if os.path.exists(path):
-        return {"error": f"Plugin '{name}' already exists"}
+    if not path or os.path.exists(path):
+        return {"error": f"Plugin '{name}' already exists or invalid name"}
+
     try:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(code)
@@ -74,12 +80,14 @@ def create_plugin(code: str) -> Dict:
 
 def get_plugin(name: str) -> Dict:
     path = _get_plugin_path(name)
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         return {"error": "Plugin not found"}
     try:
         with open(path, 'r', encoding='utf-8') as f:
             code = f.read()
         name, version, author, description, triggers = _extract_metadata_and_triggers(code)
+        if not name:
+            return {"error": "Invalid plugin file (missing plugin name)"}
         return {
             "name": name,
             "version": version or "",
@@ -97,12 +105,13 @@ def update_plugin(name: str, code: str) -> Dict:
         return {"error": "Missing 'plugin name' in code"}
 
     old_path = _get_plugin_path(name)
-    if not os.path.exists(old_path):
+    if not old_path or not os.path.exists(old_path):
         return {"error": "Plugin not found"}
 
-    # If name changed, delete old file and create new one
     if new_name != name:
         new_path = _get_plugin_path(new_name)
+        if not new_path:
+            return {"error": "Invalid new plugin name"}
         if os.path.exists(new_path):
             return {"error": f"Plugin with name '{new_name}' already exists"}
         try:
@@ -122,7 +131,7 @@ def update_plugin(name: str, code: str) -> Dict:
 
 def delete_plugin(name: str) -> Dict:
     path = _get_plugin_path(name)
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         return {"error": "Plugin not found"}
     try:
         os.remove(path)

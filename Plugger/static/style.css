@@ -165,7 +165,6 @@ button:hover {
     color: white;
 }
 
-/* Modal styles */
 .modal {
     display: flex;
     position: fixed;
@@ -257,7 +256,7 @@ button:hover {
 }
 
 #codeEditor {
-    height: 400px;
+    height: 500px;
     border: 1px solid #4a4a7a;
     border-radius: 6px;
     overflow: hidden;
@@ -285,6 +284,23 @@ button:hover {
 
 .CodeMirror-selected {
     background: #6c63ff !important;
+}
+
+.CodeMirror-foldgutter {
+    width: 12px;
+}
+
+.CodeMirror-foldgutter-open, .CodeMirror-foldgutter-folded {
+    cursor: pointer;
+    color: #888;
+}
+
+.CodeMirror-foldgutter-open:after {
+    content: "▼";
+}
+
+.CodeMirror-foldgutter-folded:after {
+    content: "▶";
 }
 
 .modal-actions {

@@ -5,12 +5,23 @@ import { loadPlugins } from './pluginGrid.js';
 let currentPluginName = null;
 let codeEditor = null;
 
-const DEFAULT_CODE = `plugin name "My Plugin"
+const DEFAULT_CODE = `plugin name "Example Bot"
 
-define input "hello"
+define input "start"
 
-when input "hello":
-    say "Hello world!"
+root start:
+    say "Welcome!"
+        next state ask_name
+
+state ask_name:
+    define wrong "Please tell me your name."
+    define input ".*"
+    say "What is your name?"
+        next state greet
+
+state greet:
+    say "Hello! Nice to meet you."
+        stop
 `;
 
 export async function openPluginModal(name) {
@@ -42,6 +53,8 @@ export async function openPluginModal(name) {
             indentWithTabs: true,
             tabSize: 4,
             lineWrapping: true,
+            foldGutter: true,
+            gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
             extraKeys: {
                 "Enter": function(cm) {
                     const cursor = cm.getCursor();
@@ -59,9 +72,13 @@ export async function openPluginModal(name) {
                         newIndent += "\t";
                     }
                     cm.replaceSelection(newIndent, "end");
+                },
+                "Tab": function(cm) {
+                    cm.replaceSelection("\t", "end");
                 }
             }
         });
+        CodeMirror.commands.fold = function(cm) { cm.foldCode(cm.getCursor()); };
     }
     codeEditor.setValue(code);
     showModal('pluginModal');
@@ -69,14 +86,11 @@ export async function openPluginModal(name) {
 
 document.getElementById('pluginSaveBtn').onclick = async () => {
     const code = codeEditor.getValue();
-
     if (!code.trim()) {
         showAlertModal('Validation Error', 'Plugin code is required');
         return;
     }
-
     const data = { code };
-
     try {
         if (currentPluginName === null) {
             await apiPost('/api/plugins', data);

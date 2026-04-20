@@ -5,36 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alto Plugin Crafter</title>
     <link rel="stylesheet" href="/static/style.css">
-    <!-- CodeMirror -->
+    <!-- CodeMirror core and addons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/indent-fold.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css">
     <script>
-        // Custom mode for the DSL (supports metadata, triggers, conditions)
         CodeMirror.defineMode("customLang", function() {
             return {
-                startState: function() {
-                    return { inString: false, indentLevel: 0 };
-                },
+                startState: function() { return { inString: false, indentLevel: 0 }; },
                 token: function(stream, state) {
                     if (stream.eatSpace()) return null;
-
-                    // Comments (# to end of line)
-                    if (stream.match(/^#.*/)) {
-                        return "comment";
-                    }
-
-                    // Strings (double quoted)
-                    if (stream.match(/^".*?"/)) {
-                        return "string";
-                    }
-
-                    // Keywords (including metadata and DSL commands)
+                    if (stream.match(/^#.*/)) return "comment";
+                    if (stream.match(/^".*?"/)) return "string";
                     var keywords = [
                         "plugin name", "plugin version", "plugin author", "plugin description",
-                        "define input", "when input", "say", "set", "if", "elif", "else"
+                        "define input", "define wrong",
+                        "root", "state",
+                        "say", "next", "stop", "back",
+                        "if", "elif", "else", "or"
                     ];
-                    // Try to match multi-word keywords first
                     var matched = false;
                     for (var kw of keywords) {
                         if (stream.match(new RegExp("^" + kw + "\\b"))) {
@@ -43,29 +36,16 @@
                         }
                     }
                     if (matched) return "keyword";
-
-                    // Variables and identifiers
                     var word = stream.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-                    if (word) {
-                        return "variable";
-                    }
-
-                    // Numbers
+                    if (word) return "variable";
                     if (stream.match(/^\d+(\.\d+)?/)) return "number";
-
-                    // Operators and punctuation
                     if (stream.match(/^[+\-*/=<>!]+/)) return "operator";
                     if (stream.match(/^:/)) return "punctuation";
                     if (stream.match(/^[{}()[\]]/)) return "bracket";
-
                     stream.next();
                     return null;
                 },
-                indent: function(state, textAfter) {
-                    if (textAfter && textAfter.match(/^\s*$/)) return state.indentLevel;
-                    if (textAfter && textAfter.match(/^:/)) return state.indentLevel + 2;
-                    return state.indentLevel;
-                }
+                indent: function(state, textAfter) { return state.indentLevel; }
             };
         });
     </script>
@@ -76,7 +56,6 @@
         <h1>Alto Plugin Crafter</h1>
         <button id="newPluginBtn">+ New Plugin</button>
     </header>
-
     <div class="main-container">
         <div class="sidebar">
             <h3>Search</h3>
@@ -97,7 +76,6 @@
         </div>
     </div>
 
-    <!-- Plugin Edit Modal -->
     <div id="pluginModal" class="modal">
         <div class="modal-content modal-large">
             <h2 id="pluginModalTitle">Edit Plugin</h2>
@@ -107,14 +85,15 @@
                 <div class="info-text">
                     <strong>DSL Reference:</strong><br>
                     <code>plugin name "Name"</code><br>
-                    <code>plugin version "1.0.0"</code><br>
-                    <code>plugin author "Your Name"</code><br>
-                    <code>plugin description "What it does"</code><br>
-                    <code>define input "trigger phrase"</code><br>
-                    <code>when input "phrase":</code><br>
-                    <code>&nbsp;&nbsp;&nbsp;&nbsp;say "response"</code><br>
-                    <code>&nbsp;&nbsp;&nbsp;&nbsp;set variable = value</code><br>
-                    <code>&nbsp;&nbsp;&nbsp;&nbsp;if condition: ...</code><br>
+                    <code>define input "trigger"</code><br>
+                    <code>root name:</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;say "Welcome"</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;next state_name</code><br>
+                    <code>state name:</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;define wrong "Fallback message"</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;define input "pattern" or "pattern2"</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;say "Prompt"</code><br>
+                    <code>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;next state_name</code><br>
                     <code># comments start with #</code>
                 </div>
             </div>
@@ -125,7 +104,6 @@
         </div>
     </div>
 
-    <!-- Simple Modal -->
     <div id="simpleModal" class="modal">
         <div class="modal-content" id="simpleModalContent"></div>
     </div>

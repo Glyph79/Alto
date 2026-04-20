@@ -51,7 +51,7 @@ async def api_update_plugin(name):
     result = update_plugin(name, code)
     if "error" in result:
         return jsonify(result), 400
-    return jsonify(result)
+    return jsonify({"status": "ok", "name": result.get("name", name)})
 
 @app.route('/api/plugins/<string:name>', methods=['DELETE'])
 async def api_delete_plugin(name):
