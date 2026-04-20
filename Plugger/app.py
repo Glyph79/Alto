@@ -4,10 +4,8 @@ from quart import Quart, request, jsonify, send_from_directory, Response
 from plugin_manager import list_plugins, create_plugin, get_plugin, update_plugin, delete_plugin
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 app = Quart(__name__, static_folder=os.path.join(BASE_DIR, 'static'))
 
-# Favicon route
 @app.route('/favicon.ico')
 async def favicon():
     favicon_path = os.path.join(BASE_DIR, 'static', 'favicon.ico')
@@ -29,15 +27,13 @@ async def api_list_plugins():
 @app.route('/api/plugins', methods=['POST'])
 async def api_create_plugin():
     data = await request.get_json()
-    name = data.get('name')
-    version = data.get('version', '1.0.0')
-    description = data.get('description', '')
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
-    result = create_plugin(name, version, description)
+    code = data.get('code', '')
+    if not code:
+        return jsonify({'error': 'Plugin code is required'}), 400
+    result = create_plugin(code)
     if "error" in result:
         return jsonify(result), 400
-    return jsonify({'status': 'ok', 'name': name}), 201
+    return jsonify({'status': 'ok', 'name': result['name']}), 201
 
 @app.route('/api/plugins/<string:name>', methods=['GET'])
 async def api_get_plugin(name):
@@ -49,7 +45,10 @@ async def api_get_plugin(name):
 @app.route('/api/plugins/<string:name>', methods=['PUT'])
 async def api_update_plugin(name):
     data = await request.get_json()
-    result = update_plugin(name, data)
+    code = data.get('code', '')
+    if not code:
+        return jsonify({'error': 'Plugin code is required'}), 400
+    result = update_plugin(name, code)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)

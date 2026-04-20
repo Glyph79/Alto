@@ -1,5 +1,5 @@
 import { apiGet, apiDelete } from './api.js';
-import { showAlertModal, showConfirmModal, escapeHtml } from './modals.js';
+import { showAlertModal, escapeHtml } from './modals.js';
 import { openPluginModal } from './pluginModal.js';
 
 export let plugins = [];
@@ -70,20 +70,13 @@ export function renderPlugins() {
         });
     });
     document.querySelectorAll('.delete-plugin').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            deletePlugin(btn.dataset.name);
+            const name = btn.dataset.name;
+            if (confirm(`Delete plugin "${name}"?`)) {
+                await apiDelete(`/api/plugins/${encodeURIComponent(name)}`);
+                await loadPlugins();
+            }
         });
-    });
-}
-
-async function deletePlugin(name) {
-    showConfirmModal(`Delete plugin "${name}"? This action cannot be undone.`, async () => {
-        try {
-            await apiDelete(`/api/plugins/${encodeURIComponent(name)}`);
-            await loadPlugins();
-        } catch (err) {
-            showAlertModal('Error', 'Error deleting plugin: ' + err.message);
-        }
     });
 }
