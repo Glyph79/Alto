@@ -188,3 +188,4 @@ cython_debug/
 /Alto/resources/models
 /Alto/resources/sessions
 /Alto/resources/users
+/Alto/resources/plugins/plugin_index.db

@@ -4,6 +4,7 @@ import re
 import sqlite3
 import hashlib
 from typing import List, Tuple, Optional
+from rapidfuzz import fuzz
 
 class PluginIndexer:
     def __init__(self, plugins_dir: str):
@@ -11,6 +12,8 @@ class PluginIndexer:
         self.db_path = os.path.join(plugins_dir, 'plugin_index.db')
         self._last_build_mtime = self._get_last_build_mtime()
         self._init_db()
+        # Cache for fuzzy matching (refresh on rebuild)
+        self._cached_triggers = None
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -111,6 +114,8 @@ class PluginIndexer:
         conn.commit()
         conn.close()
         os.utime(self.db_path, None)
+        # Clear cache so fuzzy matching reloads triggers
+        self._cached_triggers = None
 
     def force_rebuild(self):
         self._rebuild_full()
@@ -118,6 +123,7 @@ class PluginIndexer:
     def match(self, text: str) -> Optional[Tuple[str, float]]:
         text_lower = text.lower().strip()
         conn = sqlite3.connect(self.db_path)
+        # 1. Exact match (fast path)
         cur = conn.execute(
             "SELECT plugin_name, trigger_text FROM triggers WHERE trigger_text = ? LIMIT 1",
             (text_lower,)
@@ -126,6 +132,27 @@ class PluginIndexer:
         conn.close()
         if exact:
             return exact[0], 100.0
+
+        # 2. Fuzzy match using cached triggers
+        if self._cached_triggers is None:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.execute("SELECT plugin_name, trigger_text FROM triggers")
+            self._cached_triggers = cur.fetchall()
+            conn.close()
+
+        best_plugin = None
+        best_score = 0
+        for plugin_name, trigger in self._cached_triggers:
+            # token_set_ratio handles word reordering and partial matches
+            score = fuzz.token_set_ratio(text_lower, trigger.lower())
+            if score > best_score:
+                best_score = score
+                best_plugin = plugin_name
+
+        if best_plugin and best_score >= 80:   # same threshold as DSL interpreter
+            return best_plugin, best_score
+
+        # 3. Fallback to FTS5 (optional, kept for completeness)
         conn = sqlite3.connect(self.db_path)
         cur = conn.execute("""
             SELECT plugin_name, rank
@@ -140,6 +167,7 @@ class PluginIndexer:
             plugin_name, rank = row
             confidence = max(0, min(100, int(100 - (rank * 2))))
             return plugin_name, confidence
+
         return None
 
     def list_plugins(self) -> List[str]:

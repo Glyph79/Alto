@@ -2,13 +2,17 @@
 """
 Final DSL Interpreter – supports top‑level states.
 Improved fuzzy matching: selects best match among all triggers.
+Safe condition evaluation using AST (no eval, no attribute access).
 """
 
 import re
 import sys
 import requests
+import ast
+import operator
 from rapidfuzz import fuzz
 from typing import Dict, List, Any, Optional, Tuple
+import time
 
 class StateNode:
     def __init__(self, name: str, parent: Optional['StateNode'] = None):
@@ -28,7 +32,7 @@ class DSLInterpreter:
         self.pos = 0
         self.variables: Dict[str, Any] = {}
         self.waiting_state: Optional[StateNode] = None
-        self.triggers: Dict[str, StateNode] = {}   # pattern -> root node
+        self.triggers: Dict[str, StateNode] = {}
         self.all_states: Dict[str, StateNode] = {}
         self.global_fuzzy = True
         self.parse()
@@ -39,7 +43,7 @@ class DSLInterpreter:
 
     def parse(self):
         self.log("Parsing...")
-        stack = []  # (node, indent_level)
+        stack = []
         i = 0
         while i < len(self.lines):
             raw = self.lines[i]
@@ -65,7 +69,6 @@ class DSLInterpreter:
                     node.is_root = True
                     node.fuzzy = self.global_fuzzy
                     self.all_states[name] = node
-                    # root name itself is a trigger
                     self.triggers[name] = node
                     stack = [(node, 0)]
                 elif stripped.startswith('state '):
@@ -77,7 +80,6 @@ class DSLInterpreter:
                 i += 1
                 continue
 
-            # Adjust stack based on indent
             while stack and stack[-1][1] >= indent:
                 stack.pop()
             if not stack:
@@ -110,7 +112,6 @@ class DSLInterpreter:
             elif stripped.startswith('define input '):
                 pattern_part = stripped[13:].strip()
                 patterns = re.findall(r'"([^"]*)"', pattern_part)
-                # Add patterns as triggers if parent is root
                 if parent_node.is_root:
                     for pat in patterns:
                         self.triggers[pat] = parent_node
@@ -147,7 +148,6 @@ class DSLInterpreter:
             response = self._execute_state(self.waiting_state, user_response=user_input)
             return response
 
-        # Collect all matching triggers with their scores
         matches = []
         for pattern, root_node in self.triggers.items():
             if self._matches_pattern(pattern, user_input, root_node.fuzzy):
@@ -157,7 +157,6 @@ class DSLInterpreter:
             self.log("No matching trigger")
             return None
 
-        # Choose best match: highest score, then longest pattern
         matches.sort(key=lambda x: (-x[0], -x[1]))
         best_score, best_len, best_pattern, best_root = matches[0]
         self.log(f"Best trigger: '{best_pattern}' (score {best_score}) -> root '{best_root.name}'")
@@ -165,14 +164,11 @@ class DSLInterpreter:
         return self._execute_state(best_root)
 
     def _pattern_score(self, pattern: str, user_input: str, fuzzy: bool) -> float:
-        """Return similarity score (0-100) for this pattern against user input."""
         if not fuzzy:
             return 100.0 if pattern == user_input else 0.0
-        # Use token_set_ratio for better phrase matching
         return fuzz.token_set_ratio(pattern.lower(), user_input.lower())
 
     def _matches_pattern(self, pattern: str, user_input: str, fuzzy: bool) -> bool:
-        """Check if pattern matches user_input (with optional fuzzy)."""
         if pattern == ".*":
             return True
         if fuzzy:
@@ -183,8 +179,6 @@ class DSLInterpreter:
     def _execute_state(self, state: StateNode, user_response: Optional[str] = None) -> Optional[str]:
         self.log(f"Executing state: {state.name}")
         if user_response is not None:
-            # For waiting state, we need to match input patterns
-            # Collect all matching patterns and pick best
             matches = []
             for patterns, actions in state.input_patterns:
                 for pat in patterns:
@@ -204,6 +198,101 @@ class DSLInterpreter:
             self.waiting_state = None
             return None
         return self._execute_actions(state.actions, state)
+
+    # ==================== SAFE AST EVALUATOR ====================
+    _allowed_operators = {
+        ast.Eq: operator.eq,
+        ast.NotEq: operator.ne,
+        ast.Lt: operator.lt,
+        ast.LtE: operator.le,
+        ast.Gt: operator.gt,
+        ast.GtE: operator.ge,
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Mod: operator.mod,
+        ast.Not: operator.not_,
+        ast.UAdd: operator.pos,
+        ast.USub: operator.neg,
+        ast.And: lambda a, b: a and b,
+        ast.Or: lambda a, b: a or b,
+    }
+
+    def _safe_eval_expr(self, node, variables: Dict) -> Any:
+        """Evaluate an AST node safely (no attribute access, calls, etc.)"""
+        # Literals (Python 3.8+ uses ast.Constant)
+        if isinstance(node, ast.Constant):
+            return node.value
+        # Variable lookup
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return variables[node.id]
+            raise NameError(f"Variable '{node.id}' not defined")
+        # Unary operations
+        if isinstance(node, ast.UnaryOp):
+            op = self._allowed_operators.get(type(node.op))
+            if op is None:
+                raise SyntaxError(f"Unsupported unary operator: {type(node.op).__name__}")
+            operand = self._safe_eval_expr(node.operand, variables)
+            return op(operand)
+        # Binary operations
+        if isinstance(node, ast.BinOp):
+            op = self._allowed_operators.get(type(node.op))
+            if op is None:
+                raise SyntaxError(f"Unsupported binary operator: {type(node.op).__name__}")
+            left = self._safe_eval_expr(node.left, variables)
+            right = self._safe_eval_expr(node.right, variables)
+            return op(left, right)
+        # Boolean operations (and, or)
+        if isinstance(node, ast.BoolOp):
+            if isinstance(node.op, ast.And):
+                for value in node.values:
+                    if not self._safe_eval_expr(value, variables):
+                        return False
+                return True
+            elif isinstance(node.op, ast.Or):
+                for value in node.values:
+                    if self._safe_eval_expr(value, variables):
+                        return True
+                return False
+            else:
+                raise SyntaxError(f"Unsupported boolean operator: {type(node.op).__name__}")
+        # Comparisons
+        if isinstance(node, ast.Compare):
+            left = self._safe_eval_expr(node.left, variables)
+            for op, comparator in zip(node.ops, node.comparators):
+                right = self._safe_eval_expr(comparator, variables)
+                op_func = self._allowed_operators.get(type(op))
+                if op_func is None:
+                    raise SyntaxError(f"Unsupported comparison operator: {type(op).__name__}")
+                if not op_func(left, right):
+                    return False
+                left = right  # allow chained comparisons
+            return True
+        # Any other node type is forbidden
+        raise SyntaxError(f"Unsafe expression: {type(node).__name__} not allowed")
+
+    def _evaluate_condition(self, cond: str) -> bool:
+        """Safely evaluate a condition using AST (no eval)."""
+        cond = self._interpolate(cond)
+        if not cond.strip():
+            return False
+        try:
+            tree = ast.parse(cond, mode='eval')
+            # Disallow dangerous nodes
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Attribute, ast.Call, ast.Lambda, ast.DictComp,
+                                     ast.ListComp, ast.SetComp, ast.GeneratorExp,
+                                     ast.Subscript, ast.Slice)):
+                    raise SyntaxError(f"Unsafe expression: {type(node).__name__} not allowed")
+            result = self._safe_eval_expr(tree.body, self.variables)
+            return bool(result)
+        except Exception as e:
+            self.log(f"Condition evaluation error: {e} (cond='{cond}')")
+            return False
+
+    # ==================== REST OF INTERPRETER ====================
 
     def _execute_actions(self, actions: List[str], current_state: StateNode) -> Optional[str]:
         i = 0
@@ -246,20 +335,27 @@ class DSLInterpreter:
                 if match:
                     url = self._interpolate(match.group(1))
                     self.log(f"Calling API: {url}")
-                    try:
-                        resp = requests.get(url, timeout=10)
-                        self.variables['status'] = resp.status_code
-                        if resp.status_code == 200:
-                            try:
-                                self.variables['result'] = resp.json()
-                            except:
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            resp = requests.get(url, timeout=10)
+                            self.variables['status'] = resp.status_code
+                            if resp.status_code == 200:
+                                try:
+                                    self.variables['result'] = resp.json()
+                                except:
+                                    self.variables['result'] = {}
+                            else:
                                 self.variables['result'] = {}
-                        else:
+                            break
+                        except Exception as e:
+                            self.log(f"API error (attempt {attempt+1}/{max_retries}): {e}")
+                            self.variables['status'] = 0
                             self.variables['result'] = {}
-                    except Exception as e:
-                        self.log(f"API error: {e}")
-                        self.variables['status'] = 0
-                        self.variables['result'] = {}
+                            if attempt == max_retries - 1:
+                                self.log(f"API call failed after {max_retries} attempts")
+                            else:
+                                time.sleep(0.5)
             elif line == 'stop':
                 self.log("Stop")
                 self.waiting_state = None
@@ -331,15 +427,11 @@ class DSLInterpreter:
         self.waiting_state = None
         return None
 
-    def _evaluate_condition(self, cond: str) -> bool:
-        cond = self._interpolate(cond)
-        try:
-            return eval(cond, {}, self.variables)
-        except:
-            return False
-
     def _evaluate_expr(self, expr: str) -> Any:
         expr = expr.strip()
+        # Handle string literals (double or single quotes)
+        if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
+            return expr[1:-1]
         try:
             return int(expr)
         except:
@@ -362,13 +454,17 @@ class DSLInterpreter:
                 if value is None:
                     break
             return value
-        return self.variables.get(expr, expr)
+        # Return None for missing variables (never the expression string)
+        return self.variables.get(expr, None)
 
     def _interpolate(self, text: str) -> str:
         def repl(m):
             var = m.group(1)
             val = self._evaluate_expr(var)
-            return str(val) if val is not None else ""
+            if val is None:
+                self.log(f"Interpolation: variable '{var}' missing, using empty string")
+                return ""
+            return str(val)
         return re.sub(r'\{([^{}]+)\}', repl, text)
 
 def main():
