@@ -1,0 +1,90 @@
+plugin name "Country Weather"
+plugin version "1.0"
+fuzzy = true
+
+root canada:
+    define input "weather in canada"
+    set country = "Canada"
+    set lat = 56.1304
+    set lon = -106.3468
+    next state fetch_weather
+
+root usa:
+    define input "weather in usa", "weather in united states", "weather in america"
+    set country = "USA"
+    set lat = 38.5
+    set lon = -98.0
+    next state fetch_weather
+
+root mexico:
+    define input "weather in mexico"
+    set country = "Mexico"
+    set lat = 23.6345
+    set lon = -102.5528
+    next state fetch_weather
+
+root uk:
+    define input "weather in uk", "weather in united kingdom", "weather in england"
+    set country = "UK"
+    set lat = 55.3781
+    set lon = -3.4360
+    next state fetch_weather
+
+root germany:
+    define input "weather in germany"
+    set country = "Germany"
+    set lat = 51.1657
+    set lon = 10.4515
+    next state fetch_weather
+
+root france:
+    define input "weather in france"
+    set country = "France"
+    set lat = 46.6034
+    set lon = 1.8883
+    next state fetch_weather
+
+root italy:
+    define input "weather in italy"
+    set country = "Italy"
+    set lat = 41.8719
+    set lon = 12.5674
+    next state fetch_weather
+
+root spain:
+    define input "weather in spain"
+    set country = "Spain"
+    set lat = 40.4637
+    set lon = -3.7492
+    next state fetch_weather
+
+root japan:
+    define input "weather in japan"
+    set country = "Japan"
+    set lat = 36.2048
+    set lon = 138.2529
+    next state fetch_weather
+
+root australia:
+    define input "weather in australia"
+    set country = "Australia"
+    set lat = -25.2744
+    set lon = 133.7751
+    next state fetch_weather
+
+state fetch_weather:
+    call api "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+    if status == 200:
+        set temp = result.current_weather.temperature
+        if temp > 30:
+            say "It's very hot in {country} – {temp}°C! Stay cool."
+            stop
+        elif temp < 0:
+            say "It's freezing in {country} – {temp}°C! Bundle up."
+            stop
+        else:
+            say "The weather in {country} is {temp}°C. Pleasant!"
+            stop
+    else:
+        say "Sorry, could not get weather for {country}."
+        stop

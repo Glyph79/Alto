@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Final DSL Interpreter – supports top‑level states.
+Improved fuzzy matching: selects best match among all triggers.
 """
 
 import re
@@ -27,7 +28,7 @@ class DSLInterpreter:
         self.pos = 0
         self.variables: Dict[str, Any] = {}
         self.waiting_state: Optional[StateNode] = None
-        self.triggers: Dict[str, StateNode] = {}
+        self.triggers: Dict[str, StateNode] = {}   # pattern -> root node
         self.all_states: Dict[str, StateNode] = {}
         self.global_fuzzy = True
         self.parse()
@@ -64,14 +65,14 @@ class DSLInterpreter:
                     node.is_root = True
                     node.fuzzy = self.global_fuzzy
                     self.all_states[name] = node
-                    self.triggers[name] = node   # root name itself is a trigger
+                    # root name itself is a trigger
+                    self.triggers[name] = node
                     stack = [(node, 0)]
                 elif stripped.startswith('state '):
                     name = stripped[6:].rstrip(':')
-                    node = StateNode(name, parent=None)  # top‑level state
+                    node = StateNode(name, parent=None)
                     node.fuzzy = self.global_fuzzy
                     self.all_states[name] = node
-                    # Not a root, so not added to triggers
                     stack = [(node, 0)]
                 i += 1
                 continue
@@ -109,7 +110,7 @@ class DSLInterpreter:
             elif stripped.startswith('define input '):
                 pattern_part = stripped[13:].strip()
                 patterns = re.findall(r'"([^"]*)"', pattern_part)
-                # If the parent is a root, add patterns as triggers
+                # Add patterns as triggers if parent is root
                 if parent_node.is_root:
                     for pat in patterns:
                         self.triggers[pat] = parent_node
@@ -145,31 +146,56 @@ class DSLInterpreter:
             self.variables['input'] = user_input
             response = self._execute_state(self.waiting_state, user_response=user_input)
             return response
-        # Match against triggers
+
+        # Collect all matching triggers with their scores
+        matches = []
         for pattern, root_node in self.triggers.items():
             if self._matches_pattern(pattern, user_input, root_node.fuzzy):
-                self.log(f"Trigger pattern '{pattern}' matched. Entering root state '{root_node.name}'")
-                self.variables['input'] = user_input
-                return self._execute_state(root_node)
-        self.log("No matching trigger")
-        return None
+                score = self._pattern_score(pattern, user_input, root_node.fuzzy)
+                matches.append((score, len(pattern), pattern, root_node))
+        if not matches:
+            self.log("No matching trigger")
+            return None
+
+        # Choose best match: highest score, then longest pattern
+        matches.sort(key=lambda x: (-x[0], -x[1]))
+        best_score, best_len, best_pattern, best_root = matches[0]
+        self.log(f"Best trigger: '{best_pattern}' (score {best_score}) -> root '{best_root.name}'")
+        self.variables['input'] = user_input
+        return self._execute_state(best_root)
+
+    def _pattern_score(self, pattern: str, user_input: str, fuzzy: bool) -> float:
+        """Return similarity score (0-100) for this pattern against user input."""
+        if not fuzzy:
+            return 100.0 if pattern == user_input else 0.0
+        # Use token_set_ratio for better phrase matching
+        return fuzz.token_set_ratio(pattern.lower(), user_input.lower())
 
     def _matches_pattern(self, pattern: str, user_input: str, fuzzy: bool) -> bool:
+        """Check if pattern matches user_input (with optional fuzzy)."""
         if pattern == ".*":
             return True
         if fuzzy:
-            ratio = fuzz.ratio(pattern.lower(), user_input.lower())
-            return ratio >= 80
+            score = self._pattern_score(pattern, user_input, fuzzy)
+            return score >= 80
         return pattern == user_input
 
     def _execute_state(self, state: StateNode, user_response: Optional[str] = None) -> Optional[str]:
         self.log(f"Executing state: {state.name}")
         if user_response is not None:
+            # For waiting state, we need to match input patterns
+            # Collect all matching patterns and pick best
+            matches = []
             for patterns, actions in state.input_patterns:
                 for pat in patterns:
                     if self._matches_pattern(pat, user_response, state.fuzzy):
-                        self.log(f"Pattern '{pat}' matched (fuzzy={state.fuzzy})")
-                        return self._execute_actions(actions, state)
+                        score = self._pattern_score(pat, user_response, state.fuzzy)
+                        matches.append((score, len(pat), pat, actions))
+            if matches:
+                matches.sort(key=lambda x: (-x[0], -x[1]))
+                best_score, best_len, best_pat, best_actions = matches[0]
+                self.log(f"Pattern '{best_pat}' matched (score {best_score}, fuzzy={state.fuzzy})")
+                return self._execute_actions(best_actions, state)
             if state.fallback:
                 self.log(f"Fallback: {state.fallback}")
                 self.waiting_state = state

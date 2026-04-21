@@ -13,6 +13,7 @@ from alto.session import get_session, save_session, validate_session_state, _loc
 from alto.config import config, CONFIG_PATH, load_config, save_config
 from alto.core.benchmark import BenchmarkRunner
 from alto.core.model_info import get_model_info, list_models
+from web.plugins import PluginManager
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')
@@ -25,6 +26,7 @@ SERVER_START_TIME = time.time()
 class AltoLayer:
     def __init__(self):
         self.dispatcher = None
+        self.plugin_manager = PluginManager()
 
     def _get_dispatcher(self):
         if self.dispatcher is None:
@@ -91,6 +93,13 @@ class AltoLayer:
         elif command == '/sessions':
             return await self._get_sessions()
         
+        elif command == '/plugins':
+            return self._list_plugins()
+        
+        elif command == '/plugin' and len(args) >= 1 and args[0].lower() == 'reload':
+            self.plugin_manager.reload_all()
+            return "All plugins reloaded."
+        
         elif command == '/list':
             if len(args) < 1:
                 return "Usage: /list <subcommand> [args]\nSubcommands: info, all"
@@ -121,6 +130,9 @@ class AltoLayer:
             "/reload - Reload current model and repair all sessions\n"
             "/reload config - Reload configuration from disk (reloads model if ram_only_mode changed)\n"
             "/load model <model_name> - Switch to a different model\n\n"
+            "PLUGIN COMMANDS (require authentication):\n"
+            "/plugins - List available plugins\n"
+            "/plugin reload - Force rebuild plugin index and clear cache\n\n"
             "BENCHMARK COMMANDS (require authentication):\n"
             "/benchmark - Run comprehensive benchmark on current model (streaming)\n"
             "/accuracy - Show latest benchmark results\n"
@@ -133,6 +145,12 @@ class AltoLayer:
             "/list info [model_name] - Show model information (groups, nodes, size, mode)\n"
             "/list all - List all available models"
         )
+
+    def _list_plugins(self) -> str:
+        plugins = self.plugin_manager.list_plugins()
+        if not plugins:
+            return "No plugins found in resources/plugins/"
+        return "Available plugins:\n" + "\n".join(f"  - {p}" for p in plugins)
 
     async def _reload_config(self) -> str:
         """Reload configuration from disk and reload the model if ram_only_mode changed."""
@@ -343,6 +361,15 @@ class AltoLayer:
 
             # Normal message processing
             state = get_session(session_id, user_id)
+            # First try plugins
+            response, new_state = self.plugin_manager.handle(user_message, state)
+            if response is not None:
+                save_session(session_id, new_state)
+                async for chunk in self._stream_string(response):
+                    yield chunk
+                return
+
+            # Fallback to AI model
             loop = asyncio.get_event_loop()
             final_response, new_state = await loop.run_in_executor(
                 None, self._get_dispatcher().process, user_message, state
