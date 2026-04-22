@@ -16,6 +16,7 @@ class PluginIndexer:
         self._cached_triggers = None
 
     def _init_db(self):
+        """Create database schema if not exists."""
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""
@@ -63,31 +64,71 @@ class PluginIndexer:
                     triggers.extend(match)
         return triggers
 
+    def _table_exists(self, conn, table_name: str) -> bool:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+        return cur.fetchone() is not None
+
     def rebuild_if_changed(self):
+        """Check if any plugin file changed or the DB is missing tables; rebuild if needed."""
         current_mtime = 0
         any_changed = False
+
+        # First, check if the DB file exists and has the required tables
+        if not os.path.exists(self.db_path):
+            self._rebuild_full()
+            return
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            # Check for required tables
+            if not (self._table_exists(conn, 'plugins') and
+                    self._table_exists(conn, 'triggers') and
+                    self._table_exists(conn, 'triggers_fts')):
+                conn.close()
+                self._rebuild_full()
+                return
+            conn.close()
+        except sqlite3.DatabaseError:
+            # Corrupt database – rebuild
+            self._rebuild_full()
+            return
+
         for fname in os.listdir(self.plugins_dir):
             if not fname.endswith('.plug'):
                 continue
             path = os.path.join(self.plugins_dir, fname)
             mtime = os.path.getmtime(path)
             current_mtime = max(current_mtime, mtime)
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.execute("SELECT file_mtime, file_hash FROM plugins WHERE name = ?", (fname[:-5],))
-            row = cur.fetchone()
-            conn.close()
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.execute("SELECT file_mtime, file_hash FROM plugins WHERE name = ?", (fname[:-5],))
+                row = cur.fetchone()
+                conn.close()
+            except sqlite3.OperationalError:
+                # Table missing despite earlier check – rebuild
+                self._rebuild_full()
+                return
             if not row or row[0] < mtime or row[1] != self._get_plugin_hash(path):
                 any_changed = True
                 break
+
         if any_changed or current_mtime > self._get_last_build_mtime():
             self._rebuild_full()
 
     def _rebuild_full(self):
+        """Delete the old index and rebuild from scratch."""
+        # Remove the old database file if it exists
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
+        # Recreate schema
+        self._init_db()
         conn = sqlite3.connect(self.db_path)
-        conn.execute("DELETE FROM plugins")
-        conn.execute("DELETE FROM triggers")
-        conn.execute("DELETE FROM triggers_fts")
-        conn.commit()
+
+        # Clear any cached triggers
+        self._cached_triggers = None
 
         for fname in os.listdir(self.plugins_dir):
             if not fname.endswith('.plug'):
@@ -113,11 +154,11 @@ class PluginIndexer:
         """)
         conn.commit()
         conn.close()
+        # Update the last build timestamp
         os.utime(self.db_path, None)
-        # Clear cache so fuzzy matching reloads triggers
-        self._cached_triggers = None
 
     def force_rebuild(self):
+        """Manually trigger a full rebuild (used by /plugin reload)."""
         self._rebuild_full()
 
     def match(self, text: str) -> Optional[Tuple[str, float]]:
@@ -143,16 +184,15 @@ class PluginIndexer:
         best_plugin = None
         best_score = 0
         for plugin_name, trigger in self._cached_triggers:
-            # token_set_ratio handles word reordering and partial matches
             score = fuzz.token_set_ratio(text_lower, trigger.lower())
             if score > best_score:
                 best_score = score
                 best_plugin = plugin_name
 
-        if best_plugin and best_score >= 80:   # same threshold as DSL interpreter
+        if best_plugin and best_score >= 80:
             return best_plugin, best_score
 
-        # 3. Fallback to FTS5 (optional, kept for completeness)
+        # 3. Fallback to FTS5 (optional)
         conn = sqlite3.connect(self.db_path)
         cur = conn.execute("""
             SELECT plugin_name, rank
