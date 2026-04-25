@@ -1,5 +1,6 @@
 # alto/core/cache.py
 import threading
+import time
 from collections import OrderedDict
 from typing import Dict, List, Optional, Set, Any
 
@@ -7,16 +8,18 @@ class SharedDataCache:
     """
     Thread‑safe cache for immutable model data (groups, nodes, fallbacks, etc.)
     with reference counting and LRU eviction for zero‑reference items.
+    Groups have a linger period after ref count reaches zero.
     """
-    def __init__(self, max_size: int = 10000):
+    def __init__(self, max_size: int = 10000, group_linger_seconds: int = 60):
         self._max_size = max_size
+        self._group_linger_seconds = group_linger_seconds
         self._lock = threading.RLock()
         
         # Cached data
-        self._groups: Dict[int, Dict] = {}          # group_id -> group_data
-        self._nodes: Dict[int, Dict] = {}           # node_id -> node_data
-        self._fallbacks: Dict[int, List[str]] = {}  # fallback_id -> answers
-        self._variants_map: Optional[Dict[str, Set[str]]] = None  # word -> set of synonyms
+        self._groups: Dict[int, Dict] = {}
+        self._nodes: Dict[int, Dict] = {}
+        self._fallbacks: Dict[int, List[str]] = {}
+        self._variants_map: Optional[Dict[str, Set[str]]] = None
         self._topics: Optional[List[str]] = None
         self._sections: Optional[List[str]] = None
         
@@ -24,6 +27,9 @@ class SharedDataCache:
         self._group_refs: Dict[int, int] = {}
         self._node_refs: Dict[int, int] = {}
         self._fallback_refs: Dict[int, int] = {}
+        
+        # Linger timestamps for groups (only when ref count == 0)
+        self._group_linger_until: Dict[int, float] = {}
         
         # LRU for zero‑ref items (candidates for eviction)
         self._lru_groups: OrderedDict = OrderedDict()
@@ -43,34 +49,68 @@ class SharedDataCache:
             return locks_dict[key]
 
     def _evict_if_needed(self, data_dict: dict, ref_dict: dict, lru: OrderedDict):
+        # Only evict items with ref count 0 AND (no linger or linger expired)
         while len(data_dict) > self._max_size and lru:
             key, _ = lru.popitem(last=False)
             if key in data_dict and ref_dict.get(key, 0) <= 0:
+                # Check linger for groups
+                if key in self._group_linger_until:
+                    if time.time() < self._group_linger_until[key]:
+                        # Still in grace period – put back into LRU (at end) and continue
+                        lru[key] = None
+                        continue
+                    else:
+                        del self._group_linger_until[key]
+                # Safe to evict
                 del data_dict[key]
                 ref_dict.pop(key, None)
 
-    # ---------- Groups ----------
+    # ---------- Groups with linger ----------
     def get_group(self, group_id: int, loader) -> Dict:
         with self._lock:
+            # If group is in cache
             if group_id in self._groups:
-                self._group_refs[group_id] = self._group_refs.get(group_id, 0) + 1
-                self._lru_groups.pop(group_id, None)
-                return self._groups[group_id]
-        
+                ref = self._group_refs.get(group_id, 0)
+                # If ref count is zero but linger still active → resurrect
+                if ref == 0 and group_id in self._group_linger_until:
+                    if time.time() < self._group_linger_until[group_id]:
+                        # Still in grace period: keep cached, increment ref, clear linger
+                        self._group_refs[group_id] = 1
+                        del self._group_linger_until[group_id]
+                        self._lru_groups.pop(group_id, None)
+                        return self._groups[group_id]
+                    else:
+                        # Linger expired: remove the stale entry
+                        del self._groups[group_id]
+                        self._group_refs.pop(group_id, None)
+                        self._group_linger_until.pop(group_id, None)
+                        self._lru_groups.pop(group_id, None)
+                else:
+                    # Normal case: ref > 0, just increment
+                    self._group_refs[group_id] = ref + 1
+                    self._lru_groups.pop(group_id, None)
+                    return self._groups[group_id]
+
+        # Not in cache (or expired) → load fresh
         lock = self._get_lock(self._group_locks, group_id)
         with lock:
             # Double‑check after acquiring lock
             with self._lock:
                 if group_id in self._groups:
-                    self._group_refs[group_id] = self._group_refs.get(group_id, 0) + 1
-                    self._lru_groups.pop(group_id, None)
-                    return self._groups[group_id]
+                    ref = self._group_refs.get(group_id, 0)
+                    if ref == 0 and group_id in self._group_linger_until:
+                        if time.time() < self._group_linger_until[group_id]:
+                            self._group_refs[group_id] = 1
+                            del self._group_linger_until[group_id]
+                            self._lru_groups.pop(group_id, None)
+                            return self._groups[group_id]
             
             # Load from adapter
             group_data = loader(group_id)
             with self._lock:
                 self._groups[group_id] = group_data
                 self._group_refs[group_id] = 1
+                self._group_linger_until.pop(group_id, None)
                 self._evict_if_needed(self._groups, self._group_refs, self._lru_groups)
             return group_data
 
@@ -79,9 +119,10 @@ class SharedDataCache:
             if group_id in self._group_refs:
                 self._group_refs[group_id] -= 1
                 if self._group_refs[group_id] <= 0:
-                    self._lru_groups[group_id] = None
-                    self._group_refs.pop(group_id, None)
-                    self._evict_if_needed(self._groups, self._group_refs, self._lru_groups)
+                    # Ref count zero → schedule linger
+                    self._group_linger_until[group_id] = time.time() + self._group_linger_seconds
+                    # Remove from LRU (so it's not evicted prematurely)
+                    self._lru_groups.pop(group_id, None)
 
     # ---------- Nodes ----------
     def get_node(self, node_id: int, loader) -> Dict:

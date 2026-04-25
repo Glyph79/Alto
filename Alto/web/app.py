@@ -10,7 +10,7 @@ if PROJECT_ROOT not in sys.path:
 from quart import Quart, request, Response, send_from_directory, redirect
 import uuid
 import json
-from web.layer.layer import process_message
+from alto.core.layer import process_message
 from web.auth.auth import register_user, authenticate_user, user_exists
 from alto.config import config
 from alto.core.adapters import get_adapter

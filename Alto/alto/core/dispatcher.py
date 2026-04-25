@@ -5,8 +5,10 @@ from .adapters.model import Model
 from .session_tree import SessionTree
 from ..config import config
 from ..features import get_optional_features
+from .jit_cache import JITCache
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
+ENABLE_JIT = config.getboolean('ai', 'enable_jit_cache', fallback=True)
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -19,6 +21,12 @@ class Dispatcher:
         self.global_fallback = config.get('DEFAULT', 'fallback')
         self.matcher = Model(model_name, self.threshold)
         self.adapter = self.matcher.adapter
+
+        # JIT cache singleton
+        self.jit_cache = JITCache() if ENABLE_JIT else None
+        if self.jit_cache:
+            jit_ram_mode = config.getboolean('ai', 'jit_ram_only_mode', fallback=True)
+            self.jit_cache.set_ram_mode(jit_ram_mode)
 
         # Load optional features
         self.optional_features = []
@@ -69,51 +77,86 @@ class Dispatcher:
         state["topics"] = topics
         debug_print(f"📈 Updated topic weights: {topics}")
 
+    def _store_exact_cache(self, corrected_text: str, response: str, state: dict, group_id: int = None, node_id: int = None):
+        if not self.jit_cache:
+            return
+        response_data = {
+            "response": response,
+            "group_id": group_id,
+            "node_id": node_id,
+            "timestamp": time.time()
+        }
+        self.jit_cache.set_exact(corrected_text, response_data)
+        debug_print(f"💾 Stored exact cache for '{corrected_text}'")
+
     def process(self, text: str, state: Dict) -> Tuple[str, Dict]:
         debug_print(f"\n--- Incoming message: '{text}' ---")
         debug_print(f"Initial state: {state}")
 
-        # Pre‑processing
+        # Pre‑processing (features)
         text, state = self._run_hook("pre_process", text, state) or (text, state)
 
-        # Step 1: Active follow‑up trees
+        # ----- JIT CACHE OPTIMIZATION -----
+        if self.jit_cache:
+            # 1. Word‑level correction (using typo cache)
+            corrected_text = self.matcher.correct_sentence(text)
+            if corrected_text != text:
+                debug_print(f"🔧 Corrected sentence: '{text}' -> '{corrected_text}'")
+            else:
+                debug_print(f"📝 No correction needed for '{text}'")
+
+            # 2. Exact sentence cache lookup
+            cached = self.jit_cache.get_exact(corrected_text)
+            if cached:
+                debug_print(f"⚡ EXACT CACHE HIT for '{corrected_text}': returning cached response")
+                response = cached["response"]
+                response, state = self._run_hook("post_process", response, state) or (response, state)
+                return response, state
+        else:
+            corrected_text = text  # fallback
+
+        # ----- FOLLOW‑UP TREES (use original or corrected?) Use corrected for matching
         for gid, tree_info in list(state.get("active_trees", {}).items()):
             path = tree_info["path"]
             tree = SessionTree(self.matcher, int(gid), path)
             try:
                 candidates = tree.candidates(path)
-                node, score = self.matcher.match_nodes(text, candidates)
+                node, score = self.matcher.match_nodes(corrected_text, candidates)
                 if node and score >= self.threshold:
                     new_path = tree.move_to(node["id"], path)
                     tree.ensure_answers(node["id"])
                     state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
                     state["current_fallback_id"] = node.get("fallback_id")
                     response = node.get("answers", [self.global_fallback])[0]
+                    # Store in exact cache
+                    if self.jit_cache:
+                        self._store_exact_cache(corrected_text, response, state, group_id=int(gid), node_id=node["id"])
                     response, state = self._run_hook("post_process", response, state) or (response, state)
                     return response, state
                 else:
-                    # No child matched – try custom fallback from current node
                     current_node = tree.current_node()
                     if current_node and current_node.get("fallback_id"):
                         resp = self._run_hook("get_custom_fallback", current_node["fallback_id"], state)
                         if resp:
                             state["active_trees"][gid] = {"path": path, "last_used": time.time()}
+                            if self.jit_cache:
+                                self._store_exact_cache(corrected_text, resp, state, group_id=int(gid))
                             response, state = self._run_hook("post_process", resp, state) or (resp, state)
                             return response, state
             finally:
                 tree.release()
 
-        # Step 2: Group matching
-        words = [self.matcher._norm_word(w) for w in text.split() if w]
+        # ----- GROUP MATCHING -----
+        words = [self.matcher._norm_word(w) for w in corrected_text.split() if w]
         exp = self.adapter.expand_synonyms(words)
         if exp:
-            gid, group_data, score = self.matcher.match_groups(text, state.get("topics", {}))
+            gid, group_data, score = self.matcher.match_groups(corrected_text, state.get("topics", {}))
             if group_data and score >= self.threshold:
                 if group_data.get("topic"):
                     self._update_topics(state, group_data["topic"])
                 tree = SessionTree(self.matcher, group_data["id"], [])
                 try:
-                    node, root_score = self.matcher.match_nodes(text, tree.roots())
+                    node, root_score = self.matcher.match_nodes(corrected_text, tree.roots())
                     if node and root_score >= self.threshold:
                         tree.ensure_answers(node["id"])
                         state["active_trees"][str(group_data["id"])] = {"path": [node["id"]], "last_used": time.time()}
@@ -123,19 +166,29 @@ class Dispatcher:
                         state["active_trees"][str(group_data["id"])] = {"path": [], "last_used": time.time()}
                         state["current_fallback_id"] = group_data.get("fallback_id")
                         response = group_data.get("answers", [self.global_fallback])[0]
+                    # Store in exact cache
+                    if self.jit_cache:
+                        self._store_exact_cache(corrected_text, response, state, group_id=group_data["id"],
+                                                node_id=node["id"] if node else None)
                     response, state = self._run_hook("post_process", response, state) or (response, state)
                     return response, state
                 finally:
-                    tree.release()
+                    # Release the group reference from the shared cache
+                    self.matcher.cache.release_group(group_data["id"])
 
-        # Step 3: Fallback from features
+        # ----- FEATURE FALLBACK -----
         fallback_answer = self._run_hook("get_fallback_answer", state)
         if fallback_answer:
-            response, state = self._run_hook("post_process", fallback_answer, state) or (fallback_answer, state)
+            response = fallback_answer
+            if self.jit_cache:
+                self._store_exact_cache(corrected_text, response, state)
+            response, state = self._run_hook("post_process", response, state) or (response, state)
             return response, state
 
-        # Step 4: Global fallback
+        # ----- GLOBAL FALLBACK -----
         debug_print("❌ No match found, using global fallback")
         response = self.global_fallback
+        if self.jit_cache:
+            self._store_exact_cache(corrected_text, response, state)
         response, state = self._run_hook("post_process", response, state) or (response, state)
         return response, state

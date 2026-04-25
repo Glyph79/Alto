@@ -13,7 +13,7 @@ from alto.session import get_session, save_session, validate_session_state, _loc
 from alto.config import config, CONFIG_PATH, load_config, save_config
 from alto.core.benchmark import BenchmarkRunner
 from alto.core.model_info import get_model_info, list_models
-from web.plugins import PluginManager
+from alto.core.plugins import PluginManager
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')

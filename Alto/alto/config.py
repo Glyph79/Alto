@@ -39,10 +39,15 @@ DEFAULT_CONFIG = {
         'threshold': '70',
         'debug': 'False',
         'max_candidate_groups': '50',
-        'ram_only_mode': 'False',          # NEW: load entire model into RAM (in-memory SQLite)
+        'ram_only_mode': 'False',
+        # JIT cache settings
+        'enable_jit_cache': 'True',
+        'max_typo_cache': '1000',
+        'max_exact_cache': '500',
+        'jit_ram_only_mode': 'True',   # NEW: use RAM for JIT cache; False = temp file
     },
     'admin': {
-        'password': '7134',   # default admin password
+        'password': '7134',
     }
 }
 

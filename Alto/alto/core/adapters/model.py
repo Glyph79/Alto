@@ -1,14 +1,16 @@
 # alto/core/adapters/model.py
 import re
 import sqlite3
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, distance
 from typing import Dict, List, Optional, Tuple, Set
 from .base import get_adapter, FEATURE_CUSTOM_FALLBACKS
 from ...config import config
 from ..cache import SharedDataCache
+from ..jit_cache import JITCache
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 RAM_ONLY_MODE = config.getboolean('ai', 'ram_only_mode', fallback=False)
+ENABLE_JIT = config.getboolean('ai', 'enable_jit_cache', fallback=True)
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -31,10 +33,15 @@ class Model:
         if RAM_ONLY_MODE:
             debug_print("🔧 RAM‑only mode enabled: copying database to memory...")
             source_conn = self.adapter._get_conn()
-            # Allow the in‑memory connection to be used in any thread (read‑only)
             self._ram_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            self._ram_conn.row_factory = sqlite3.Row   # <-- FIX: set row factory
             source_conn.backup(self._ram_conn)
             debug_print("✅ Database copied to memory (FTS5 index preserved)")
+
+        # JIT cache (server‑wide singleton)
+        self.jit_cache = JITCache() if ENABLE_JIT else None
+        # Known words for typo correction (lazy loaded)
+        self._known_words = None
 
     def get_version(self) -> str:
         return self._version
@@ -95,6 +102,67 @@ class Model:
     def cache(self) -> SharedDataCache:
         return self._cache
 
+    # ---------- JIT cache: typo correction ----------
+    def _build_known_words(self):
+        """Build a set of all known words from variant groups and question texts."""
+        if self._known_words is not None:
+            return
+        known = set()
+        # Add words from variant groups
+        variants = self.adapter.get_variants()
+        for vg in variants:
+            for w in vg.get('words', []):
+                known.add(w.lower())
+        # Add unique words from questions table (via FTS or direct query)
+        try:
+            conn = self.adapter._get_conn()
+            # Get all unique words from questions (simplified: split and collect)
+            cur = conn.execute("SELECT text FROM questions")
+            for row in cur:
+                for w in row[0].lower().split():
+                    known.add(re.sub(r'[^\w]', '', w))
+        except Exception as e:
+            debug_print(f"⚠️ Could not build known words from questions: {e}")
+        self._known_words = known
+        debug_print(f"📚 Built known words set with {len(known)} entries")
+
+    def correct_word(self, word: str) -> str:
+        """Return corrected word using JIT cache and Levenshtein distance."""
+        if not self.jit_cache:
+            return word
+        word_lower = word.lower()
+        # Check cache first
+        cached = self.jit_cache.get_typo(word_lower)
+        if cached is not None:
+            debug_print(f"🔁 Typo cache hit: '{word}' -> '{cached}'")
+            return cached
+        # Ensure known words are loaded
+        if self._known_words is None:
+            self._build_known_words()
+        # Find best correction among known words
+        best_match = word_lower
+        best_dist = 2  # Max edit distance allowed
+        for known in self._known_words:
+            dist = distance.Levenshtein.distance(word_lower, known)
+            if dist < best_dist:
+                best_dist = dist
+                best_match = known
+        # Only store if correction actually changed the word
+        if best_match != word_lower:
+            debug_print(f"🔧 New typo learned: '{word}' -> '{best_match}' (dist={best_dist})")
+            self.jit_cache.set_typo(word_lower, best_match)
+            return best_match
+        # No correction found, store identity to avoid recomputation
+        self.jit_cache.set_typo(word_lower, word_lower)
+        return word_lower
+
+    def correct_sentence(self, text: str) -> str:
+        """Apply word‑level correction to whole sentence."""
+        words = text.split()
+        corrected_words = [self.correct_word(w) for w in words]
+        return " ".join(corrected_words)
+
+    # ---------- Existing matching methods ----------
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
         words = [self._norm_word(w) for w in text.split() if w]
         expanded = self.expand_synonyms(words)
