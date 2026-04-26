@@ -34,14 +34,26 @@ class Model:
             debug_print("🔧 RAM‑only mode enabled: copying database to memory...")
             source_conn = self.adapter._get_conn()
             self._ram_conn = sqlite3.connect(":memory:", check_same_thread=False)
-            self._ram_conn.row_factory = sqlite3.Row   # <-- FIX: set row factory
+            self._ram_conn.row_factory = sqlite3.Row
             source_conn.backup(self._ram_conn)
             debug_print("✅ Database copied to memory (FTS5 index preserved)")
 
         # JIT cache (server‑wide singleton)
         self.jit_cache = JITCache() if ENABLE_JIT else None
-        # Known words for typo correction (lazy loaded)
-        self._known_words = None
+
+        # ---------- COMPACT VARIANT MAPPING (memory efficient) ----------
+        self._word_to_group: Dict[str, int] = {}
+        self._group_expansion: List[str] = []
+        variants = self.adapter.get_variants()
+        for vg in variants:
+            gid = vg["id"]
+            words = vg["words"]
+            if not words:
+                continue
+            self._group_expansion.append(" ".join(words))
+            for w in words:
+                self._word_to_group[w] = gid
+        debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion)} groups (compact mapping)")
 
     def get_version(self) -> str:
         return self._version
@@ -80,20 +92,13 @@ class Model:
             return self.adapter.get_fallback_answers(fid)
         return self._cache.get_fallback(fallback_id, loader)
 
+    # ---------- MEMORY‑EFFICIENT SYNONYM EXPANSION ----------
     def expand_synonyms(self, words: List[str]) -> Set[str]:
-        def loader():
-            variants = self.adapter.get_variants()
-            mapping = {}
-            for vg in variants:
-                words_set = set(vg['words'])
-                for w in words_set:
-                    mapping[w] = words_set
-            return mapping
-        variants_map = self._cache.get_variants_map(loader)
         expanded = set()
         for w in words:
-            if w in variants_map:
-                expanded.update(variants_map[w])
+            gid = self._word_to_group.get(w)
+            if gid is not None:
+                expanded.update(self._group_expansion[gid].split())
             else:
                 expanded.add(w)
         return expanded
@@ -102,65 +107,47 @@ class Model:
     def cache(self) -> SharedDataCache:
         return self._cache
 
-    # ---------- JIT cache: typo correction ----------
-    def _build_known_words(self):
-        """Build a set of all known words from variant groups and question texts."""
-        if self._known_words is not None:
-            return
-        known = set()
-        # Add words from variant groups
-        variants = self.adapter.get_variants()
-        for vg in variants:
-            for w in vg.get('words', []):
-                known.add(w.lower())
-        # Add unique words from questions table (via FTS or direct query)
-        try:
-            conn = self.adapter._get_conn()
-            # Get all unique words from questions (simplified: split and collect)
-            cur = conn.execute("SELECT text FROM questions")
-            for row in cur:
-                for w in row[0].lower().split():
-                    known.add(re.sub(r'[^\w]', '', w))
-        except Exception as e:
-            debug_print(f"⚠️ Could not build known words from questions: {e}")
-        self._known_words = known
-        debug_print(f"📚 Built known words set with {len(known)} entries")
-
+    # ---------- DYNAMIC TYPO CORRECTION (JIT only, no static dictionary) ----------
     def correct_word(self, word: str) -> str:
-        """Return corrected word using JIT cache and Levenshtein distance."""
+        """Return corrected word using only JIT cache (no static dictionary)."""
         if not self.jit_cache:
             return word
         word_lower = word.lower()
-        # Check cache first
         cached = self.jit_cache.get_typo(word_lower)
         if cached is not None:
             debug_print(f"🔁 Typo cache hit: '{word}' -> '{cached}'")
             return cached
-        # Ensure known words are loaded
-        if self._known_words is None:
-            self._build_known_words()
-        # Find best correction among known words
-        best_match = word_lower
-        best_dist = 2  # Max edit distance allowed
-        for known in self._known_words:
-            dist = distance.Levenshtein.distance(word_lower, known)
-            if dist < best_dist:
-                best_dist = dist
-                best_match = known
-        # Only store if correction actually changed the word
-        if best_match != word_lower:
-            debug_print(f"🔧 New typo learned: '{word}' -> '{best_match}' (dist={best_dist})")
-            self.jit_cache.set_typo(word_lower, best_match)
-            return best_match
-        # No correction found, store identity to avoid recomputation
-        self.jit_cache.set_typo(word_lower, word_lower)
-        return word_lower
+        # No correction known yet; return original
+        return word
 
     def correct_sentence(self, text: str) -> str:
-        """Apply word‑level correction to whole sentence."""
         words = text.split()
         corrected_words = [self.correct_word(w) for w in words]
         return " ".join(corrected_words)
+
+    def learn_typos_from_match(self, user_text: str, matched_question: str):
+        """
+        After a successful fuzzy match, compare user's original words
+        with words in the matched question and store corrections.
+        """
+        if not self.jit_cache:
+            return
+        user_words = set(self._norm_word(w) for w in user_text.split())
+        q_words = set(self._norm_word(w) for w in matched_question.split())
+        for uw in user_words:
+            if uw in q_words:
+                continue
+            best = None
+            best_score = 0
+            for qw in q_words:
+                # Use rapidfuzz to find best matching word in the question
+                score = fuzz.ratio(uw, qw)
+                if score > best_score:
+                    best_score = score
+                    best = qw
+            if best and best_score >= 85:
+                self.jit_cache.set_typo(uw, best)
+                debug_print(f"📝 Learned typo: '{uw}' -> '{best}' (score {best_score})")
 
     # ---------- Existing matching methods ----------
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
@@ -169,7 +156,6 @@ class Model:
         if not expanded:
             return None, None, 0
 
-        # Use in‑memory connection if RAM‑only mode is enabled, otherwise the adapter's connection
         if RAM_ONLY_MODE and self._ram_conn:
             conn = self._ram_conn
         else:
