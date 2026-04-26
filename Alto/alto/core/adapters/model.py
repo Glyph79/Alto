@@ -28,7 +28,7 @@ class Model:
         self._cache = SharedDataCache()
         self.max_candidate_groups = config.getint('ai', 'max_candidate_groups', fallback=50)
 
-        # RAM‑only mode: copy the entire database into an in‑memory connection
+        # RAM‑only mode
         self._ram_conn = None
         if RAM_ONLY_MODE:
             debug_print("🔧 RAM‑only mode enabled: copying database to memory...")
@@ -38,10 +38,9 @@ class Model:
             source_conn.backup(self._ram_conn)
             debug_print("✅ Database copied to memory (FTS5 index preserved)")
 
-        # JIT cache (server‑wide singleton)
         self.jit_cache = JITCache() if ENABLE_JIT else None
 
-        # ---------- COMPACT VARIANT MAPPING (memory efficient) ----------
+        # Variant mappings
         self._word_to_group: Dict[str, int] = {}
         self._group_expansion: List[str] = []
         variants = self.adapter.get_variants()
@@ -55,11 +54,11 @@ class Model:
                 self._word_to_group[w] = gid
         debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion)} groups (compact mapping)")
 
-        # ---------- BIDIRECTIONAL CANONICAL MAPPING (for exact cache normalization) ----------
+        # Canonical mapping for variants
         self._canonical_map: Dict[str, str] = {}
         for vg in variants:
             if vg["words"]:
-                canonical = vg["words"][0]  # first word as canonical form
+                canonical = vg["words"][0]
                 for w in vg["words"]:
                     self._canonical_map[w.lower()] = canonical.lower()
         debug_print(f"📘 Loaded {len(self._canonical_map)} canonical variant mappings")
@@ -82,8 +81,11 @@ class Model:
     def get_node_data(self, node_id: int) -> Dict:
         def loader(nid):
             children = self.adapter.get_node_children(nid)
+            # Get group_id for this node (needed for reference caching)
+            group_id = self._get_group_id_for_node(nid)
             node = {
                 'id': nid,
+                'group_id': group_id,
                 'branch_name': '',
                 'questions': self.adapter.get_node_questions(nid),
                 'answers': self.adapter.get_node_answers(nid),
@@ -94,6 +96,13 @@ class Model:
             return node
         return self._cache.get_node(node_id, loader)
 
+    def _get_group_id_for_node(self, node_id: int) -> Optional[int]:
+        """Query the database to find which group this node belongs to."""
+        conn = self.adapter._get_conn()
+        cur = conn.execute("SELECT group_id FROM followup_nodes WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
     def get_fallback_answers(self, fallback_id: int) -> List[str]:
         if not self.supports_feature(FEATURE_CUSTOM_FALLBACKS):
             return []
@@ -101,7 +110,6 @@ class Model:
             return self.adapter.get_fallback_answers(fid)
         return self._cache.get_fallback(fallback_id, loader)
 
-    # ---------- MEMORY‑EFFICIENT SYNONYM EXPANSION ----------
     def expand_synonyms(self, words: List[str]) -> Set[str]:
         expanded = set()
         for w in words:
@@ -116,9 +124,8 @@ class Model:
     def cache(self) -> SharedDataCache:
         return self._cache
 
-    # ---------- DYNAMIC TYPO CORRECTION (JIT only, no static dictionary) ----------
+    # ---------- TYPO CORRECTION ----------
     def correct_word(self, word: str) -> str:
-        """Return corrected word using only JIT cache (no static dictionary)."""
         if not self.jit_cache:
             return word
         word_lower = word.lower()
@@ -134,8 +141,6 @@ class Model:
         return " ".join(corrected_words)
 
     def learn_typos_from_match(self, user_text: str, matched_question: str):
-        """After a successful fuzzy match, compare user's original words
-        with words in the matched question and store corrections."""
         if not self.jit_cache:
             return
         user_words = set(self._norm_word(w) for w in user_text.split())
@@ -154,14 +159,12 @@ class Model:
                 self.jit_cache.set_typo(uw, best)
                 debug_print(f"📝 Learned typo: '{uw}' -> '{best}' (score {best_score})")
 
-    # ---------- VARIANT NORMALIZATION (for JIT exact cache) ----------
     def normalize_variants(self, sentence: str) -> str:
-        """Replace each word with its canonical form (if mapped). Lowercases everything."""
         words = sentence.lower().split()
         normalized = [self._canonical_map.get(w, w) for w in words]
         return " ".join(normalized)
 
-    # ---------- Existing matching methods ----------
+    # ---------- MATCHING ----------
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
         words = [self._norm_word(w) for w in text.split() if w]
         expanded = self.expand_synonyms(words)

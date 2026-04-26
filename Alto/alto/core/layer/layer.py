@@ -100,6 +100,14 @@ class AltoLayer:
             self.plugin_manager.reload_all()
             return "All plugins reloaded."
         
+        elif command == '/rebake':
+            target = args[0].lower() if args else 'all'
+            if target not in ('typo', 'exact', 'all'):
+                return "Usage: /rebake [typo|exact|all]"
+            dispatcher = self._get_dispatcher()
+            result = dispatcher.rebake_jit(target)
+            return result
+        
         elif command == '/list':
             if len(args) < 1:
                 return "Usage: /list <subcommand> [args]\nSubcommands: info, all"
@@ -140,7 +148,8 @@ class AltoLayer:
             "/clear results <model_name> - Clear benchmark results for a model\n\n"
             "SYSTEM COMMANDS (require authentication):\n"
             "/status - Show server uptime, memory, sessions, cache, request stats\n"
-            "/sessions - List active hot sessions and count cold sessions\n\n"
+            "/sessions - List active hot sessions and count cold sessions\n"
+            "/rebake [typo|exact|all] - Validate and repair JIT cache entries against current model\n\n"
             "INFO COMMANDS (require authentication):\n"
             "/list info [model_name] - Show model information (groups, nodes, size, mode)\n"
             "/list all - List all available models"
