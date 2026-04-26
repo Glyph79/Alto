@@ -1,4 +1,4 @@
-# web/plugins/indexer.py
+# alto/core/plugins/indexer.py
 import os
 import re
 import sqlite3
@@ -12,11 +12,9 @@ class PluginIndexer:
         self.db_path = os.path.join(plugins_dir, 'plugin_index.db')
         self._last_build_mtime = self._get_last_build_mtime()
         self._init_db()
-        # Cache for fuzzy matching (refresh on rebuild)
         self._cached_triggers = None
 
     def _init_db(self):
-        """Create database schema if not exists."""
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""
@@ -72,18 +70,15 @@ class PluginIndexer:
         return cur.fetchone() is not None
 
     def rebuild_if_changed(self):
-        """Check if any plugin file changed or the DB is missing tables; rebuild if needed."""
         current_mtime = 0
         any_changed = False
 
-        # First, check if the DB file exists and has the required tables
         if not os.path.exists(self.db_path):
             self._rebuild_full()
             return
 
         try:
             conn = sqlite3.connect(self.db_path)
-            # Check for required tables
             if not (self._table_exists(conn, 'plugins') and
                     self._table_exists(conn, 'triggers') and
                     self._table_exists(conn, 'triggers_fts')):
@@ -92,7 +87,6 @@ class PluginIndexer:
                 return
             conn.close()
         except sqlite3.DatabaseError:
-            # Corrupt database – rebuild
             self._rebuild_full()
             return
 
@@ -108,7 +102,6 @@ class PluginIndexer:
                 row = cur.fetchone()
                 conn.close()
             except sqlite3.OperationalError:
-                # Table missing despite earlier check – rebuild
                 self._rebuild_full()
                 return
             if not row or row[0] < mtime or row[1] != self._get_plugin_hash(path):
@@ -119,15 +112,11 @@ class PluginIndexer:
             self._rebuild_full()
 
     def _rebuild_full(self):
-        """Delete the old index and rebuild from scratch."""
-        # Remove the old database file if it exists
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
-        # Recreate schema
         self._init_db()
         conn = sqlite3.connect(self.db_path)
 
-        # Clear any cached triggers
         self._cached_triggers = None
 
         for fname in os.listdir(self.plugins_dir):
@@ -154,17 +143,16 @@ class PluginIndexer:
         """)
         conn.commit()
         conn.close()
-        # Update the last build timestamp
         os.utime(self.db_path, None)
 
     def force_rebuild(self):
-        """Manually trigger a full rebuild (used by /plugin reload)."""
         self._rebuild_full()
 
     def match(self, text: str) -> Optional[Tuple[str, float]]:
         text_lower = text.lower().strip()
         conn = sqlite3.connect(self.db_path)
-        # 1. Exact match (fast path)
+
+        # 1. Exact match
         cur = conn.execute(
             "SELECT plugin_name, trigger_text FROM triggers WHERE trigger_text = ? LIMIT 1",
             (text_lower,)
@@ -192,16 +180,22 @@ class PluginIndexer:
         if best_plugin and best_score >= 80:
             return best_plugin, best_score
 
-        # 3. Fallback to FTS5 (optional)
+        # 3. Fallback to FTS5 (wrap in quotes to avoid syntax errors)
+        # Escape any double quotes inside the query
+        escaped = text_lower.replace('"', '""')
+        query = f'"{escaped}"'
         conn = sqlite3.connect(self.db_path)
-        cur = conn.execute("""
-            SELECT plugin_name, rank
-            FROM triggers_fts
-            WHERE triggers_fts MATCH ?
-            ORDER BY rank
-            LIMIT 1
-        """, (text_lower,))
-        row = cur.fetchone()
+        try:
+            cur = conn.execute("""
+                SELECT plugin_name, rank
+                FROM triggers_fts
+                WHERE triggers_fts MATCH ?
+                ORDER BY rank
+                LIMIT 1
+            """, (query,))
+            row = cur.fetchone()
+        except sqlite3.OperationalError:
+            row = None
         conn.close()
         if row:
             plugin_name, rank = row

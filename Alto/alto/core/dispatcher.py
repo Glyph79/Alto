@@ -72,19 +72,22 @@ class Dispatcher:
         state["topics"] = topics
         debug_print(f"📈 Updated topic weights: {topics}")
 
-    def _store_exact_cache(self, corrected_text: str, response: str, state: dict, group_id: int = None, node_id: int = None):
-        if not self.jit_cache:
-            return
-        response_data = {
-            "response": response,
-            "group_id": group_id,
-            "node_id": node_id,
-            "timestamp": time.time()
-        }
-        self.jit_cache.set_exact(corrected_text, response_data)
-        debug_print(f"💾 Stored exact cache for '{corrected_text}'")
+    def _get_context_signature(self, state: dict) -> str:
+        """Return a string signature of the current context (topics + active tree)."""
+        parts = []
+        topics = state.get("topics", {})
+        if topics:
+            sorted_topics = sorted((t, w) for t, w in topics.items() if w > 0)
+            parts.append("t:" + ",".join(f"{t}={w}" for t, w in sorted_topics))
+        active_trees = state.get("active_trees", {})
+        if active_trees:
+            gid_str, tree_info = next(iter(active_trees.items()))
+            path = tree_info.get("path", [])
+            parts.append(f"g:{gid_str},p:{','.join(str(n) for n in path)}")
+        return ";".join(parts) if parts else ""
 
     def process(self, text: str, state: Dict) -> Tuple[str, Dict]:
+        start_time = time.perf_counter()
         debug_print(f"\n--- Incoming message: '{text}' ---")
         debug_print(f"Initial state: {state}")
 
@@ -100,48 +103,39 @@ class Dispatcher:
         else:
             corrected_text = text
 
-        # ----- 2. EXACT SENTENCE CACHE (JIT) -----
-        if self.jit_cache:
-            cached = self.jit_cache.get_exact(corrected_text)
-            if cached:
-                debug_print(f"⚡ EXACT CACHE HIT for '{corrected_text}': returning cached response")
-                response = cached["response"]
-                response, state = self._run_hook("post_process", response, state) or (response, state)
-                return response, state
-
-        # ----- 3. EXACT MODEL DB MATCHING (groups / nodes) -----
-        # Try exact match against group questions (via adapter)
-        # (Implementation depends on adapter; we rely on existing `match_groups` with high threshold?)
-        # Actually, we can add a quick exact lookup here. For simplicity, we'll rely on follow-up trees first,
-        # but group matching already does FTS+rapidfuzz. To add exact DB matching, we'd need a separate method.
-        # Since the user wants exact model matching before fuzzy, we'll implement a simple exact check here.
-        # Note: This is a new step not present before.
-        # We'll check if the corrected_text exactly matches any group question.
-        # For performance, we could cache these exact matches, but we'll do a direct DB query.
-        # We'll use the adapter's `_get_conn()` to query exact questions.
-        exact_match_found = False
+        # ----- 2. DATABASE EXACT MATCH (raw, no variants, no cache) -----
         try:
             conn = self.matcher.adapter._get_conn()
-            # For groups: check group_questions join
             cur = conn.execute(
-                "SELECT g.id FROM group_questions gq JOIN questions q ON gq.question_id = q.id "
+                "SELECT q.id, gq.group_id FROM questions q "
+                "JOIN group_questions gq ON gq.question_id = q.id "
                 "WHERE q.text = ? LIMIT 1",
                 (corrected_text,)
             )
             row = cur.fetchone()
             if row:
-                group_id = row[0]
+                group_id = row[1]
                 group_data = self.matcher._get_group_data(group_id)
                 response = group_data.get("answers", [self.global_fallback])[0]
-                # Store in exact JIT cache
-                if self.jit_cache:
-                    self._store_exact_cache(corrected_text, response, state, group_id=group_id)
-                exact_match_found = True
-                # Also learn typos? No, because the input was already correct.
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                print(f"[TIMING] Database exact match: {elapsed_ms:.2f} ms")
+                debug_print(f"📄 Database exact match for '{corrected_text}' -> group {group_id}")
                 response, state = self._run_hook("post_process", response, state) or (response, state)
                 return response, state
         except Exception as e:
-            debug_print(f"Exact DB match error: {e}")
+            debug_print(f"Database exact match error: {e}")
+
+        # ----- 3. JIT CONTEXT-AWARE EXACT CACHE (with variant normalization) -----
+        if self.jit_cache:
+            normalized_text = self.matcher.normalize_variants(corrected_text)
+            context_sig = self._get_context_signature(state)
+            cached_response = self.jit_cache.get_exact(normalized_text, context_sig)
+            if cached_response:
+                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                print(f"[TIMING] JIT exact cache hit (normalized): {elapsed_ms:.2f} ms")
+                debug_print(f"⚡ Cache hit for normalized '{normalized_text}' (original '{corrected_text}')")
+                response, state = self._run_hook("post_process", cached_response, state) or (cached_response, state)
+                return response, state
 
         # ----- 4. FOLLOW-UP TREES (fuzzy) -----
         for gid, tree_info in list(state.get("active_trees", {}).items()):
@@ -156,12 +150,16 @@ class Dispatcher:
                     state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
                     state["current_fallback_id"] = node.get("fallback_id")
                     response = node.get("answers", [self.global_fallback])[0]
+                    # Store in JIT cache (normalized)
                     if self.jit_cache:
-                        self._store_exact_cache(corrected_text, response, state, group_id=int(gid), node_id=node["id"])
-                    # Learn typos from this successful match
+                        normalized = self.matcher.normalize_variants(corrected_text)
+                        self.jit_cache.set_exact(normalized, response, self._get_context_signature(state))
+                    # Learn typos
                     node_questions = node.get("questions", [])
                     if node_questions:
                         self.matcher.learn_typos_from_match(text, node_questions[0])
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    print(f"[TIMING] Follow-up tree match: {elapsed_ms:.2f} ms")
                     response, state = self._run_hook("post_process", response, state) or (response, state)
                     return response, state
                 else:
@@ -171,8 +169,10 @@ class Dispatcher:
                         if resp:
                             state["active_trees"][gid] = {"path": path, "last_used": time.time()}
                             if self.jit_cache:
-                                self._store_exact_cache(corrected_text, resp, state, group_id=int(gid))
-                            # Also learn from fallback? Not directly, but we could.
+                                normalized = self.matcher.normalize_variants(corrected_text)
+                                self.jit_cache.set_exact(normalized, resp, self._get_context_signature(state))
+                            elapsed_ms = (time.perf_counter() - start_time) * 1000
+                            print(f"[TIMING] Follow-up fallback: {elapsed_ms:.2f} ms")
                             response, state = self._run_hook("post_process", resp, state) or (resp, state)
                             return response, state
             finally:
@@ -194,7 +194,6 @@ class Dispatcher:
                         state["active_trees"][str(group_data["id"])] = {"path": [node["id"]], "last_used": time.time()}
                         state["current_fallback_id"] = node.get("fallback_id")
                         response = node.get("answers", [self.global_fallback])[0]
-                        # Learn typos from node's question
                         node_questions = node.get("questions", [])
                         if node_questions:
                             self.matcher.learn_typos_from_match(text, node_questions[0])
@@ -202,13 +201,15 @@ class Dispatcher:
                         state["active_trees"][str(group_data["id"])] = {"path": [], "last_used": time.time()}
                         state["current_fallback_id"] = group_data.get("fallback_id")
                         response = group_data.get("answers", [self.global_fallback])[0]
-                        # Learn typos from group's first question
                         group_questions = self.adapter.get_group_questions(group_data["id"])
                         if group_questions:
                             self.matcher.learn_typos_from_match(text, group_questions[0])
+                    # Store in JIT cache (normalized)
                     if self.jit_cache:
-                        self._store_exact_cache(corrected_text, response, state, group_id=group_data["id"],
-                                                node_id=node["id"] if node else None)
+                        normalized = self.matcher.normalize_variants(corrected_text)
+                        self.jit_cache.set_exact(normalized, response, self._get_context_signature(state))
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    print(f"[TIMING] Group match (fuzzy): {elapsed_ms:.2f} ms")
                     response, state = self._run_hook("post_process", response, state) or (response, state)
                     return response, state
                 finally:
@@ -219,7 +220,10 @@ class Dispatcher:
         if fallback_answer:
             response = fallback_answer
             if self.jit_cache:
-                self._store_exact_cache(corrected_text, response, state)
+                normalized = self.matcher.normalize_variants(corrected_text)
+                self.jit_cache.set_exact(normalized, response, self._get_context_signature(state))
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            print(f"[TIMING] Feature fallback: {elapsed_ms:.2f} ms")
             response, state = self._run_hook("post_process", response, state) or (response, state)
             return response, state
 
@@ -227,6 +231,9 @@ class Dispatcher:
         debug_print("❌ No match found, using global fallback")
         response = self.global_fallback
         if self.jit_cache:
-            self._store_exact_cache(corrected_text, response, state)
+            normalized = self.matcher.normalize_variants(corrected_text)
+            self.jit_cache.set_exact(normalized, response, self._get_context_signature(state))
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        print(f"[TIMING] Global fallback: {elapsed_ms:.2f} ms")
         response, state = self._run_hook("post_process", response, state) or (response, state)
         return response, state

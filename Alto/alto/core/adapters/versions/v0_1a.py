@@ -58,6 +58,14 @@ class AdapterV0_1a(BaseAdapter):
 
         conn = sqlite3.connect(f"file:{temp_db_path}?mode=ro", uri=True, check_same_thread=False)
         conn.execute("PRAGMA query_only = 1")
+
+        # ----- Optimizations for disk‑based model (conservative) -----
+        conn.execute("PRAGMA cache_size = 5000")          # ~20 MB (4KB pages)
+        conn.execute("PRAGMA mmap_size = 67108864")       # 64 MB memory mapping
+        conn.execute("PRAGMA synchronous = NORMAL")       # reduce fsync (read-only, safe)
+        conn.execute("PRAGMA temp_store = MEMORY")        # temp tables in RAM
+        conn.execute("PRAGMA journal_mode = WAL")         # write-ahead logging
+
         conn.row_factory = sqlite3.Row
         self._connections[model_name] = conn
         self._current_model = model_name

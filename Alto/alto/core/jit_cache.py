@@ -1,25 +1,22 @@
 # alto/core/jit_cache.py
-import json
 import sqlite3
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Optional
 
 from ..config import config
 
 class JITCache:
     """Server‑wide JIT cache using SQLite (disk or memory).
     
-    - jit_ram_only_mode=True → in‑memory SQLite (RAM)
-    - jit_ram_only_mode=False → temp file in OS temp directory (disk)
+    - jit_ram_only_mode=True → in‑memory SQLite (RAM) – fastest, volatile.
+    - jit_ram_only_mode=False → temp file in OS temp directory (disk) – persistent.
     
     Tables:
     - typo_cache: (word TEXT PRIMARY KEY, corrected TEXT, last_used REAL)
-    - exact_cache: (sentence TEXT PRIMARY KEY, response_data TEXT, last_used REAL)
-    
-    LRU eviction is based on last_used timestamps.
+    - exact_cache: (key TEXT PRIMARY KEY, response TEXT NOT NULL, last_used REAL)
     """
     _instance = None
     _lock = threading.RLock()
@@ -40,7 +37,9 @@ class JITCache:
         self._init_db()
 
     def _init_db(self):
-        """Create connection and tables."""
+        """Create connection and tables, migrate old schema if needed.
+        For disk mode, apply aggressive caching PRAGMAs for low latency.
+        """
         if self._conn:
             self._conn.close()
         
@@ -52,7 +51,23 @@ class JITCache:
             db_path = temp_dir / "jit_cache.db"
             self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         
+        # Always enable WAL
         self._conn.execute("PRAGMA journal_mode=WAL")
+        
+        # ---- Disk mode optimizations ----
+        if not self.jit_ram_only_mode:
+            # Increase SQLite cache size (20,000 pages = ~160 MB if page size 4KB)
+            self._conn.execute("PRAGMA cache_size = 20000")
+            # Memory-map the database file (256 MB) – reads become memory accesses
+            self._conn.execute("PRAGMA mmap_size = 268435456")
+            # Reduce fsync frequency – cache is not critical
+            self._conn.execute("PRAGMA synchronous = NORMAL")
+            # Store temporary tables in RAM
+            self._conn.execute("PRAGMA temp_store = MEMORY")
+            # Reduce WAL checkpoint frequency to avoid stalls
+            self._conn.execute("PRAGMA wal_autocheckpoint = 10000")
+        
+        # Create typo_cache table
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS typo_cache (
                 word TEXT PRIMARY KEY,
@@ -60,14 +75,43 @@ class JITCache:
                 last_used REAL NOT NULL
             )
         """)
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS exact_cache (
-                sentence TEXT PRIMARY KEY,
-                response_data TEXT NOT NULL,
-                last_used REAL NOT NULL
-            )
-        """)
+        
+        # Handle exact_cache migration and creation
+        cur = self._conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='exact_cache'")
+        if cur.fetchone():
+            cur = self._conn.execute("PRAGMA table_info(exact_cache)")
+            columns = [row[1] for row in cur]
+            if 'key' not in columns:
+                # Old schema: sentence + response_data. Migrate.
+                self._conn.execute("ALTER TABLE exact_cache RENAME TO exact_cache_old")
+                self._conn.execute("""
+                    CREATE TABLE exact_cache (
+                        key TEXT PRIMARY KEY,
+                        response TEXT NOT NULL,
+                        last_used REAL NOT NULL
+                    )
+                """)
+                self._conn.execute("""
+                    INSERT INTO exact_cache (key, response, last_used)
+                    SELECT sentence || '\x00', json_extract(response_data, '$.response'), last_used
+                    FROM exact_cache_old
+                """)
+                self._conn.execute("DROP TABLE exact_cache_old")
+                self._conn.commit()
+        else:
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS exact_cache (
+                    key TEXT PRIMARY KEY,
+                    response TEXT NOT NULL,
+                    last_used REAL NOT NULL
+                )
+            """)
+        
         self._conn.commit()
+        
+        # Preload exact_cache index into memory (forces SQLite to load the whole index)
+        if not self.jit_ram_only_mode:
+            self._conn.execute("SELECT count(*) FROM exact_cache")
 
     def set_ram_mode(self, enabled: bool):
         """Dynamically switch between RAM and disk storage. Clears existing cache."""
@@ -75,7 +119,7 @@ class JITCache:
             if self.jit_ram_only_mode == enabled:
                 return
             self.jit_ram_only_mode = enabled
-            self._init_db()  # fresh DB, old cache lost
+            self._init_db()   # fresh DB, old cache lost
 
     def set_max_sizes(self, max_typo: int, max_exact: int):
         with self._lock:
@@ -126,7 +170,6 @@ class JITCache:
             )
             row = cur.fetchone()
             if row:
-                # Update last_used
                 self._conn.execute(
                     "UPDATE typo_cache SET last_used = ? WHERE word = ?",
                     (time.time(), word)
@@ -145,28 +188,32 @@ class JITCache:
             self._conn.commit()
             self._evict_typo()
 
-    def get_exact(self, sentence: str) -> Optional[Dict[str, Any]]:
+    def get_exact(self, sentence: str, context: str = "") -> Optional[str]:
+        """Return cached response for a given normalized sentence and context."""
+        key = f"{sentence}\x00{context}"
         with self._lock:
             cur = self._conn.execute(
-                "SELECT response_data FROM exact_cache WHERE sentence = ?",
-                (sentence,)
+                "SELECT response FROM exact_cache WHERE key = ?",
+                (key,)
             )
             row = cur.fetchone()
             if row:
                 self._conn.execute(
-                    "UPDATE exact_cache SET last_used = ? WHERE sentence = ?",
-                    (time.time(), sentence)
+                    "UPDATE exact_cache SET last_used = ? WHERE key = ?",
+                    (time.time(), key)
                 )
                 self._conn.commit()
-                return json.loads(row[0])
+                return row[0]
             return None
 
-    def set_exact(self, sentence: str, response_data: Dict[str, Any]):
+    def set_exact(self, sentence: str, response: str, context: str = ""):
+        """Store a response for a normalized sentence and context."""
+        key = f"{sentence}\x00{context}"
         with self._lock:
             self._conn.execute(
-                """INSERT OR REPLACE INTO exact_cache (sentence, response_data, last_used)
+                """INSERT OR REPLACE INTO exact_cache (key, response, last_used)
                    VALUES (?, ?, ?)""",
-                (sentence, json.dumps(response_data), time.time())
+                (key, response, time.time())
             )
             self._conn.commit()
             self._evict_exact()

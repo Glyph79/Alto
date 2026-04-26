@@ -55,6 +55,15 @@ class Model:
                 self._word_to_group[w] = gid
         debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion)} groups (compact mapping)")
 
+        # ---------- BIDIRECTIONAL CANONICAL MAPPING (for exact cache normalization) ----------
+        self._canonical_map: Dict[str, str] = {}
+        for vg in variants:
+            if vg["words"]:
+                canonical = vg["words"][0]  # first word as canonical form
+                for w in vg["words"]:
+                    self._canonical_map[w.lower()] = canonical.lower()
+        debug_print(f"📘 Loaded {len(self._canonical_map)} canonical variant mappings")
+
     def get_version(self) -> str:
         return self._version
 
@@ -117,7 +126,6 @@ class Model:
         if cached is not None:
             debug_print(f"🔁 Typo cache hit: '{word}' -> '{cached}'")
             return cached
-        # No correction known yet; return original
         return word
 
     def correct_sentence(self, text: str) -> str:
@@ -126,10 +134,8 @@ class Model:
         return " ".join(corrected_words)
 
     def learn_typos_from_match(self, user_text: str, matched_question: str):
-        """
-        After a successful fuzzy match, compare user's original words
-        with words in the matched question and store corrections.
-        """
+        """After a successful fuzzy match, compare user's original words
+        with words in the matched question and store corrections."""
         if not self.jit_cache:
             return
         user_words = set(self._norm_word(w) for w in user_text.split())
@@ -140,7 +146,6 @@ class Model:
             best = None
             best_score = 0
             for qw in q_words:
-                # Use rapidfuzz to find best matching word in the question
                 score = fuzz.ratio(uw, qw)
                 if score > best_score:
                     best_score = score
@@ -148,6 +153,13 @@ class Model:
             if best and best_score >= 85:
                 self.jit_cache.set_typo(uw, best)
                 debug_print(f"📝 Learned typo: '{uw}' -> '{best}' (score {best_score})")
+
+    # ---------- VARIANT NORMALIZATION (for JIT exact cache) ----------
+    def normalize_variants(self, sentence: str) -> str:
+        """Replace each word with its canonical form (if mapped). Lowercases everything."""
+        words = sentence.lower().split()
+        normalized = [self._canonical_map.get(w, w) for w in words]
+        return " ".join(normalized)
 
     # ---------- Existing matching methods ----------
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:
