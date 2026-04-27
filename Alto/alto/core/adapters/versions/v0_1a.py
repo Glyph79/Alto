@@ -64,7 +64,6 @@ class AdapterV0_1a(BaseAdapter):
         conn.execute("PRAGMA mmap_size = 67108864")       # 64 MB memory mapping
         conn.execute("PRAGMA synchronous = NORMAL")       # reduce fsync (read-only, safe)
         conn.execute("PRAGMA temp_store = MEMORY")        # temp tables in RAM
-        conn.execute("PRAGMA journal_mode = WAL")         # write-ahead logging
 
         conn.row_factory = sqlite3.Row
         self._connections[model_name] = conn

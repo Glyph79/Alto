@@ -1,4 +1,4 @@
-# web/layer/layer.py
+# alto/core/layer.py
 import asyncio
 import os
 import time
@@ -14,6 +14,7 @@ from alto.config import config, CONFIG_PATH, load_config, save_config
 from alto.core.benchmark import BenchmarkRunner
 from alto.core.model_info import get_model_info, list_models
 from alto.core.plugins import PluginManager
+from alto.core.multi_question import MultiQuestionHandler    # NEW
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')
@@ -26,12 +27,14 @@ SERVER_START_TIME = time.time()
 class AltoLayer:
     def __init__(self):
         self.dispatcher = None
+        self.multi_handler = None         # NEW
         self.plugin_manager = PluginManager()
 
     def _get_dispatcher(self):
         if self.dispatcher is None:
             model_name = config.get('DEFAULT', 'default_model')
             self.dispatcher = Dispatcher(model_name)
+            self.multi_handler = MultiQuestionHandler(self.dispatcher)   # NEW
         return self.dispatcher
 
     def _is_admin_authenticated(self, state: dict) -> bool:
@@ -174,7 +177,8 @@ class AltoLayer:
             return "Configuration reloaded (no model reload needed)."
 
     async def _reload_model(self) -> str:
-        self.dispatcher = None
+        self.dispatcher = None        # will be recreated lazily
+        self.multi_handler = None     # will be recreated with dispatcher
         new_dispatcher = self._get_dispatcher()
         with open(_RELOAD_MARKER_PATH, 'w') as f:
             f.write(str(time.time()))
@@ -378,25 +382,23 @@ class AltoLayer:
                     yield chunk
                 return
 
-            # Fallback to AI model
-            loop = asyncio.get_event_loop()
-            final_response, new_state = await loop.run_in_executor(
-                None, self._get_dispatcher().process, user_message, state
-            )
-            save_session(session_id, new_state)
+            # Fallback to AI model with multi‑question support
+            handler = self.multi_handler or MultiQuestionHandler(self._get_dispatcher())
+            async for chunk in handler.process(user_message, session_id, user_id):
+                if STREAM_BY_CHAR:
+                    for char in chunk:
+                        yield char
+                        await asyncio.sleep(STREAM_DELAY)
+                else:
+                    # Word‑by‑word streaming (simple split)
+                    words = chunk.split()
+                    for i, w in enumerate(words):
+                        if i > 0:
+                            yield ' '
+                        yield w
+                        await asyncio.sleep(STREAM_DELAY)
+            return
 
-            if STREAM_BY_CHAR:
-                for char in final_response:
-                    yield char
-                    await asyncio.sleep(STREAM_DELAY)
-            else:
-                words = final_response.split()
-                for i, word in enumerate(words):
-                    if i > 0:
-                        yield ' ' + word
-                    else:
-                        yield word
-                    await asyncio.sleep(STREAM_DELAY)
         finally:
             # Track request latency
             duration = time.time() - start_time
@@ -415,6 +417,7 @@ class AltoLayer:
                 else:
                     yield word
                 await asyncio.sleep(STREAM_DELAY)
+
 
 alto_layer = AltoLayer()
 process_message = alto_layer.process_message
