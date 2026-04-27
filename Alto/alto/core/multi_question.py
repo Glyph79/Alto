@@ -1,44 +1,31 @@
 # alto/core/multi_question.py
 """
 Multi‑question splitting for Alto.
-Uses the existing Dispatcher and session state.
-Splits if the input contains a conjunction and is not a protected phrase.
-Outputs a single paragraph by concatenating answers.
+Now includes comparison detection (difference between, compare, vs, etc.)
+Outputs a natural paragraph with "while" for comparisons.
 """
 
 import re
-from typing import List, Set, Optional
-
-from rapidfuzz import fuzz
+from typing import List, Set, Optional, Tuple
 
 from .dispatcher import Dispatcher
 from ..session import get_session, save_session
 
 
 class QuestionSplitter:
-    """
-    Splits a user input into sub‑questions, respecting protected phrases
-    (questions that are already stored in the model).
-    """
-
     def __init__(self, dispatcher: Dispatcher, threshold: int = 70):
         self.dispatcher = dispatcher
         self.threshold = threshold
         self._protected_set: Optional[Set[str]] = None
 
     def _refresh_protected_set(self):
-        """Build a set of normalized questions from the current model."""
         matcher = self.dispatcher.matcher
         adapter = matcher.adapter
         conn = adapter._get_conn()
         protected = set()
-
-        # 1. Group questions (via the questions table)
         cur = conn.execute("SELECT text FROM questions")
         for row in cur:
             protected.add(self._normalize(row[0]))
-
-        # 2. Follow‑up node questions (stored as msgpack blobs)
         cur = conn.execute("SELECT questions_blob_id FROM followup_nodes")
         for row in cur:
             blob_id = row[0]
@@ -52,7 +39,6 @@ class QuestionSplitter:
                             protected.add(self._normalize(q))
                     except:
                         pass
-
         self._protected_set = protected
 
     def _normalize(self, s: str) -> str:
@@ -79,7 +65,6 @@ class QuestionSplitter:
                 first in command_verbs)
 
     def split_on_conjunctions(self, text: str) -> List[str]:
-        """Split recursively, protecting known phrases."""
         conjunctions = [" and ", " then ", " also "]
         best_split = None
         best_score = -1
@@ -102,7 +87,6 @@ class QuestionSplitter:
                         best_score = score
                         best_split = (left, right)
                 pos = idx + 1
-
         if best_split:
             left, right = best_split
             left_parts = self.split_on_conjunctions(left) if left else []
@@ -112,12 +96,8 @@ class QuestionSplitter:
             return [text]
 
     def split(self, text: str) -> List[str]:
-        """Return a list of sub‑questions."""
-        # If the whole text is a protected phrase, never split
         if self.is_protected(text):
             return [text]
-
-        # Try punctuation split (., !, ?) first
         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9])', text.strip())
         if len(sentences) > 1:
             result = []
@@ -128,44 +108,101 @@ class QuestionSplitter:
                 else:
                     result.extend(self.split_on_conjunctions(sent))
             return result
-
-        # Otherwise, conjunction split
         return self.split_on_conjunctions(text)
 
 
 class MultiQuestionHandler:
-    """
-    Handles multi‑question inputs by splitting and sequentially processing
-    each sub‑question, updating session state.
-    Outputs a single paragraph by concatenating answers with a space.
-    """
-
     def __init__(self, dispatcher: Dispatcher):
         self.dispatcher = dispatcher
         self.splitter = QuestionSplitter(dispatcher)
 
     def _ensure_punctuation(self, text: str) -> str:
-        """Add a period at the end if the text doesn't end with punctuation."""
         text = text.rstrip()
         if text and text[-1] not in ('.', '!', '?'):
             text += '.'
         return text
 
+    def _extract_comparison(self, text: str) -> Optional[Tuple[str, str]]:
+        patterns = [
+            r"difference between ([^.?!]+?) and ([^.?!]+)",
+            r"compare ([^.?!]+?) and ([^.?!]+)",
+            r"([^.?!]+?) vs ([^.?!]+)",
+            r"how is ([^.?!]+?) different from ([^.?!]+)",
+            r"what is the difference between ([^.?!]+?) and ([^.?!]+)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text.lower())
+            if m:
+                a = m.group(1).strip()
+                b = m.group(2).strip()
+                a = re.sub(r'[.!?]$', '', a)
+                b = re.sub(r'[.!?]$', '', b)
+                a = re.sub(r'[^a-z0-9\s_]', '', a)
+                b = re.sub(r'[^a-z0-9\s_]', '', b)
+                if a and b:
+                    return a, b
+        return None
+
+    def _get_concept_answer(self, concept: str, state: dict) -> str:
+        query = f"what is {concept}"
+        ans, _ = self.dispatcher.process(query, state)
+        concept_lower = concept.lower()
+        if concept_lower not in ans.lower() or "I'm sorry" in ans:
+            query2 = f"tell me about {concept}"
+            ans2, _ = self.dispatcher.process(query2, state)
+            if concept_lower in ans2.lower() and "I'm sorry" not in ans2:
+                ans = ans2
+            else:
+                return f"I don't have specific information about '{concept}'."
+        return self._ensure_punctuation(ans)
+
     async def process(self, user_input: str, session_id: str, user_id: int):
-        """
-        Generator that yields answer chunks as a single paragraph.
-        """
         state = get_session(session_id, user_id)
+
+        # 1. Check for comparison first
+        comparison = self._extract_comparison(user_input)
+        if comparison:
+            item_a, item_b = comparison
+            ans_a = self._get_concept_answer(item_a, state)
+            ans_b = self._get_concept_answer(item_b, state)
+
+            if ans_a.startswith("I don't have") and ans_b.startswith("I don't have"):
+                response = f"I don't have information about '{item_a}' or '{item_b}'."
+            elif ans_a.startswith("I don't have"):
+                response = f"I don't know about '{item_a}', but regarding '{item_b}': {ans_b}"
+            elif ans_b.startswith("I don't have"):
+                response = f"I don't know about '{item_b}', but regarding '{item_a}': {ans_a}"
+            else:
+                # Remove trailing punctuation from both answers for cleaner joining
+                a_clean = ans_a.rstrip('.!?')
+                b_clean = ans_b.rstrip('.!?')
+                # Ensure proper capitalization
+                a_clean = a_clean[0].upper() + a_clean[1:] if a_clean else a_clean
+                b_clean = b_clean[0].lower() + b_clean[1:] if b_clean else b_clean
+                response = f"{a_clean}, while {b_clean}."
+            yield response
+            save_session(session_id, state)
+            return
+
+        # 2. Normal multi‑question handling
         full_response, new_state = self.dispatcher.process(user_input, state)
         save_session(session_id, new_state)
 
-        # Never split if the input is a protected phrase (exact match)
         if self.splitter.is_protected(user_input):
             yield full_response
             return
 
-        # Attempt to split regardless of confidence
         sub_questions = self.splitter.split(user_input)
+
+        # Deduplicate consecutive identical sub‑questions
+        deduped = []
+        last = None
+        for q in sub_questions:
+            if q != last:
+                deduped.append(q)
+                last = q
+        sub_questions = deduped
+
         if len(sub_questions) > 1:
             current_state = state
             answers = []
@@ -175,9 +212,7 @@ class MultiQuestionHandler:
                 resp, current_state = self.dispatcher.process(q, current_state)
                 save_session(session_id, current_state)
                 answers.append(self._ensure_punctuation(resp))
-            # Join with a space to form a natural paragraph
             combined = " ".join(answers)
             yield combined
         else:
-            # No split possible, just yield the original response
             yield full_response
