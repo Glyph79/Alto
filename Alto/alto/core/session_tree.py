@@ -1,6 +1,7 @@
 # alto/core/session_tree.py
 from collections import OrderedDict
 from typing import List, Dict, Optional
+from ..config import config
 from .cache import SharedDataCache
 
 class SessionTree:
@@ -52,7 +53,6 @@ class SessionTree:
     def _ensure_questions(self, node_id: int):
         """Questions are lazy‑loaded in cache; just access to trigger load."""
         node = self._get_node(node_id)
-        # Accessing 'questions' may trigger lazy load inside cache
         _ = node.get('questions')
 
     def ensure_answers(self, node_id: int):
@@ -85,16 +85,45 @@ class SessionTree:
         return result
 
     def move_to(self, nid: int, path: List[int]) -> List[int]:
-        """Compute new path after moving to node nid."""
+        """
+        Compute new path after moving to node nid.
+        Behaviour controlled by 'navigation_mode' config under [session] section:
+        - "simple" (default): can jump to any ancestor or root.
+        - "strict": only parent, current, or child.
+        """
+        mode = config.get('session', 'navigation_mode', fallback='simple').lower()
+
+        # Strict mode: only parent, current, or child
+        if mode == 'strict':
+            # Going up to immediate parent (only if parent exists)
+            if path and len(path) >= 2 and nid == path[-2]:
+                return path[:-1]          # move to parent
+            # Staying at current node? (usually not needed, but allowed)
+            if path and nid == path[-1]:
+                return path
+            # Going down to a direct child
+            if path:
+                current = self._get_node(path[-1])
+                if any(c['id'] == nid for c in current.get('children', [])):
+                    return path + [nid]
+            # Starting from root: can only go to a root node
+            if not path:
+                if any(r['id'] == nid for r in self._roots):
+                    return [nid]
+            # Any other move is forbidden – return unchanged path
+            return path
+
+        # Simple mode (original behaviour): jump to any ancestor, root, or child
         if nid in path:
-            return path[:path.index(nid)+1]
+            return path[:path.index(nid) + 1]
         if path:
             current = self._get_node(path[-1])
             if any(c['id'] == nid for c in current.get('children', [])):
                 return path + [nid]
         if any(r['id'] == nid for r in self._roots):
             return [nid]
-        return [nid]
+        # Fallback – keep current path
+        return path
 
     def roots(self) -> List[Dict]:
         return self._roots

@@ -12,187 +12,171 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Removed initial fadeIn animation */
+    padding: 1rem;
 }
 
-.auth-container {
-    width: 100%;
-    max-width: 400px;
-    padding: 20px;
+/* ---------- Wrapper ---------- */
+.auth-wrapper {
+    position: relative;
+    
+    /* Card width: 80% of viewport width, but also limited by height (so it never gets too tall),
+       with a comfortable max and min */
+    width: min(80vw, calc(80vh * 1.6), 26rem);
+    min-width: 18rem;
+    
+    container-type: inline-size;          /* enables cqw units based on this element’s width */
+    
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
+/* ---------- Card ---------- */
 .auth-card {
     background: #252547;
-    border-radius: 16px;
-    padding: 32px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    border-radius: 1em;
     border: 1px solid #2d2d5a;
-    /* Removed scaleIn animation */
+    box-shadow: 0 1.25em 2.5em rgba(0,0,0,0.4);
+    width: 100%;
+    padding: 2em;
+    
+    /* Font size: proportional to the card’s width, never below 14px, never excessive */
+    font-size: max(0.875rem, 4.25cqw);
 }
 
 .auth-card h1 {
-    font-size: 2rem;
+    font-size: 2em;
     font-weight: 400;
     letter-spacing: -0.02em;
     text-align: center;
-    margin-bottom: 4px;
-    /* Removed slideDown animation */
+    margin-bottom: 0.1em;
 }
 
 .tagline {
     text-align: center;
-    font-size: 0.75rem;
+    font-size: 0.75em;
     color: #b0b0d0;
-    margin-bottom: 24px;
+    margin-bottom: 1.5em;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    /* Removed slideDown animation */
 }
 
-.tab-bar {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #2d2d5a;
-    padding-bottom: 8px;
-    /* Removed slideDown animation */
-}
-
-.tab {
-    flex: 1;
-    background: none;
-    border: none;
-    color: #b0b0d0;
-    padding: 8px 0;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
-    border-radius: 6px 6px 0 0;
-    position: relative;
-    overflow: hidden;
-}
-.tab::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    width: 0;
-    height: 2px;
-    background: #6c63ff;
-    transition: width 0.2s, left 0.2s;
-}
-.tab:hover {
-    color: white;
-}
-.tab:hover::after {
-    width: 100%;
-    left: 0;
-}
-.tab.active {
-    color: white;
-}
-.tab.active::after {
-    width: 100%;
-    left: 0;
-    background: #6c63ff;
-}
-
-/* Outer wrapper – handles height transition (slower) */
-.auth-forms-wrapper {
-    transition: height 0.5s ease;  /* was 0.25s, now slower */
-    /* overflow: hidden removed to prevent button clipping on hover */
-}
-
-/* Inner wrapper – this is what we animate */
-.auth-form-wrapper {
-    /* No default animation */
-}
-
-/* Animation class on the wrapper – used only during tab switches */
-.auth-form-wrapper.animate-in {
-    animation: slideUp 0.6s cubic-bezier(0.2, 0.9, 0.3, 0.1) both;
-}
-
-@keyframes slideUp {
-    from { transform: translateY(25px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-
-/* Fade-out class for tab switching */
-.auth-form-wrapper.fade-out {
-    opacity: 0;
-    transition: opacity 0.25s ease;
-}
-
-/* The form itself – static, no transitions */
-.auth-form {
+/* ---------- Form fields block ---------- */
+.form-fields {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 1em;
+    margin-bottom: 1em;
 }
 
-.auth-form input {
-    padding: 12px 16px;
+.form-fields input {
+    padding: 0.8em 1.1em;
     border: none;
-    border-radius: 30px;
-    font-size: 0.95rem;
+    border-radius: 2em;
+    font-size: 0.95em;
     background: #2d2d5a;
     color: #fff;
     outline: none;
     transition: background 0.2s, box-shadow 0.2s;
 }
-.auth-form input:focus {
+
+.form-fields input:focus {
     background: #3d3d7a;
-    box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.3);
+    box-shadow: 0 0 0 0.1875em rgba(108, 99, 255, 0.3);
 }
-.auth-form input::placeholder {
+
+.form-fields input::placeholder {
     color: #b0b0d0;
 }
 
-.auth-form button {
-    padding: 12px;
+/* ---------- Submit button ---------- */
+#submitBtn {
+    width: 100%;
+    padding: 0.8em;
     border: none;
-    border-radius: 30px;
+    border-radius: 2em;
     background: #6c63ff;
     color: #fff;
-    font-size: 1rem;
+    font-size: 1em;
     font-weight: 500;
     cursor: pointer;
     transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
-    position: relative;
-    overflow: hidden;
 }
-.auth-form button:hover {
+
+#submitBtn:hover {
     opacity: 0.9;
-    transform: scale(1.02);
-    box-shadow: 0 4px 12px rgba(108, 99, 255, 0.4);
+    transform: scale(1.01);
+    box-shadow: 0 0.25em 0.75em rgba(108, 99, 255, 0.4);
 }
-.auth-form button:active {
+
+#submitBtn:active {
     transform: scale(0.98);
 }
-.auth-form button:disabled {
+
+#submitBtn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
 }
 
-/* Error messages – no reserved space, appear instantly */
+/* ---------- Switch link row ---------- */
+.switch-row {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.4em;
+    margin-top: 1em;
+    font-size: 0.9em;
+    color: #b0b0d0;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: #6c63ff;
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: color 0.2s;
+    text-decoration: none;
+    padding: 0;
+}
+
+.link-btn:hover {
+    color: #8b85ff;
+    text-decoration: underline;
+}
+
+/* ---------- Error message (outside card) ---------- */
 .error-message {
+    position: absolute;
+    bottom: -2.5em;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
     color: #ff6b9d;
-    font-size: 0.9rem;
+    font-size: 0.9em;
     text-align: center;
     display: none;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
 }
+
 .error-message.visible {
     display: block;
+    opacity: 1;
+}
+
+.error-message.shake {
     animation: shake 0.3s ease;
 }
 
 @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-5px); }
-    40% { transform: translateX(5px); }
-    60% { transform: translateX(-3px); }
-    80% { transform: translateX(3px); }
+    0%, 100% { transform: translateX(-50%) translateX(0); }
+    20% { transform: translateX(-50%) translateX(-5px); }
+    40% { transform: translateX(-50%) translateX(5px); }
+    60% { transform: translateX(-50%) translateX(-3px); }
+    80% { transform: translateX(-50%) translateX(3px); }
 }

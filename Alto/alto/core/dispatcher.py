@@ -8,6 +8,7 @@ from .session_tree import SessionTree
 from ..config import config
 from ..features import get_optional_features
 from .jit_cache import JITCache
+from ..session import validate_session_state
 
 DEBUG = config.getboolean('ai', 'debug', fallback=False)
 ENABLE_JIT = config.getboolean('ai', 'enable_jit_cache', fallback=True)
@@ -36,6 +37,9 @@ class Dispatcher:
                 self.optional_features.append(feature_class(self.adapter, config))
                 debug_print(f"✅ Loaded optional feature: {feature_class.feature_name}")
 
+        # Cache navigation mode for performance
+        self._nav_mode = config.get('session', 'navigation_mode', fallback='simple').lower()
+
     def reload(self, new_model_name: str = None):
         if new_model_name:
             self.model_name = new_model_name
@@ -47,6 +51,14 @@ class Dispatcher:
             if supported.get(feature_class.feature_name, False):
                 self.optional_features.append(feature_class(self.adapter, config))
                 debug_print(f"✅ Reloaded optional feature: {feature_class.feature_name}")
+        self._nav_mode = config.get('session', 'navigation_mode', fallback='simple').lower()
+
+    def _ensure_validated(self, state: dict) -> dict:
+        if state.get("_needs_validation"):
+            state = validate_session_state(state, self.matcher)
+            state["_needs_validation"] = False
+            state["_validated_after_reload"] = True
+        return state
 
     def _run_hook(self, hook_name: str, *args, **kwargs):
         for feature in self.optional_features:
@@ -72,9 +84,12 @@ class Dispatcher:
             sorted_topics = sorted(topics.items(), key=lambda x: x[1], reverse=True)
             topics = dict(sorted_topics[:MAX_TOPICS])
         state["topics"] = topics
+        state["_sig_valid"] = False
         debug_print(f"📈 Updated topic weights: {topics}")
 
     def _get_context_signature(self, state: dict) -> str:
+        if state.get("_sig_valid"):
+            return state.get("_cached_sig", "")
         parts = []
         topics = state.get("topics", {})
         if topics:
@@ -85,7 +100,10 @@ class Dispatcher:
             gid_str, tree_info = next(iter(active_trees.items()))
             path = tree_info.get("path", [])
             parts.append(f"g:{gid_str},p:{','.join(str(n) for n in path)}")
-        return ";".join(parts) if parts else ""
+        sig = ";".join(parts) if parts else ""
+        state["_cached_sig"] = sig
+        state["_sig_valid"] = True
+        return sig
 
     def _pick_random_answer(self, answers: List[str]) -> str:
         if not answers:
@@ -94,51 +112,33 @@ class Dispatcher:
 
     # --------------------- REBAKE SUPPORT ---------------------
     def rebake_jit(self, rebake_type: str = "all") -> str:
-        """Rebuild JIT cache entries by re‑evaluating against current model.
-        rebake_type: "typo", "exact", or "all"
-        """
         if not self.jit_cache:
             return "JIT cache not enabled."
-
         results = {"typo": {"kept": 0, "updated": 0, "deleted": 0},
                    "exact": {"kept": 0, "updated": 0, "deleted": 0}}
-
-        # ---- Typo rebake ----
         if rebake_type in ("typo", "all"):
             for wrong, old_correct, _ in self.jit_cache.iter_typo_entries():
-                # Check if the wrong word now exists as a question word (exact match or in any group's questions)
                 if self._is_word_valid(wrong):
                     self.jit_cache.delete_typo(wrong)
                     results["typo"]["deleted"] += 1
                 else:
-                    # Keep the existing correction (we cannot recompute a better one without full sentence)
                     results["typo"]["kept"] += 1
-
-        # ---- Exact rebake ----
         if rebake_type in ("exact", "all"):
             for key, response_json, _ in self.jit_cache.iter_exact_entries():
                 try:
                     sentence, context_sig = key.split('\x00', 1)
                 except ValueError:
-                    # malformed key
                     self.jit_cache.delete_exact(key)
                     results["exact"]["deleted"] += 1
                     continue
-
-                # Reconstruct session state from context signature
                 state = self._state_from_context_signature(context_sig)
-
-                # Simulate a cache miss: run matching without JIT cache
                 try:
                     new_ref = self._simulate_cache_miss(sentence, state)
                 except Exception as e:
                     debug_print(f"Error during rebake for key {key}: {e}")
                     new_ref = None
-
                 stored_ref = json.loads(response_json)
-
                 if new_ref is None:
-                    # No match in current model -> delete entry
                     self.jit_cache.delete_exact(key)
                     results["exact"]["deleted"] += 1
                 elif new_ref == stored_ref:
@@ -146,13 +146,11 @@ class Dispatcher:
                 else:
                     self.jit_cache.update_exact(key, new_ref)
                     results["exact"]["updated"] += 1
-
         return (f"Rebake complete:\n"
                 f"Typo: kept {results['typo']['kept']}, updated {results['typo']['updated']}, deleted {results['typo']['deleted']}\n"
                 f"Exact: kept {results['exact']['kept']}, updated {results['exact']['updated']}, deleted {results['exact']['deleted']}")
 
     def _is_word_valid(self, word: str) -> bool:
-        """Check if a word appears in any group question (exact match)."""
         try:
             conn = self.matcher.adapter._get_conn()
             cur = conn.execute("SELECT 1 FROM questions WHERE text LIKE ? LIMIT 1", (f'%{word}%',))
@@ -161,7 +159,6 @@ class Dispatcher:
             return False
 
     def _state_from_context_signature(self, sig: str) -> dict:
-        """Reconstruct minimal session state from context signature."""
         state = {"topics": {}, "active_trees": {}}
         parts = sig.split(';')
         for part in parts:
@@ -180,9 +177,8 @@ class Dispatcher:
         return state
 
     def _simulate_cache_miss(self, text: str, state: dict) -> Optional[dict]:
-        """Run matching pipeline without JIT cache, return reference that would be stored."""
         original_cache = self.jit_cache
-        self.jit_cache = None   # temporarily disable
+        self.jit_cache = None
         try:
             ref = self._match_and_get_reference(text, state)
             return ref
@@ -190,11 +186,8 @@ class Dispatcher:
             self.jit_cache = original_cache
 
     def _match_and_get_reference(self, text: str, state: dict) -> Optional[dict]:
-        """Simulate matching and return the reference that would be cached, or None."""
-        # Typo correction (if jit_cache is None, correct_sentence will still work but without cache)
         corrected_text = self.matcher.correct_sentence(text)
-
-        # Follow-up trees
+        # Follow‑up trees
         for gid, tree_info in list(state.get("active_trees", {}).items()):
             path = tree_info["path"]
             tree = SessionTree(self.matcher, int(gid), path)
@@ -206,11 +199,9 @@ class Dispatcher:
                 else:
                     current_node = tree.current_node()
                     if current_node and current_node.get("fallback_id"):
-                        # store current node as reference
                         return {"type": "node", "id": current_node["id"], "group_id": int(gid)}
             finally:
                 tree.release()
-
         # Group matching
         words = [self.matcher._norm_word(w) for w in corrected_text.split() if w]
         exp = self.adapter.expand_synonyms(words)
@@ -226,13 +217,9 @@ class Dispatcher:
                         return {"type": "group", "id": group_data["id"]}
                 finally:
                     self.matcher.cache.release_group(group_data["id"])
-
-        # Feature fallback (do not cache)
         fallback_answer = self._run_hook("get_fallback_answer", state)
         if fallback_answer:
             return None
-
-        # Global fallback
         return None
 
     # --------------------- MAIN PROCESSING ---------------------
@@ -241,6 +228,7 @@ class Dispatcher:
         debug_print(f"\n--- Incoming message: '{text}' ---")
         debug_print(f"Initial state: {state}")
 
+        state = self._ensure_validated(state)
         text, state = self._run_hook("pre_process", text, state) or (text, state)
 
         # ----- 1. WORD CORRECTIONS -----
@@ -284,7 +272,6 @@ class Dispatcher:
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
                 print(f"[TIMING] JIT exact cache hit (reference): {elapsed_ms:.2f} ms")
                 debug_print(f"⚡ Cache hit for normalized '{normalized_text}' (ref={ref})")
-
                 if ref["type"] == "node":
                     node_id = ref["id"]
                     group_id = ref.get("group_id")
@@ -293,15 +280,16 @@ class Dispatcher:
                         group_id = node_data.get("group_id")
                     if group_id:
                         state["active_trees"][str(group_id)] = {"path": [node_id], "last_used": time.time()}
+                        state["_sig_valid"] = False
                     response = self._pick_random_answer(node_data.get("answers", []))
                 elif ref["type"] == "group":
                     group_id = ref["id"]
                     group_data = self.matcher._get_group_data(group_id)
                     state["active_trees"][str(group_id)] = {"path": [], "last_used": time.time()}
+                    state["_sig_valid"] = False
                     response = self._pick_random_answer(group_data.get("answers", []))
                 else:
                     response = self.global_fallback
-
                 response, state = self._run_hook("post_process", response, state) or (response, state)
                 return response, state
 
@@ -314,8 +302,13 @@ class Dispatcher:
                 node, score = self.matcher.match_nodes(corrected_text, candidates)
                 if node and score >= self.threshold:
                     new_path = tree.move_to(node["id"], path)
+                    # STRICT MODE: reject moves that don't change the path
+                    if self._nav_mode == 'strict' and new_path == path:
+                        debug_print(f"🚫 Strict mode: move from {path} to {node['id']} disallowed")
+                        continue   # try other candidates
                     tree.ensure_answers(node["id"])
                     state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
+                    state["_sig_valid"] = False
                     state["current_fallback_id"] = node.get("fallback_id")
                     if self.jit_cache:
                         ref = {"type": "node", "id": node["id"], "group_id": int(gid)}
@@ -334,7 +327,12 @@ class Dispatcher:
                     if current_node and current_node.get("fallback_id"):
                         resp = self._run_hook("get_custom_fallback", current_node["fallback_id"], state)
                         if resp:
-                            state["active_trees"][gid] = {"path": path, "last_used": time.time()}
+                            new_path = tree.move_to(current_node["id"], path)  # stay at same node
+                            if self._nav_mode == 'strict' and new_path == path:
+                                # in strict, staying is allowed
+                                pass
+                            state["active_trees"][gid] = {"path": new_path, "last_used": time.time()}
+                            state["_sig_valid"] = False
                             if self.jit_cache:
                                 ref = {"type": "node", "id": current_node["id"], "group_id": int(gid)}
                                 normalized = self.matcher.normalize_variants(corrected_text)
@@ -352,40 +350,63 @@ class Dispatcher:
         if exp:
             gid, group_data, score = self.matcher.match_groups(corrected_text, state.get("topics", {}))
             if group_data and score >= self.threshold:
-                if group_data.get("topic"):
-                    self._update_topics(state, group_data["topic"])
-                tree = SessionTree(self.matcher, group_data["id"], [])
-                try:
-                    node, root_score = self.matcher.match_nodes(corrected_text, tree.roots())
-                    if node and root_score >= self.threshold:
-                        tree.ensure_answers(node["id"])
-                        state["active_trees"][str(group_data["id"])] = {"path": [node["id"]], "last_used": time.time()}
-                        state["current_fallback_id"] = node.get("fallback_id")
-                        response = self._pick_random_answer(node.get("answers", []))
-                        node_questions = node.get("questions", [])
-                        if node_questions:
-                            self.matcher.learn_typos_from_match(text, node_questions[0])
-                        if self.jit_cache:
-                            ref = {"type": "node", "id": node["id"], "group_id": group_data["id"]}
-                            normalized = self.matcher.normalize_variants(corrected_text)
-                            self.jit_cache.set_exact(normalized, ref, self._get_context_signature(state))
+                # STRICT MODE: if this group already has an active tree, do NOT reset.
+                if self._nav_mode == 'strict':
+                    existing = state.get("active_trees", {}).get(str(group_data["id"]))
+                    if existing is not None:
+                        debug_print(f"🚫 Strict mode: group {group_data['id']} already active – reusing tree")
+                        # Reuse existing tree – the current message will be handled as a follow‑up,
+                        # but we are already in the follow‑up section earlier. Since we didn't match,
+                        # we simply skip resetting and fall through.
+                        # Instead of resetting, we fall through to fallback.
+                        pass
                     else:
-                        state["active_trees"][str(group_data["id"])] = {"path": [], "last_used": time.time()}
-                        state["current_fallback_id"] = group_data.get("fallback_id")
-                        response = self._pick_random_answer(group_data.get("answers", []))
-                        group_questions = self.adapter.get_group_questions(group_data["id"])
-                        if group_questions:
-                            self.matcher.learn_typos_from_match(text, group_questions[0])
-                        if self.jit_cache:
-                            ref = {"type": "group", "id": group_data["id"]}
-                            normalized = self.matcher.normalize_variants(corrected_text)
-                            self.jit_cache.set_exact(normalized, ref, self._get_context_signature(state))
-                    elapsed_ms = (time.perf_counter() - start_time) * 1000
-                    print(f"[TIMING] Group match (fuzzy): {elapsed_ms:.2f} ms")
-                    response, state = self._run_hook("post_process", response, state) or (response, state)
-                    return response, state
-                finally:
-                    self.matcher.cache.release_group(group_data["id"])
+                        # No active tree for this group – allowed to start new.
+                        pass
+                # If strict mode is not enabled, or if no active tree exists, continue with normal creation.
+                # However, we also need to check if we should create a new tree at all.
+                # To avoid resetting in strict mode, we skip the rest of group matching when a tree exists.
+                if self._nav_mode == 'strict' and str(group_data["id"]) in state.get("active_trees", {}):
+                    # Do not reset – go to fallback
+                    debug_print(f"🚫 Strict mode: not resetting active group {group_data['id']}")
+                else:
+                    # Normal group match (create new tree)
+                    if group_data.get("topic"):
+                        self._update_topics(state, group_data["topic"])
+                    tree = SessionTree(self.matcher, group_data["id"], [])
+                    try:
+                        node, root_score = self.matcher.match_nodes(corrected_text, tree.roots())
+                        if node and root_score >= self.threshold:
+                            tree.ensure_answers(node["id"])
+                            state["active_trees"][str(group_data["id"])] = {"path": [node["id"]], "last_used": time.time()}
+                            state["_sig_valid"] = False
+                            state["current_fallback_id"] = node.get("fallback_id")
+                            response = self._pick_random_answer(node.get("answers", []))
+                            node_questions = node.get("questions", [])
+                            if node_questions:
+                                self.matcher.learn_typos_from_match(text, node_questions[0])
+                            if self.jit_cache:
+                                ref = {"type": "node", "id": node["id"], "group_id": group_data["id"]}
+                                normalized = self.matcher.normalize_variants(corrected_text)
+                                self.jit_cache.set_exact(normalized, ref, self._get_context_signature(state))
+                        else:
+                            state["active_trees"][str(group_data["id"])] = {"path": [], "last_used": time.time()}
+                            state["_sig_valid"] = False
+                            state["current_fallback_id"] = group_data.get("fallback_id")
+                            response = self._pick_random_answer(group_data.get("answers", []))
+                            group_questions = self.adapter.get_group_questions(group_data["id"])
+                            if group_questions:
+                                self.matcher.learn_typos_from_match(text, group_questions[0])
+                            if self.jit_cache:
+                                ref = {"type": "group", "id": group_data["id"]}
+                                normalized = self.matcher.normalize_variants(corrected_text)
+                                self.jit_cache.set_exact(normalized, ref, self._get_context_signature(state))
+                        elapsed_ms = (time.perf_counter() - start_time) * 1000
+                        print(f"[TIMING] Group match (fuzzy): {elapsed_ms:.2f} ms")
+                        response, state = self._run_hook("post_process", response, state) or (response, state)
+                        return response, state
+                    finally:
+                        self.matcher.cache.release_group(group_data["id"])
 
         # ----- 6. FEATURE FALLBACK -----
         fallback_answer = self._run_hook("get_fallback_answer", state)

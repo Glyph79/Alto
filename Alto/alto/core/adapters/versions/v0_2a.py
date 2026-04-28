@@ -17,6 +17,41 @@ class AdapterV0_2a(BaseAdapter):
     def __init__(self):
         self._connections = {}
         self._current_model = None
+        # Pre‑compiled SQL strings
+        self._sql_get_group_questions = "SELECT q.text FROM group_questions gq JOIN questions q ON gq.question_id = q.id WHERE gq.group_id = ? ORDER BY gq.sort_order"
+        self._sql_get_group_answers = "SELECT answers_blob_id FROM groups WHERE id = ?"
+        self._sql_get_group_data = """
+            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, g.fallback_id
+            FROM groups g
+            LEFT JOIN topics t ON g.topic_id = t.id
+            WHERE g.id = ?
+        """
+        self._sql_get_root_nodes = """
+            SELECT id, branch_name, fallback_id
+            FROM followup_nodes
+            WHERE group_id = ? AND parent_id IS NULL
+            ORDER BY id
+        """
+        self._sql_get_node_children = """
+            SELECT id, branch_name, fallback_id
+            FROM followup_nodes
+            WHERE parent_id = ?
+            ORDER BY id
+        """
+        self._sql_get_node_questions = "SELECT questions_blob_id FROM followup_nodes WHERE id = ?"
+        self._sql_get_node_answers = "SELECT answers_blob_id FROM followup_nodes WHERE id = ?"
+        self._sql_get_fallback_answers = "SELECT answers_blob_id FROM fallbacks WHERE id = ?"
+        self._sql_get_topics = "SELECT name FROM topics ORDER BY name"
+        self._sql_get_sections = "SELECT name FROM sections ORDER BY sort_order"
+        self._sql_get_variants = """
+            SELECT vg.id, vg.name,
+                   GROUP_CONCAT(vw.word, ',') as words
+            FROM variant_groups vg
+            LEFT JOIN variant_words vw ON vw.group_id = vg.id
+            GROUP BY vg.id
+            ORDER BY vg.id
+        """
+        self._sql_expand_synonyms = "SELECT DISTINCT v2.word FROM variant_words v1 JOIN variant_words v2 ON v1.group_id = v2.group_id WHERE v1.word = ?"
 
     def get_version(self) -> str:
         return self.VERSION
@@ -44,13 +79,10 @@ class AdapterV0_2a(BaseAdapter):
 
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
         conn.execute("PRAGMA query_only = 1")
-
-        # ----- Optimizations for disk‑based model (conservative) -----
-        conn.execute("PRAGMA cache_size = 5000")          # ~20 MB (4KB pages)
-        conn.execute("PRAGMA mmap_size = 67108864")       # 64 MB memory mapping
-        conn.execute("PRAGMA synchronous = NORMAL")       # reduce fsync (read-only, safe)
-        conn.execute("PRAGMA temp_store = MEMORY")        # temp tables in RAM
-
+        conn.execute("PRAGMA cache_size = 5000")
+        conn.execute("PRAGMA mmap_size = 67108864")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
         conn.row_factory = sqlite3.Row
         self._connections[model_name] = conn
         self._current_model = model_name
@@ -86,17 +118,12 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_group_questions(self, group_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT q.text FROM group_questions gq
-            JOIN questions q ON gq.question_id = q.id
-            WHERE gq.group_id = ?
-            ORDER BY gq.sort_order
-        """, (group_id,))
+        cur = conn.execute(self._sql_get_group_questions, (group_id,))
         return [row[0] for row in cur]
 
     def get_group_answers(self, group_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob_id FROM groups WHERE id = ?", (group_id,))
+        cur = conn.execute(self._sql_get_group_answers, (group_id,))
         row = cur.fetchone()
         if not row or not row[0]:
             return []
@@ -105,12 +132,7 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_group_data(self, group_id: int) -> Dict:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic, g.fallback_id
-            FROM groups g
-            LEFT JOIN topics t ON g.topic_id = t.id
-            WHERE g.id = ?
-        """, (group_id,))
+        cur = conn.execute(self._sql_get_group_data, (group_id,))
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group {group_id} not found")
@@ -125,27 +147,17 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_root_nodes(self, group_id: int) -> List[Dict]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name, fallback_id
-            FROM followup_nodes
-            WHERE group_id = ? AND parent_id IS NULL
-            ORDER BY id
-        """, (group_id,))
+        cur = conn.execute(self._sql_get_root_nodes, (group_id,))
         return [{"id": row[0], "branch_name": row[1], "fallback_id": row[2]} for row in cur]
 
     def get_node_children(self, node_id: int) -> List[Dict]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name, fallback_id
-            FROM followup_nodes
-            WHERE parent_id = ?
-            ORDER BY id
-        """, (node_id,))
+        cur = conn.execute(self._sql_get_node_children, (node_id,))
         return [{"id": row[0], "branch_name": row[1], "fallback_id": row[2]} for row in cur]
 
     def get_node_questions(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT questions_blob_id FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute(self._sql_get_node_questions, (node_id,))
         row = cur.fetchone()
         if not row or not row[0]:
             return []
@@ -154,7 +166,7 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_node_answers(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob_id FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute(self._sql_get_node_answers, (node_id,))
         row = cur.fetchone()
         if not row or not row[0]:
             return []
@@ -163,27 +175,20 @@ class AdapterV0_2a(BaseAdapter):
 
     def get_topics(self) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT name FROM topics ORDER BY name")
+        cur = conn.execute(self._sql_get_topics)
         return [row[0] for row in cur]
 
     def get_sections(self) -> List[str]:
         try:
             conn = self._get_conn()
-            cur = conn.execute("SELECT name FROM sections ORDER BY sort_order")
+            cur = conn.execute(self._sql_get_sections)
             return [row[0] for row in cur]
         except sqlite3.OperationalError:
             return []
 
     def get_variants(self) -> List[Dict]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT vg.id, vg.name,
-                   GROUP_CONCAT(vw.word, ',') as words
-            FROM variant_groups vg
-            LEFT JOIN variant_words vw ON vw.group_id = vg.id
-            GROUP BY vg.id
-            ORDER BY vg.id
-        """)
+        cur = conn.execute(self._sql_get_variants)
         variants = []
         for row in cur:
             words = row[2].split(',') if row[2] else []
@@ -196,10 +201,7 @@ class AdapterV0_2a(BaseAdapter):
         expanded = set()
         conn = self._get_conn()
         for w in words:
-            cur = conn.execute(
-                "SELECT DISTINCT v2.word FROM variant_words v1 "
-                "JOIN variant_words v2 ON v1.group_id = v2.group_id WHERE v1.word = ?", (w,)
-            )
+            cur = conn.execute(self._sql_expand_synonyms, (w,))
             rows = cur.fetchall()
             if rows:
                 expanded.update(r[0] for r in rows)
@@ -211,7 +213,7 @@ class AdapterV0_2a(BaseAdapter):
         if not fallback_id:
             return []
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob_id FROM fallbacks WHERE id = ?", (fallback_id,))
+        cur = conn.execute(self._sql_get_fallback_answers, (fallback_id,))
         row = cur.fetchone()
         if not row or not row[0]:
             return []

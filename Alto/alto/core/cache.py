@@ -12,6 +12,7 @@ class SharedDataCache:
     """
     def __init__(self, max_size: int = 10000, group_linger_seconds: int = 60):
         self._max_size = max_size
+        self._eviction_watermark = int(max_size * 1.2)   # 20% headroom
         self._group_linger_seconds = group_linger_seconds
         self._lock = threading.RLock()
         
@@ -49,21 +50,26 @@ class SharedDataCache:
             return locks_dict[key]
 
     def _evict_if_needed(self, data_dict: dict, ref_dict: dict, lru: OrderedDict):
-        # Only evict items with ref count 0 AND (no linger or linger expired)
-        while len(data_dict) > self._max_size and lru:
-            key, _ = lru.popitem(last=False)
+        # Only evict if total size exceeds watermark
+        if len(data_dict) <= self._eviction_watermark:
+            return
+        to_remove = len(data_dict) - self._max_size
+        removed = 0
+        for key, _ in list(lru.items()):
+            if removed >= to_remove:
+                break
             if key in data_dict and ref_dict.get(key, 0) <= 0:
                 # Check linger for groups
                 if key in self._group_linger_until:
                     if time.time() < self._group_linger_until[key]:
-                        # Still in grace period – put back into LRU (at end) and continue
-                        lru[key] = None
+                        # Still in grace period – skip (keep in lru for later)
                         continue
                     else:
                         del self._group_linger_until[key]
-                # Safe to evict
                 del data_dict[key]
                 ref_dict.pop(key, None)
+                lru.pop(key, None)
+                removed += 1
 
     # ---------- Groups with linger ----------
     def get_group(self, group_id: int, loader) -> Dict:

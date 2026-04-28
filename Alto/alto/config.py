@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
         'cold_timeout': '10',
         'cleanup_interval': '5',
         'max_active_trees': '3',
+        'navigation_mode': 'strict',      # NEW: "simple" (any ancestor) or "strict" (parent/current/child)
     },
     'ai': {
         'max_topics': '3',
@@ -44,7 +45,7 @@ DEFAULT_CONFIG = {
         'enable_jit_cache': 'True',
         'max_typo_cache': '1000',
         'max_exact_cache': '500',
-        'jit_ram_only_mode': 'True',   # NEW: use RAM for JIT cache; False = temp file
+        'jit_ram_only_mode': 'False',
     },
     'admin': {
         'password': '7134',
@@ -72,6 +73,7 @@ def load_config():
         save_config(config)
     else:
         config.read(CONFIG_PATH)
+        # Merge any missing keys from DEFAULT_CONFIG
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():

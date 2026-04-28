@@ -1,6 +1,6 @@
 # alto/session.py
 import os
-import json
+import msgpack
 import time
 import threading
 import gc
@@ -27,9 +27,9 @@ _RELOAD_MARKER_PATH = os.path.join(os.path.dirname(SESSIONS_DIR), '.reload_marke
 
 def _cold_path(session_id: str) -> str:
     if session_id.startswith('__benchmark__'):
-        return os.path.join(TESTS_SESSIONS_DIR, f"{session_id}.json")
+        return os.path.join(TESTS_SESSIONS_DIR, f"{session_id}.msgpack")
     else:
-        return os.path.join(USERS_SESSIONS_DIR, f"{session_id}.json")
+        return os.path.join(USERS_SESSIONS_DIR, f"{session_id}.msgpack")
 
 def get_reload_marker_time() -> float:
     if os.path.exists(_RELOAD_MARKER_PATH):
@@ -102,18 +102,15 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
         cold_file = _cold_path(session_id)
         if os.path.exists(cold_file):
             try:
-                with open(cold_file, 'r') as f:
-                    data = json.load(f)
+                with open(cold_file, 'rb') as f:
+                    data = msgpack.unpackb(f.read(), raw=False)
                 saved_at = data.get("saved_at", 0)
                 if now - saved_at <= COLD_TIMEOUT or session_id.startswith('__benchmark__'):
                     state = data["state"]
                     marker_time = get_reload_marker_time()
                     if marker_time > saved_at and not state.get("_validated_after_reload"):
-                        from .core.dispatcher import Dispatcher
-                        from .config import config
-                        model_name = config.get('DEFAULT', 'default_model')
-                        temp_matcher = Dispatcher(model_name).matcher
-                        state = validate_session_state(state, temp_matcher)
+                        # Mark for lazy validation instead of validating now
+                        state["_needs_validation"] = True
                     if "active_trees" not in state:
                         state["active_trees"] = {}
                     if "topics" not in state:
@@ -151,13 +148,13 @@ def save_session(session_id: str, state: dict) -> None:
         if session_id.startswith('__benchmark__'):
             cold_file = _cold_path(session_id)
             try:
-                with open(cold_file, 'w') as f:
-                    json.dump({"state": state, "saved_at": now}, f)
+                with open(cold_file, 'wb') as f:
+                    packed = msgpack.packb({"state": state, "saved_at": now})
+                    f.write(packed)
             except Exception as e:
                 print(f"Failed to write cold session {session_id}: {e}")
 
 def set_benchmark_result(model_name: str, result: dict) -> None:
-    """Store the latest benchmark result for a model (overwrites previous)."""
     session_id = f"__benchmark__{model_name}"
     state = get_session(session_id, None)
     state["benchmark_result"] = result
@@ -166,13 +163,11 @@ def set_benchmark_result(model_name: str, result: dict) -> None:
     save_session(session_id, state)
 
 def get_benchmark_result(model_name: str) -> Optional[dict]:
-    """Retrieve the latest benchmark result for a model."""
     session_id = f"__benchmark__{model_name}"
     state = get_session(session_id, None)
     return state.get("benchmark_result")
 
 def clear_benchmark_result(model_name: str) -> bool:
-    """Clear benchmark result for a specific model."""
     session_id = f"__benchmark__{model_name}"
     with _lock:
         if session_id in _hot:
@@ -186,13 +181,13 @@ def clear_benchmark_result(model_name: str) -> bool:
             cold_file = _cold_path(session_id)
             if os.path.exists(cold_file):
                 try:
-                    with open(cold_file, 'r') as f:
-                        data = json.load(f)
+                    with open(cold_file, 'rb') as f:
+                        data = msgpack.unpackb(f.read(), raw=False)
                     data["state"].pop("benchmark_result", None)
                     data["state"]["active_trees"] = {}
                     data["state"]["topics"] = {}
-                    with open(cold_file, 'w') as f:
-                        json.dump(data, f)
+                    with open(cold_file, 'wb') as f:
+                        f.write(msgpack.packb(data))
                     return True
                 except:
                     pass
@@ -213,21 +208,21 @@ def _cleanup():
                 _hot.pop(sid, None)
                 cold_file = _cold_path(sid)
                 try:
-                    with open(cold_file, 'w') as f:
-                        json.dump({"state": state, "saved_at": last_used}, f)
+                    with open(cold_file, 'wb') as f:
+                        f.write(msgpack.packb({"state": state, "saved_at": last_used}))
                 except Exception:
                     pass
 
-        for dir_path in [USERS_SESSIONS_DIR]:
+        for dir_path in [USERS_SESSIONS_DIR, TESTS_SESSIONS_DIR]:
             if not os.path.exists(dir_path):
                 continue
             for fname in os.listdir(dir_path):
-                if not fname.endswith('.json'):
+                if not fname.endswith('.msgpack'):
                     continue
                 path = os.path.join(dir_path, fname)
                 try:
-                    with open(path, 'r') as f:
-                        data = json.load(f)
+                    with open(path, 'rb') as f:
+                        data = msgpack.unpackb(f.read(), raw=False)
                     saved_at = data.get("saved_at", 0)
                     if now - saved_at > COLD_TIMEOUT:
                         os.remove(path)

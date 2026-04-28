@@ -14,6 +14,32 @@ class AdapterV0_1a(BaseAdapter):
     def __init__(self):
         self._connections = {}
         self._current_model = None
+        # Pre‑compiled SQL strings
+        self._sql_get_group_questions = "SELECT questions_blob FROM groups WHERE id = ?"
+        self._sql_get_group_answers = "SELECT answers_blob FROM groups WHERE id = ?"
+        self._sql_get_group_data = """
+            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic,
+                   g.questions_blob, g.answers_blob
+            FROM groups g
+            LEFT JOIN topics t ON g.topic_id = t.id
+            WHERE g.id = ?
+        """
+        self._sql_get_root_nodes = """
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE group_id = ? AND parent_id IS NULL
+            ORDER BY id
+        """
+        self._sql_get_node_children = """
+            SELECT id, branch_name
+            FROM followup_nodes
+            WHERE parent_id = ?
+            ORDER BY id
+        """
+        self._sql_get_node_questions = "SELECT questions_blob FROM followup_nodes WHERE id = ?"
+        self._sql_get_node_answers = "SELECT answers_blob FROM followup_nodes WHERE id = ?"
+        self._sql_get_topics = "SELECT name FROM topics ORDER BY name"
+        self._sql_get_sections = "SELECT name FROM sections ORDER BY sort_order"
 
     def get_version(self) -> str:
         return self.VERSION
@@ -58,12 +84,11 @@ class AdapterV0_1a(BaseAdapter):
 
         conn = sqlite3.connect(f"file:{temp_db_path}?mode=ro", uri=True, check_same_thread=False)
         conn.execute("PRAGMA query_only = 1")
-
-        # ----- Optimizations for disk‑based model (conservative) -----
-        conn.execute("PRAGMA cache_size = 5000")          # ~20 MB (4KB pages)
-        conn.execute("PRAGMA mmap_size = 67108864")       # 64 MB memory mapping
-        conn.execute("PRAGMA synchronous = NORMAL")       # reduce fsync (read-only, safe)
-        conn.execute("PRAGMA temp_store = MEMORY")        # temp tables in RAM
+        # Optimizations
+        conn.execute("PRAGMA cache_size = 5000")
+        conn.execute("PRAGMA mmap_size = 67108864")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
 
         conn.row_factory = sqlite3.Row
         self._connections[model_name] = conn
@@ -82,25 +107,19 @@ class AdapterV0_1a(BaseAdapter):
 
     def get_group_questions(self, group_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT questions_blob FROM groups WHERE id = ?", (group_id,))
+        cur = conn.execute(self._sql_get_group_questions, (group_id,))
         row = cur.fetchone()
         return self._unpack(row[0]) if row else []
 
     def get_group_answers(self, group_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob FROM groups WHERE id = ?", (group_id,))
+        cur = conn.execute(self._sql_get_group_answers, (group_id,))
         row = cur.fetchone()
         return self._unpack(row[0]) if row else []
 
     def get_group_data(self, group_id: int) -> Dict:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT g.id, g.group_name, COALESCE(t.name, '') as topic,
-                   g.questions_blob, g.answers_blob
-            FROM groups g
-            LEFT JOIN topics t ON g.topic_id = t.id
-            WHERE g.id = ?
-        """, (group_id,))
+        cur = conn.execute(self._sql_get_group_data, (group_id,))
         row = cur.fetchone()
         if not row:
             raise ValueError(f"Group {group_id} not found")
@@ -116,50 +135,42 @@ class AdapterV0_1a(BaseAdapter):
 
     def get_root_nodes(self, group_id: int) -> List[Dict]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name
-            FROM followup_nodes
-            WHERE group_id = ? AND parent_id IS NULL
-            ORDER BY id
-        """, (group_id,))
+        cur = conn.execute(self._sql_get_root_nodes, (group_id,))
         return [{"id": row[0], "branch_name": row[1]} for row in cur]
 
     def get_node_children(self, node_id: int) -> List[Dict]:
         conn = self._get_conn()
-        cur = conn.execute("""
-            SELECT id, branch_name
-            FROM followup_nodes
-            WHERE parent_id = ?
-            ORDER BY id
-        """, (node_id,))
+        cur = conn.execute(self._sql_get_node_children, (node_id,))
         return [{"id": row[0], "branch_name": row[1]} for row in cur]
 
     def get_node_questions(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT questions_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute(self._sql_get_node_questions, (node_id,))
         row = cur.fetchone()
         return self._unpack(row[0]) if row else []
 
     def get_node_answers(self, node_id: int) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT answers_blob FROM followup_nodes WHERE id = ?", (node_id,))
+        cur = conn.execute(self._sql_get_node_answers, (node_id,))
         row = cur.fetchone()
         return self._unpack(row[0]) if row else []
 
     def get_topics(self) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT name FROM topics ORDER BY name")
+        cur = conn.execute(self._sql_get_topics)
         return [row[0] for row in cur]
 
     def get_sections(self) -> List[str]:
         conn = self._get_conn()
-        cur = conn.execute("SELECT name FROM sections ORDER BY sort_order")
+        cur = conn.execute(self._sql_get_sections)
         return [row[0] for row in cur]
 
     def get_variants(self) -> List[Dict]:
+        # v0.1a has no variant groups
         return []
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
+        # No synonyms in v0.1a
         return set(words)
 
     def get_supported_features(self) -> dict:

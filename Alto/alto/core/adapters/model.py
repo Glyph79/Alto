@@ -40,16 +40,19 @@ class Model:
 
         self.jit_cache = JITCache() if ENABLE_JIT else None
 
-        # Variant mappings
+        # Variant mappings – now used for in‑memory expansion
         self._word_to_group: Dict[str, int] = {}
-        self._group_expansion: List[str] = []
+        self._group_expansion: List[str] = []   # index = group id, value = space‑joined words
         variants = self.adapter.get_variants()
         for vg in variants:
             gid = vg["id"]
             words = vg["words"]
             if not words:
                 continue
-            self._group_expansion.append(" ".join(words))
+            # Ensure the list is long enough
+            while len(self._group_expansion) <= gid:
+                self._group_expansion.append("")
+            self._group_expansion[gid] = " ".join(words)
             for w in words:
                 self._word_to_group[w] = gid
         debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion)} groups (compact mapping)")
@@ -81,7 +84,6 @@ class Model:
     def get_node_data(self, node_id: int) -> Dict:
         def loader(nid):
             children = self.adapter.get_node_children(nid)
-            # Get group_id for this node (needed for reference caching)
             group_id = self._get_group_id_for_node(nid)
             node = {
                 'id': nid,
@@ -97,7 +99,6 @@ class Model:
         return self._cache.get_node(node_id, loader)
 
     def _get_group_id_for_node(self, node_id: int) -> Optional[int]:
-        """Query the database to find which group this node belongs to."""
         conn = self.adapter._get_conn()
         cur = conn.execute("SELECT group_id FROM followup_nodes WHERE id = ?", (node_id,))
         row = cur.fetchone()
@@ -111,10 +112,11 @@ class Model:
         return self._cache.get_fallback(fallback_id, loader)
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
+        """In‑memory expansion using pre‑loaded variant groups – no DB queries."""
         expanded = set()
         for w in words:
             gid = self._word_to_group.get(w)
-            if gid is not None:
+            if gid is not None and gid < len(self._group_expansion):
                 expanded.update(self._group_expansion[gid].split())
             else:
                 expanded.add(w)

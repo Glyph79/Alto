@@ -4,7 +4,7 @@ import re
 import sqlite3
 import hashlib
 from typing import List, Tuple, Optional
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz   # kept for possible future use, but not used in match()
 
 class PluginIndexer:
     def __init__(self, plugins_dir: str):
@@ -12,7 +12,7 @@ class PluginIndexer:
         self.db_path = os.path.join(plugins_dir, 'plugin_index.db')
         self._last_build_mtime = self._get_last_build_mtime()
         self._init_db()
-        self._cached_triggers = None
+        # No more in-memory trigger cache
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -117,8 +117,6 @@ class PluginIndexer:
         self._init_db()
         conn = sqlite3.connect(self.db_path)
 
-        self._cached_triggers = None
-
         for fname in os.listdir(self.plugins_dir):
             if not fname.endswith('.plug'):
                 continue
@@ -149,42 +147,24 @@ class PluginIndexer:
         self._rebuild_full()
 
     def match(self, text: str) -> Optional[Tuple[str, float]]:
+        """Return (plugin_name, confidence) or None."""
         text_lower = text.lower().strip()
         conn = sqlite3.connect(self.db_path)
 
-        # 1. Exact match
+        # 1. Exact match (indexed)
         cur = conn.execute(
-            "SELECT plugin_name, trigger_text FROM triggers WHERE trigger_text = ? LIMIT 1",
+            "SELECT plugin_name FROM triggers WHERE trigger_text = ? LIMIT 1",
             (text_lower,)
         )
-        exact = cur.fetchone()
-        conn.close()
-        if exact:
-            return exact[0], 100.0
-
-        # 2. Fuzzy match using cached triggers
-        if self._cached_triggers is None:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.execute("SELECT plugin_name, trigger_text FROM triggers")
-            self._cached_triggers = cur.fetchall()
+        row = cur.fetchone()
+        if row:
             conn.close()
+            return row[0], 100.0
 
-        best_plugin = None
-        best_score = 0
-        for plugin_name, trigger in self._cached_triggers:
-            score = fuzz.token_set_ratio(text_lower, trigger.lower())
-            if score > best_score:
-                best_score = score
-                best_plugin = plugin_name
-
-        if best_plugin and best_score >= 80:
-            return best_plugin, best_score
-
-        # 3. Fallback to FTS5 (wrap in quotes to avoid syntax errors)
-        # Escape any double quotes inside the query
+        # 2. FTS5 (full‑text search) – provides fuzzy matching via tokenization
+        # Escape double quotes to avoid syntax error
         escaped = text_lower.replace('"', '""')
         query = f'"{escaped}"'
-        conn = sqlite3.connect(self.db_path)
         try:
             cur = conn.execute("""
                 SELECT plugin_name, rank
@@ -196,9 +176,11 @@ class PluginIndexer:
             row = cur.fetchone()
         except sqlite3.OperationalError:
             row = None
+
         conn.close()
         if row:
             plugin_name, rank = row
+            # Convert rank to a confidence score (lower rank = better match)
             confidence = max(0, min(100, int(100 - (rank * 2))))
             return plugin_name, confidence
 
