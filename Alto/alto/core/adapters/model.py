@@ -22,8 +22,8 @@ def debug_print(*args, **kwargs):
 
 class Model:
     __slots__ = ('model_name', 'threshold', 'fallback', 'adapter', '_version', '_cache',
-                 'max_candidate_groups', '_ram_conn', 'jit_cache', '_word_to_group',
-                 '_group_expansion_words', '_canonical_map')
+                 'max_candidate_groups', '_ram_conn', 'jit_cache',
+                 '_word_to_group', '_group_words', '_canonical_map')
 
     def __init__(self, model_name: str, threshold: int = None):
         self.model_name = model_name
@@ -48,30 +48,11 @@ class Model:
 
         self.jit_cache = JITCache() if ENABLE_JIT else None
 
-        # Variant mappings – pre‑split for efficiency
+        # LAZY variant loading – initially empty
         self._word_to_group: Dict[str, int] = {}
-        self._group_expansion_words: List[List[str]] = []
-        variants = self.adapter.get_variants()
-        for vg in variants:
-            gid = vg["id"]
-            words = vg["words"]
-            if not words:
-                continue
-            while len(self._group_expansion_words) <= gid:
-                self._group_expansion_words.append([])
-            self._group_expansion_words[gid] = words
-            for w in words:
-                self._word_to_group[w] = gid
-        debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion_words)} groups (pre‑split)")
-
-        # Canonical mapping for variants
+        self._group_words: Dict[int, List[str]] = {}
         self._canonical_map: Dict[str, str] = {}
-        for vg in variants:
-            if vg["words"]:
-                canonical = vg["words"][0]
-                for w in vg["words"]:
-                    self._canonical_map[w.lower()] = canonical.lower()
-        debug_print(f"📘 Loaded {len(self._canonical_map)} canonical variant mappings")
+        debug_print("📘 Variant groups will be loaded lazily on demand")
 
     def get_version(self) -> str:
         return self._version
@@ -82,7 +63,6 @@ class Model:
 
     @lru_cache(maxsize=1024)
     def _norm_word(self, w: str) -> str:
-        # Use pre‑compiled regex
         return _NORM_WORD_RE.sub('', w.lower())
 
     def _get_group_data(self, gid: int) -> Dict:
@@ -120,12 +100,52 @@ class Model:
             return self.adapter.get_fallback_answers(fid)
         return self._cache.get_fallback(fallback_id, loader)
 
+    def _load_variant_group(self, word: str) -> bool:
+        """
+        Load the variant group containing `word` from the database.
+        Returns True if a group was found and loaded, False otherwise.
+        """
+        conn = self.adapter._get_conn()
+        # Find group_id for this word
+        cur = conn.execute(
+            "SELECT group_id FROM variant_words WHERE word = ? LIMIT 1",
+            (word,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        group_id = row[0]
+        # Already loaded?
+        if group_id in self._group_words:
+            return True
+        # Fetch all words in this group
+        cur = conn.execute(
+            "SELECT word FROM variant_words WHERE group_id = ?",
+            (group_id,)
+        )
+        words = [r[0] for r in cur]
+        if not words:
+            return False
+        # Store
+        self._group_words[group_id] = words
+        # Determine canonical word (first alphabetically, or first in list)
+        canonical = min(words, key=lambda w: w.lower())   # consistent order
+        for w in words:
+            self._word_to_group[w] = group_id
+            self._canonical_map[w.lower()] = canonical.lower()
+        debug_print(f"📘 Lazy loaded variant group {group_id}: {words} (canonical: {canonical})")
+        return True
+
     def expand_synonyms(self, words: List[str]) -> Set[str]:
+        """Expand a list of words to include all synonyms from variant groups."""
         expanded = set()
         for w in words:
+            # Try lazy load if not already mapped
+            if w not in self._word_to_group:
+                self._load_variant_group(w)
             gid = self._word_to_group.get(w)
-            if gid is not None:
-                expanded.update(self._group_expansion_words[gid])
+            if gid is not None and gid in self._group_words:
+                expanded.update(self._group_words[gid])
             else:
                 expanded.add(w)
         return expanded
@@ -170,9 +190,16 @@ class Model:
                 debug_print(f"📝 Learned typo: '{uw}' -> '{best}' (score {best_score})")
 
     def normalize_variants(self, sentence: str) -> str:
+        """Replace variant words with their canonical form using lazy-loaded mappings."""
         words = sentence.lower().split()
-        normalized = [self._canonical_map.get(w, w) for w in words]
-        return " ".join(normalized)
+        normalized_words = []
+        for w in words:
+            if w not in self._canonical_map:
+                # Try to load the variant group for this word
+                self._load_variant_group(w)
+            canonical = self._canonical_map.get(w, w)
+            normalized_words.append(canonical)
+        return " ".join(normalized_words)
 
     # ---------- MATCHING ----------
     def match_groups(self, text: str, topic_weights: Dict[str, int]) -> Tuple[Optional[int], Optional[Dict], int]:

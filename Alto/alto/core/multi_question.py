@@ -6,7 +6,8 @@ Outputs a natural paragraph with "while" for comparisons.
 """
 
 import re
-from typing import List, Set, Optional, Tuple
+from functools import lru_cache
+from typing import List, Optional, Tuple
 
 from .dispatcher import Dispatcher
 from ..session import get_session, save_session
@@ -16,39 +17,41 @@ class QuestionSplitter:
     def __init__(self, dispatcher: Dispatcher, threshold: int = 70):
         self.dispatcher = dispatcher
         self.threshold = threshold
-        self._protected_set: Optional[Set[str]] = None
-
-    def _refresh_protected_set(self):
-        matcher = self.dispatcher.matcher
-        adapter = matcher.adapter
-        conn = adapter._get_conn()
-        protected = set()
-        cur = conn.execute("SELECT text FROM questions")
-        for row in cur:
-            protected.add(self._normalize(row[0]))
-        cur = conn.execute("SELECT questions_blob_id FROM followup_nodes")
-        for row in cur:
-            blob_id = row[0]
-            if blob_id and hasattr(adapter, '_decompress_blob'):
-                blob_data = adapter._decompress_blob(blob_id)
-                if blob_data:
-                    try:
-                        import msgpack
-                        questions = msgpack.unpackb(blob_data, raw=False)
-                        for q in questions:
-                            protected.add(self._normalize(q))
-                    except:
-                        pass
-        self._protected_set = protected
+        # LRU cache for normalized protected questions – avoids loading all questions into memory
+        self._protected_cache_maxsize = 5000   # can be overridden via config later
+        self._is_protected_cached = lru_cache(maxsize=self._protected_cache_maxsize)(
+            self._check_protected
+        )
 
     def _normalize(self, s: str) -> str:
         s = re.sub(r'[^\w\s]', '', s)
         return ' '.join(s.lower().split())
 
+    def _check_protected(self, norm: str) -> bool:
+        """
+        Query the database to see if a normalized question exists.
+        Only checks the main `questions` table (group questions) because:
+        - Follow‑up node questions are already processed by the dispatcher before splitting.
+        - If a follow‑up question exactly matches, the dispatcher handles it and we never reach the splitter.
+        - Skipping follow‑up questions saves memory and is safe.
+        """
+        matcher = self.dispatcher.matcher
+        adapter = matcher.adapter
+        conn = adapter._get_conn()
+
+        # For v0.1a and v0.2a, the `questions` table stores all group questions.
+        # We use a direct equality check on the normalized form.
+        # Assuming an index exists on `text` (or we can use lower() if needed).
+        cur = conn.execute(
+            "SELECT 1 FROM questions WHERE lower(replace(text, '.', '')) = ? LIMIT 1",
+            (norm,)
+        )
+        return cur.fetchone() is not None
+
     def is_protected(self, text: str) -> bool:
-        if self._protected_set is None:
-            self._refresh_protected_set()
-        return self._normalize(text) in self._protected_set
+        """Return True if the exact normalized text exists as a group question."""
+        norm = self._normalize(text)
+        return self._is_protected_cached(norm)
 
     def looks_like_question(self, text: str) -> bool:
         lowered = text.strip().lower()

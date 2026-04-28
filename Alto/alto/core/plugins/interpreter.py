@@ -3,6 +3,7 @@
 Final DSL Interpreter – supports top‑level states.
 Improved fuzzy matching: selects best match among all triggers.
 Safe condition evaluation using AST (no eval, no attribute access).
+Memory optimizations: __slots__, clear() method, variable limit.
 """
 
 import re
@@ -28,8 +29,9 @@ class StateNode:
         self.fuzzy = True
 
 class DSLInterpreter:
-    def __init__(self, code: str, verbose: bool = True):
+    def __init__(self, code: str, verbose: bool = True, max_variables: int = 100):
         self.verbose = verbose
+        self.max_variables = max_variables
         self.lines = code.split('\n')
         self.pos = 0
         self.variables: Dict[str, Any] = {}
@@ -223,22 +225,18 @@ class DSLInterpreter:
 
     def _safe_eval_expr(self, node, variables: Dict) -> Any:
         """Evaluate an AST node safely (no attribute access, calls, etc.)"""
-        # Literals (Python 3.8+ uses ast.Constant)
         if isinstance(node, ast.Constant):
             return node.value
-        # Variable lookup
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
             raise NameError(f"Variable '{node.id}' not defined")
-        # Unary operations
         if isinstance(node, ast.UnaryOp):
             op = self._allowed_operators.get(type(node.op))
             if op is None:
                 raise SyntaxError(f"Unsupported unary operator: {type(node.op).__name__}")
             operand = self._safe_eval_expr(node.operand, variables)
             return op(operand)
-        # Binary operations
         if isinstance(node, ast.BinOp):
             op = self._allowed_operators.get(type(node.op))
             if op is None:
@@ -246,7 +244,6 @@ class DSLInterpreter:
             left = self._safe_eval_expr(node.left, variables)
             right = self._safe_eval_expr(node.right, variables)
             return op(left, right)
-        # Boolean operations (and, or)
         if isinstance(node, ast.BoolOp):
             if isinstance(node.op, ast.And):
                 for value in node.values:
@@ -260,7 +257,6 @@ class DSLInterpreter:
                 return False
             else:
                 raise SyntaxError(f"Unsupported boolean operator: {type(node.op).__name__}")
-        # Comparisons
         if isinstance(node, ast.Compare):
             left = self._safe_eval_expr(node.left, variables)
             for op, comparator in zip(node.ops, node.comparators):
@@ -270,9 +266,8 @@ class DSLInterpreter:
                     raise SyntaxError(f"Unsupported comparison operator: {type(op).__name__}")
                 if not op_func(left, right):
                     return False
-                left = right  # allow chained comparisons
+                left = right
             return True
-        # Any other node type is forbidden
         raise SyntaxError(f"Unsafe expression: {type(node).__name__} not allowed")
 
     def _evaluate_condition(self, cond: str) -> bool:
@@ -282,7 +277,6 @@ class DSLInterpreter:
             return False
         try:
             tree = ast.parse(cond, mode='eval')
-            # Disallow dangerous nodes
             for node in ast.walk(tree):
                 if isinstance(node, (ast.Attribute, ast.Call, ast.Lambda, ast.DictComp,
                                      ast.ListComp, ast.SetComp, ast.GeneratorExp,
@@ -330,6 +324,11 @@ class DSLInterpreter:
                 if match:
                     var, expr = match.groups()
                     value = self._evaluate_expr(expr)
+                    # Limit number of variables
+                    if len(self.variables) >= self.max_variables and var not in self.variables:
+                        # Remove oldest (first inserted) – simple approach
+                        oldest = next(iter(self.variables))
+                        del self.variables[oldest]
                     self.variables[var] = value
                     self.log(f"Set {var} = {value}")
             elif line.startswith('call api '):
@@ -431,7 +430,6 @@ class DSLInterpreter:
 
     def _evaluate_expr(self, expr: str) -> Any:
         expr = expr.strip()
-        # Handle string literals (double or single quotes)
         if (expr.startswith('"') and expr.endswith('"')) or (expr.startswith("'") and expr.endswith("'")):
             return expr[1:-1]
         try:
@@ -456,7 +454,6 @@ class DSLInterpreter:
                 if value is None:
                     break
             return value
-        # Return None for missing variables (never the expression string)
         return self.variables.get(expr, None)
 
     def _interpolate(self, text: str) -> str:
@@ -468,6 +465,13 @@ class DSLInterpreter:
                 return ""
             return str(val)
         return re.sub(r'\{([^{}]+)\}', repl, text)
+
+    def clear(self):
+        """Release large internal structures to free memory when plugin is unloaded."""
+        self.triggers.clear()
+        self.all_states.clear()
+        self.variables.clear()
+        self.waiting_state = None
 
 def main():
     if len(sys.argv) != 2:

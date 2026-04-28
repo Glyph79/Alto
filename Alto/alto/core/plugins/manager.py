@@ -1,4 +1,4 @@
-# web/plugins/manager.py
+# alto/core/plugins/manager.py
 import os
 import time
 from collections import OrderedDict
@@ -38,7 +38,12 @@ class PluginManager:
             return None
 
         if len(self._cache) >= self._max_active:
-            oldest_name, _ = self._cache.popitem(last=False)
+            oldest_name, (old_plugin, _) = self._cache.popitem(last=False)
+            # Free internal interpreter memory
+            if hasattr(old_plugin, '_interp'):
+                old_plugin._interp.clear()
+            del old_plugin
+
         self._cache[plugin_name] = (plugin, now)
         return plugin
 

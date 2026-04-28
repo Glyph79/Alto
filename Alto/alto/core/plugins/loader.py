@@ -1,6 +1,6 @@
-# web/plugins/loader.py
+# alto/core/plugins/loader.py
 import os
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Tuple
 
 from alto.core.plugins.interpreter import DSLInterpreter
 
@@ -10,16 +10,9 @@ class Plugin:
         self._interp = interpreter
 
     def process(self, user_input: str, state: dict) -> Tuple[Optional[str], dict]:
-        """
-        Process user input with the plugin.
-        Returns (response, updated_state).
-        The state dict must contain at least 'waiting_state' (if any) and 'variables'.
-        """
-        # Restore interpreter state
         self._interp.waiting_state = state.get("waiting_state")
         self._interp.variables = state.get("variables", {})
         response = self._interp.run(user_input)
-        # Capture new state
         new_state = {
             "waiting_state": self._interp.waiting_state,
             "variables": self._interp.variables
@@ -27,7 +20,6 @@ class Plugin:
         return response, new_state
 
 def load_plugin(plugin_name: str, plugins_dir: str) -> Optional[Plugin]:
-    """Load a .plug file and return a Plugin instance."""
     plug_path = os.path.join(plugins_dir, f"{plugin_name}.plug")
     if not os.path.isfile(plug_path):
         return None
