@@ -15,6 +15,8 @@ from typing import Dict, List, Any, Optional, Tuple
 import time
 
 class StateNode:
+    __slots__ = ('name', 'parent', 'children', 'fallback', 'input_patterns', 'actions', 'is_root', 'fuzzy')
+    
     def __init__(self, name: str, parent: Optional['StateNode'] = None):
         self.name = name
         self.parent = parent

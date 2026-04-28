@@ -110,11 +110,13 @@ class AdapterV0_2a(BaseAdapter):
         if not compressed:
             return b''
         flag = compressed[0]
-        payload = compressed[1:]
+        # Use memoryview to avoid copying the entire payload slice
+        payload = memoryview(compressed)[1:] if len(compressed) > 1 else b''
         if flag == 1:
             return zstd.decompress(payload)
         else:
-            return payload
+            # If uncompressed and we have a memoryview, convert to bytes
+            return payload.tobytes() if hasattr(payload, 'tobytes') else bytes(payload)
 
     def get_group_questions(self, group_id: int) -> List[str]:
         conn = self._get_conn()

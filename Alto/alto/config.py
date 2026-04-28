@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {
         'cold_timeout': '10',
         'cleanup_interval': '5',
         'max_active_trees': '3',
-        'navigation_mode': 'strict',      # NEW: "simple" (any ancestor) or "strict" (parent/current/child)
+        'navigation_mode': 'strict',
     },
     'ai': {
         'max_topics': '3',
@@ -46,6 +46,10 @@ DEFAULT_CONFIG = {
         'max_typo_cache': '1000',
         'max_exact_cache': '500',
         'jit_ram_only_mode': 'False',
+        # Idle cache eviction settings
+        'cache_idle_eviction_enabled': 'True',
+        'cache_idle_timeout_seconds': '300',
+        'cache_cleanup_interval_seconds': '60',
     },
     'admin': {
         'password': '7134',

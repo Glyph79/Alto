@@ -5,6 +5,8 @@ from ..config import config
 from .cache import SharedDataCache
 
 class SessionTree:
+    __slots__ = ('matcher', 'group_id', 'cache', 'path', '_referenced_nodes', '_roots')
+    
     def __init__(self, matcher, group_id: int, path: List[int] = None):
         self.matcher = matcher
         self.group_id = group_id
