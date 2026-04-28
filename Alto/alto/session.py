@@ -15,7 +15,6 @@ HOT_TIMEOUT = HOT_TIMEOUT_MIN * 60
 COLD_TIMEOUT = COLD_TIMEOUT_MIN * 60
 CLEANUP_INTERVAL = CLEANUP_INTERVAL_MIN * 60
 
-# Create subdirectories
 USERS_SESSIONS_DIR = os.path.join(SESSIONS_DIR, 'users')
 TESTS_SESSIONS_DIR = os.path.join(SESSIONS_DIR, 'tests')
 os.makedirs(USERS_SESSIONS_DIR, exist_ok=True)
@@ -109,7 +108,6 @@ def get_session(session_id: str, user_id: Optional[int] = None) -> dict:
                     state = data["state"]
                     marker_time = get_reload_marker_time()
                     if marker_time > saved_at and not state.get("_validated_after_reload"):
-                        # Mark for lazy validation instead of validating now
                         state["_needs_validation"] = True
                     if "active_trees" not in state:
                         state["active_trees"] = {}
@@ -144,7 +142,6 @@ def save_session(session_id: str, state: dict) -> None:
         if "topics" not in state:
             state["topics"] = {}
         _hot[session_id] = (state, now)
-        # Immediately persist benchmark sessions to disk
         if session_id.startswith('__benchmark__'):
             cold_file = _cold_path(session_id)
             try:

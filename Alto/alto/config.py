@@ -41,15 +41,10 @@ DEFAULT_CONFIG = {
         'debug': 'False',
         'max_candidate_groups': '50',
         'ram_only_mode': 'False',
-        # JIT cache settings
         'enable_jit_cache': 'True',
         'max_typo_cache': '1000',
         'max_exact_cache': '500',
         'jit_ram_only_mode': 'False',
-        # Idle cache eviction settings
-        'cache_idle_eviction_enabled': 'True',
-        'cache_idle_timeout_seconds': '300',
-        'cache_cleanup_interval_seconds': '60',
     },
     'admin': {
         'password': '7134',
@@ -77,7 +72,6 @@ def load_config():
         save_config(config)
     else:
         config.read(CONFIG_PATH)
-        # Merge any missing keys from DEFAULT_CONFIG
         for section, options in DEFAULT_CONFIG.items():
             if section == 'DEFAULT':
                 for key, val in options.items():

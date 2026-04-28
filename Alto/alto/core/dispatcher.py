@@ -18,6 +18,9 @@ def debug_print(*args, **kwargs):
         print(*args, **kwargs)
 
 class Dispatcher:
+    __slots__ = ('model_name', 'threshold', 'global_fallback', 'matcher', 'adapter',
+                 'jit_cache', 'optional_features', '_nav_mode')
+
     def __init__(self, model_name: str, threshold: int = None):
         self.model_name = model_name
         self.threshold = threshold or config.getint('ai', 'threshold')
@@ -37,7 +40,6 @@ class Dispatcher:
                 self.optional_features.append(feature_class(self.adapter, config))
                 debug_print(f"✅ Loaded optional feature: {feature_class.feature_name}")
 
-        # Cache navigation mode for performance
         self._nav_mode = config.get('session', 'navigation_mode', fallback='simple').lower()
 
     def reload(self, new_model_name: str = None):

@@ -1,6 +1,7 @@
 # alto/core/adapters/model.py
 import re
 import sqlite3
+from functools import lru_cache
 from rapidfuzz import fuzz, distance
 from typing import Dict, List, Optional, Tuple, Set
 from .base import get_adapter, FEATURE_CUSTOM_FALLBACKS
@@ -12,11 +13,18 @@ DEBUG = config.getboolean('ai', 'debug', fallback=False)
 RAM_ONLY_MODE = config.getboolean('ai', 'ram_only_mode', fallback=False)
 ENABLE_JIT = config.getboolean('ai', 'enable_jit_cache', fallback=True)
 
+# Pre‑compile regex for word normalization
+_NORM_WORD_RE = re.compile(r'[^\w\s]')
+
 def debug_print(*args, **kwargs):
     if DEBUG:
         print(*args, **kwargs)
 
 class Model:
+    __slots__ = ('model_name', 'threshold', 'fallback', 'adapter', '_version', '_cache',
+                 'max_candidate_groups', '_ram_conn', 'jit_cache', '_word_to_group',
+                 '_group_expansion_words', '_canonical_map')
+
     def __init__(self, model_name: str, threshold: int = None):
         self.model_name = model_name
         self.threshold = threshold if threshold is not None else config.getint('ai', 'threshold')
@@ -40,22 +48,21 @@ class Model:
 
         self.jit_cache = JITCache() if ENABLE_JIT else None
 
-        # Variant mappings – now used for in‑memory expansion
+        # Variant mappings – pre‑split for efficiency
         self._word_to_group: Dict[str, int] = {}
-        self._group_expansion: List[str] = []   # index = group id, value = space‑joined words
+        self._group_expansion_words: List[List[str]] = []
         variants = self.adapter.get_variants()
         for vg in variants:
             gid = vg["id"]
             words = vg["words"]
             if not words:
                 continue
-            # Ensure the list is long enough
-            while len(self._group_expansion) <= gid:
-                self._group_expansion.append("")
-            self._group_expansion[gid] = " ".join(words)
+            while len(self._group_expansion_words) <= gid:
+                self._group_expansion_words.append([])
+            self._group_expansion_words[gid] = words
             for w in words:
                 self._word_to_group[w] = gid
-        debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion)} groups (compact mapping)")
+        debug_print(f"📘 Loaded {len(self._word_to_group)} variant words in {len(self._group_expansion_words)} groups (pre‑split)")
 
         # Canonical mapping for variants
         self._canonical_map: Dict[str, str] = {}
@@ -73,8 +80,10 @@ class Model:
         features = self.adapter.get_supported_features()
         return features.get(feature, False)
 
+    @lru_cache(maxsize=1024)
     def _norm_word(self, w: str) -> str:
-        return re.sub(r'[^\w\s]', '', w.lower())
+        # Use pre‑compiled regex
+        return _NORM_WORD_RE.sub('', w.lower())
 
     def _get_group_data(self, gid: int) -> Dict:
         def loader(group_id):
@@ -112,12 +121,11 @@ class Model:
         return self._cache.get_fallback(fallback_id, loader)
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
-        """In‑memory expansion using pre‑loaded variant groups – no DB queries."""
         expanded = set()
         for w in words:
             gid = self._word_to_group.get(w)
-            if gid is not None and gid < len(self._group_expansion):
-                expanded.update(self._group_expansion[gid].split())
+            if gid is not None:
+                expanded.update(self._group_expansion_words[gid])
             else:
                 expanded.add(w)
         return expanded
