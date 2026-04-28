@@ -4,8 +4,9 @@ import os
 import time
 import glob
 import statistics
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from collections import deque
+from datetime import datetime
 import psutil
 
 from alto.core.dispatcher import Dispatcher
@@ -14,28 +15,60 @@ from alto.config import config, CONFIG_PATH, load_config, save_config
 from alto.core.benchmark import BenchmarkRunner
 from alto.core.model_info import get_model_info, list_models
 from alto.core.plugins import PluginManager
-from alto.core.multi_question import MultiQuestionHandler    # NEW
+from alto.core.multi_question import MultiQuestionHandler
 
 STREAM_BY_CHAR = config.getboolean('stream', 'by_char')
 STREAM_DELAY = config.getfloat('stream', 'delay')
 ADMIN_PASSWORD = config.get('admin', 'password', fallback='7134')
+MAX_WORKERS = config.getint('ai', 'max_workers', fallback=min(32, (os.cpu_count() or 4) + 4))
+USE_THREAD_POOL = config.getboolean('ai', 'use_thread_pool', fallback=False)
+
+# Global thread pool for sync processing (created only if USE_THREAD_POOL is True)
+_executor = None
+if USE_THREAD_POOL:
+    _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="alto_worker")
 
 # Request tracking
-REQUEST_LATENCIES = deque(maxlen=60)  # last 60 request durations in seconds
+REQUEST_LATENCIES = deque(maxlen=60)
 SERVER_START_TIME = time.time()
 
 class AltoLayer:
     def __init__(self):
         self.dispatcher = None
-        self.multi_handler = None         # NEW
+        self.multi_handler = None
         self.plugin_manager = PluginManager()
+        self._warmed = False
 
     def _get_dispatcher(self):
         if self.dispatcher is None:
             model_name = config.get('DEFAULT', 'default_model')
             self.dispatcher = Dispatcher(model_name)
-            self.multi_handler = MultiQuestionHandler(self.dispatcher)   # NEW
+            self.multi_handler = MultiQuestionHandler(self.dispatcher)
+            if USE_THREAD_POOL and not self._warmed:
+                self._prewarm_connections()
+                self._warmed = True
         return self.dispatcher
+
+    def _prewarm_connections(self):
+        """Force each thread in the pool to open its database connection."""
+        if not USE_THREAD_POOL or _executor is None:
+            return
+        dispatcher = self._get_dispatcher()
+        adapter = dispatcher.matcher.adapter
+
+        def warm():
+            # Each thread gets its own connection
+            conn = adapter._get_conn()
+            # Tiny query to ensure everything is initialised
+            conn.execute("SELECT 1").fetchone()
+
+        futures = []
+        for _ in range(MAX_WORKERS):
+            futures.append(_executor.submit(warm))
+
+        for f in futures:
+            f.result()
+        print(f"✅ Pre‑warmed {MAX_WORKERS} worker threads (database connections ready)")
 
     def _is_admin_authenticated(self, state: dict) -> bool:
         return state.get("admin_authenticated", False)
@@ -54,7 +87,6 @@ class AltoLayer:
         if command == '/help':
             return self._get_help_text()
         
-        # Special case: /auth <password> to authenticate
         if command == '/auth':
             if len(parts) != 2:
                 return "Usage: /auth <password>"
@@ -65,7 +97,6 @@ class AltoLayer:
             save_session(session_id, state)
             return "Authentication successful. You can now use admin commands without password."
         
-        # For all other admin commands, require authentication first
         if not self._is_admin_authenticated(state):
             return "Admin access required. Use /auth <password> first."
         
@@ -77,32 +108,24 @@ class AltoLayer:
                 return await self._reload_config()
             else:
                 return await self._reload_model()
-        
         elif command == '/load' and len(args) >= 1 and args[0].lower() == 'model':
             if len(args) < 2:
                 return "Usage: /load model <model_name>"
             model_name = args[1]
             return await self._load_model(model_name)
-        
         elif command == '/accuracy':
             return await self._get_accuracy()
-        
         elif command == '/average':
             return await self._get_average()
-        
         elif command == '/status':
             return await self._get_status()
-        
         elif command == '/sessions':
             return await self._get_sessions()
-        
         elif command == '/plugins':
             return self._list_plugins()
-        
         elif command == '/plugin' and len(args) >= 1 and args[0].lower() == 'reload':
             self.plugin_manager.reload_all()
             return "All plugins reloaded."
-        
         elif command == '/rebake':
             target = args[0].lower() if args else 'all'
             if target not in ('typo', 'exact', 'all'):
@@ -110,7 +133,6 @@ class AltoLayer:
             dispatcher = self._get_dispatcher()
             result = dispatcher.rebake_jit(target)
             return result
-        
         elif command == '/list':
             if len(args) < 1:
                 return "Usage: /list <subcommand> [args]\nSubcommands: info, all"
@@ -122,13 +144,11 @@ class AltoLayer:
                 return await self._list_all()
             else:
                 return "Unknown list subcommand. Use: info, all"
-        
         elif command == '/clear' and len(args) >= 1 and args[0].lower() == 'results':
             if len(args) < 2:
                 return "Usage: /clear results <model_name>"
             model_name = args[1]
             return await self._clear_results(model_name)
-        
         else:
             return "Unknown command. Type /help for available commands."
 
@@ -165,7 +185,6 @@ class AltoLayer:
         return "Available plugins:\n" + "\n".join(f"  - {p}" for p in plugins)
 
     async def _reload_config(self) -> str:
-        """Reload configuration from disk and reload the model if ram_only_mode changed."""
         global config
         old_ram_mode = config.getboolean('ai', 'ram_only_mode', fallback=False)
         config = load_config()
@@ -178,7 +197,7 @@ class AltoLayer:
 
     async def _reload_model(self) -> str:
         self.dispatcher = None        # will be recreated lazily
-        self.multi_handler = None     # will be recreated with dispatcher
+        self.multi_handler = None
         new_dispatcher = self._get_dispatcher()
         with open(_RELOAD_MARKER_PATH, 'w') as f:
             f.write(str(time.time()))
@@ -237,25 +256,21 @@ class AltoLayer:
         mem = psutil.virtual_memory()
         proc = psutil.Process(os.getpid())
         proc_mem = proc.memory_info().rss // (1024**2)  # MB
-        # Active sessions
         hot_count = len(_hot)
-        # Cold sessions: count JSON files in users/ and tests/ (excluding benchmark sessions)
         cold_count = 0
         for dir_name in ['users', 'tests']:
             dir_path = os.path.join(SESSIONS_DIR, dir_name)
             if os.path.exists(dir_path):
                 for fname in os.listdir(dir_path):
-                    if fname.endswith('.json'):
+                    if fname.endswith('.msgpack'):
                         cold_count += 1
-        # Cache stats
         cache = self._get_dispatcher().matcher.cache
         with cache._lock:
             groups_cached = len(cache._groups)
             nodes_cached = len(cache._nodes)
             fallbacks_cached = len(cache._fallbacks)
-        # Request stats
         if REQUEST_LATENCIES:
-            avg_latency = statistics.mean(REQUEST_LATENCIES) * 1000  # ms
+            avg_latency = statistics.mean(REQUEST_LATENCIES) * 1000
             max_latency = max(REQUEST_LATENCIES) * 1000
             min_latency = min(REQUEST_LATENCIES) * 1000
             req_stats = f"Avg: {avg_latency:.1f}ms, High: {max_latency:.1f}ms, Low: {min_latency:.1f}ms"
@@ -281,13 +296,12 @@ class AltoLayer:
             user_id = state.get("user_id", "none")
             prefix = "🔬" if sid.startswith('__benchmark__') else "👤"
             lines.append(f"  {prefix} {sid[:30]}... - last: {last_used_str} - user: {user_id}")
-        # Count cold sessions
         cold_count = 0
         for dir_name in ['users', 'tests']:
             dir_path = os.path.join(SESSIONS_DIR, dir_name)
             if os.path.exists(dir_path):
                 for fname in os.listdir(dir_path):
-                    if fname.endswith('.json'):
+                    if fname.endswith('.msgpack'):
                         cold_count += 1
         lines.append(f"\n❄️ Cold sessions on disk: {cold_count}")
         return "\n".join(lines)
@@ -302,7 +316,6 @@ class AltoLayer:
             avg = results.get('average_confidence', 0)
             dt = results['datetime'][:19].replace('T', ' ')
             latest_str = f"\nLatest benchmark: {dt} - Avg confidence {avg:.1f}%"
-        # Determine mode
         ram_mode = config.getboolean('ai', 'ram_only_mode', fallback=False)
         mode_str = "RAM" if ram_mode else "Disk"
         return (
@@ -334,10 +347,22 @@ class AltoLayer:
         else:
             return f"No benchmark session found for model '{model_name}'. Nothing to clear."
 
+    # ----- Sync processing for thread pool -----
+    def _process_sync(self, user_message: str, session_id: str, user_id: int) -> tuple:
+        """Run dispatcher.process in a thread. Returns (response, new_state)."""
+        state = get_session(session_id, user_id)
+        # Try plugins first (sync)
+        response, new_state = self.plugin_manager.handle(user_message, state)
+        if response is not None:
+            return response, new_state
+        # Use dispatcher directly (bypass MultiQuestionHandler async complexity)
+        response, new_state = self._get_dispatcher().process(user_message, state)
+        return response, new_state
+
     async def process_message(self, user_message: str, session_id: str = "default", user_id: int = None):
         start_time = time.time()
         try:
-            # Benchmark command (streaming)
+            # Benchmark command (streaming, cannot be threaded due to async generator)
             if user_message.startswith('/benchmark'):
                 state = get_session(session_id, user_id)
                 if not self._is_admin_authenticated(state):
@@ -362,7 +387,7 @@ class AltoLayer:
                         yield chunk
                 return
 
-            # Other commands (non-streaming)
+            # Other commands (non-streaming, can be threaded but they're fast)
             if user_message.startswith('/'):
                 state = get_session(session_id, user_id)
                 response = await self._handle_command(user_message, session_id, user_id, state)
@@ -372,35 +397,34 @@ class AltoLayer:
                     yield chunk
                 return
 
-            # Normal message processing
-            state = get_session(session_id, user_id)
-            # First try plugins
-            response, new_state = self.plugin_manager.handle(user_message, state)
-            if response is not None:
-                save_session(session_id, new_state)
-                async for chunk in self._stream_string(response):
-                    yield chunk
-                return
+            # Normal message — choose execution path
+            if USE_THREAD_POOL and _executor is not None:
+                loop = asyncio.get_running_loop()
+                response, new_state = await loop.run_in_executor(
+                    _executor,
+                    self._process_sync,
+                    user_message, session_id, user_id
+                )
+            else:
+                # Direct (blocking) call – faster for single‑user scenarios
+                response, new_state = self._process_sync(user_message, session_id, user_id)
 
-            # Fallback to AI model with multi‑question support
-            handler = self.multi_handler or MultiQuestionHandler(self._get_dispatcher())
-            async for chunk in handler.process(user_message, session_id, user_id):
-                if STREAM_BY_CHAR:
-                    for char in chunk:
-                        yield char
-                        await asyncio.sleep(STREAM_DELAY)
-                else:
-                    # Word‑by‑word streaming (simple split)
-                    words = chunk.split()
-                    for i, w in enumerate(words):
-                        if i > 0:
-                            yield ' '
-                        yield w
-                        await asyncio.sleep(STREAM_DELAY)
-            return
+            save_session(session_id, new_state)
+
+            # Stream response back (character or word)
+            if STREAM_BY_CHAR:
+                for char in response:
+                    yield char
+                    await asyncio.sleep(STREAM_DELAY)
+            else:
+                words = response.split()
+                for i, word in enumerate(words):
+                    if i > 0:
+                        yield ' '
+                    yield word
+                    await asyncio.sleep(STREAM_DELAY)
 
         finally:
-            # Track request latency
             duration = time.time() - start_time
             REQUEST_LATENCIES.append(duration)
 

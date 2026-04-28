@@ -6,7 +6,6 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESOURCES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 CONFIG_PATH = os.path.join(RESOURCES_DIR, 'alto_config.cfg')
 
-# Hardcoded paths (no longer configurable)
 MODELS_DIR = os.path.join(RESOURCES_DIR, 'models')
 SESSIONS_DIR = os.path.join(RESOURCES_DIR, 'sessions')
 USERS_DIR = os.path.join(RESOURCES_DIR, 'users')
@@ -31,6 +30,7 @@ DEFAULT_CONFIG = {
         'cleanup_interval': '5',
         'max_active_trees': '3',
         'navigation_mode': 'strict',
+        'max_hot_sessions': '100',       # NEW: limit hot sessions
     },
     'ai': {
         'max_topics': '3',
@@ -45,6 +45,11 @@ DEFAULT_CONFIG = {
         'max_typo_cache': '1000',
         'max_exact_cache': '500',
         'jit_ram_only_mode': 'False',
+        'max_workers': '8',                     # NEW: thread pool size
+        'cache_max_groups': '3000',             # NEW: per‑type cache limits
+        'cache_max_nodes': '3000',
+        'cache_max_fallbacks': '1000',
+        'cache_group_linger_seconds': '30',
     },
     'admin': {
         'password': '7134',

@@ -4,20 +4,25 @@ import hashlib
 import tarfile
 import sqlite3
 import msgpack
-import re
 import zstandard as zstd
 from typing import List, Dict, Set
+
+# Try built-in compression.zstd first (Python 3.14+ free-threaded), fallback to external package
+try:
+    import compression.zstd as zstd
+except ImportError:
+    import zstandard as zstd
+
 from ..base import BaseAdapter, CACHE_ROOT, get_model_container_path, \
                    FEATURE_CUSTOM_FALLBACKS, FEATURE_VARIANTS, FEATURE_FULL_TEXT_SEARCH, \
                    FEATURE_TOPICS, FEATURE_FOLLOWUP_TREES
+
 
 class AdapterV0_2a(BaseAdapter):
     VERSION = "0.2a"
 
     def __init__(self):
-        self._connections = {}
-        self._current_model = None
-        # Pre‑compiled SQL strings
+        super().__init__()
         self._sql_get_group_questions = "SELECT q.text FROM group_questions gq JOIN questions q ON gq.question_id = q.id WHERE gq.group_id = ? ORDER BY gq.sort_order"
         self._sql_get_group_answers = "SELECT answers_blob_id FROM groups WHERE id = ?"
         self._sql_get_group_data = """
@@ -57,10 +62,10 @@ class AdapterV0_2a(BaseAdapter):
         return self.VERSION
 
     def get_connection(self, model_name: str) -> sqlite3.Connection:
-        if model_name in self._connections:
-            self._current_model = model_name
-            return self._connections[model_name]
+        self._current_model = model_name
+        return self._get_conn(model_name)
 
+    def _create_connection(self, model_name: str) -> sqlite3.Connection:
         container_path = get_model_container_path(model_name)
         if not container_path or not os.path.isfile(container_path):
             raise FileNotFoundError(f"Model '{model_name}' not found (.rbm container missing)")
@@ -84,16 +89,7 @@ class AdapterV0_2a(BaseAdapter):
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.row_factory = sqlite3.Row
-        self._connections[model_name] = conn
-        self._current_model = model_name
         return conn
-
-    def _get_conn(self, model_name: str = None) -> sqlite3.Connection:
-        if model_name is None:
-            model_name = self._current_model
-        if model_name is None or model_name not in self._connections:
-            raise RuntimeError("No active model connection. Call get_connection() first.")
-        return self._connections[model_name]
 
     def _unpack(self, data: bytes) -> list:
         return msgpack.unpackb(data, raw=False)
@@ -110,12 +106,10 @@ class AdapterV0_2a(BaseAdapter):
         if not compressed:
             return b''
         flag = compressed[0]
-        # Use memoryview to avoid copying the entire payload slice
         payload = memoryview(compressed)[1:] if len(compressed) > 1 else b''
         if flag == 1:
             return zstd.decompress(payload)
         else:
-            # If uncompressed and we have a memoryview, convert to bytes
             return payload.tobytes() if hasattr(payload, 'tobytes') else bytes(payload)
 
     def get_group_questions(self, group_id: int) -> List[str]:

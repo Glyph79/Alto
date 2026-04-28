@@ -7,6 +7,7 @@ import tempfile
 import hashlib
 import sqlite3
 import importlib.util
+import threading
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Set, Type
 
@@ -21,13 +22,11 @@ FEATURE_SECTIONS = "sections"
 
 MODELS_BASE_DIR = MODELS_DIR
 
-# Choose a persistent cache directory (not tmpfs) to avoid RAM spikes
 def get_cache_root() -> str:
-    """Return a persistent cache directory for extracted model data."""
-    if os.name == 'nt':  # Windows
+    if os.name == 'nt':
         base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
         cache_dir = os.path.join(base, 'alto', 'cache')
-    else:  # macOS, Linux, other Unix-like
+    else:
         cache_dir = os.path.expanduser('~/.cache/alto')
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
@@ -101,12 +100,32 @@ def get_db_alto_version(db_path: str) -> Optional[str]:
         return None
 
 class BaseAdapter(ABC):
+    def __init__(self):
+        self._thread_local = threading.local()
+        self._current_model = None   # store model name per adapter instance, not per thread
+
     @abstractmethod
     def get_version(self) -> str:
         pass
 
     @abstractmethod
     def get_connection(self, model_name: str) -> sqlite3.Connection:
+        """Set the current model and return a thread‑local connection."""
+        pass
+
+    def _get_conn(self, model_name: str = None) -> sqlite3.Connection:
+        """Return a thread‑local SQLite connection. Each thread gets its own."""
+        if model_name is None:
+            model_name = self._current_model
+        if model_name is None:
+            raise RuntimeError("No model name set. Call get_connection() first.")
+        if not hasattr(self._thread_local, 'conn') or self._thread_local.conn is None:
+            self._thread_local.conn = self._create_connection(model_name)
+        return self._thread_local.conn
+
+    @abstractmethod
+    def _create_connection(self, model_name: str) -> sqlite3.Connection:
+        """Open a fresh read‑only connection to the model database."""
         pass
 
     @abstractmethod
@@ -196,10 +215,14 @@ def get_adapter(model_name: str) -> BaseAdapter:
         if manifest:
             version = manifest.get("alto_version")
             if version in _ADAPTER_MAP:
-                return _ADAPTER_MAP[version]()
+                adapter = _ADAPTER_MAP[version]()
+                adapter.get_connection(model_name)
+                return adapter
     legacy_path = get_legacy_db_path(model_name)
     if legacy_path and os.path.isfile(legacy_path):
         version = get_db_alto_version(legacy_path)
         if version in _ADAPTER_MAP:
-            return _ADAPTER_MAP[version]()
+            adapter = _ADAPTER_MAP[version]()
+            adapter.get_connection(model_name)
+            return adapter
     raise FileNotFoundError(f"Model '{model_name}' not found or version unsupported")

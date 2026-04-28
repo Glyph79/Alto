@@ -12,9 +12,7 @@ class AdapterV0_1a(BaseAdapter):
     VERSION = "0.1a"
 
     def __init__(self):
-        self._connections = {}
-        self._current_model = None
-        # Pre‑compiled SQL strings
+        super().__init__()
         self._sql_get_group_questions = "SELECT questions_blob FROM groups WHERE id = ?"
         self._sql_get_group_answers = "SELECT answers_blob FROM groups WHERE id = ?"
         self._sql_get_group_data = """
@@ -45,10 +43,10 @@ class AdapterV0_1a(BaseAdapter):
         return self.VERSION
 
     def get_connection(self, model_name: str) -> sqlite3.Connection:
-        if model_name in self._connections:
-            self._current_model = model_name
-            return self._connections[model_name]
+        self._current_model = model_name
+        return self._get_conn(model_name)
 
+    def _create_connection(self, model_name: str) -> sqlite3.Connection:
         legacy_path = get_legacy_db_path(model_name)
         if not legacy_path or not os.path.isfile(legacy_path):
             raise FileNotFoundError(f"Model '{model_name}' not found (legacy .db missing)")
@@ -63,7 +61,6 @@ class AdapterV0_1a(BaseAdapter):
             conn = sqlite3.connect(temp_db_path)
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute(f"ATTACH DATABASE '{legacy_path}' AS original")
-
             conn.execute("""
                 CREATE VIEW groups AS
                 SELECT
@@ -84,23 +81,12 @@ class AdapterV0_1a(BaseAdapter):
 
         conn = sqlite3.connect(f"file:{temp_db_path}?mode=ro", uri=True, check_same_thread=False)
         conn.execute("PRAGMA query_only = 1")
-        # Optimizations
         conn.execute("PRAGMA cache_size = 5000")
         conn.execute("PRAGMA mmap_size = 67108864")
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA temp_store = MEMORY")
-
         conn.row_factory = sqlite3.Row
-        self._connections[model_name] = conn
-        self._current_model = model_name
         return conn
-
-    def _get_conn(self, model_name: str = None) -> sqlite3.Connection:
-        if model_name is None:
-            model_name = self._current_model
-        if model_name is None or model_name not in self._connections:
-            raise RuntimeError("No active model connection. Call get_connection() first.")
-        return self._connections[model_name]
 
     def _unpack(self, data: bytes) -> list:
         return msgpack.unpackb(data, raw=False)
@@ -166,11 +152,9 @@ class AdapterV0_1a(BaseAdapter):
         return [row[0] for row in cur]
 
     def get_variants(self) -> List[Dict]:
-        # v0.1a has no variant groups
         return []
 
     def expand_synonyms(self, words: List[str]) -> Set[str]:
-        # No synonyms in v0.1a
         return set(words)
 
     def get_supported_features(self) -> dict:
